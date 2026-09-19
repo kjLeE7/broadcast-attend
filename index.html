@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 16px; background:#f5f6f8; }
+    h2 { font-size:18px; margin-bottom:12px; }
+    h3 { font-size:15px; margin:0 0 8px; }
+    label { display:block; margin-top:12px; font-weight:bold; font-size:14px; }
+    select, textarea, input[type="text"], input[type="datetime-local"] {
+      width:100%; padding:8px; margin-top:4px; border-radius:8px; border:1px solid #ccc; box-sizing:border-box;
+    }
+    .radio-group { display:flex; gap:12px; margin-top:6px; }
+    .radio-group label { font-weight:normal; display:flex; align-items:center; gap:4px; }
+    .checkbox-row { display:flex; align-items:center; gap:6px; margin-top:12px; font-size:13px; }
+    .checkbox-row label { font-weight:normal; display:inline; margin:0; }
+    button { margin-top:20px; width:100%; padding:12px; background:#1F4E78; color:#fff; border:none; border-radius:8px; font-size:16px; }
+    button:disabled { opacity:0.5; }
+    #msg, #adminMsg { margin-top:12px; text-align:center; font-weight:bold; white-space:pre-wrap; }
+    #welcome { background:#e8f0fe; padding:10px; border-radius:8px; font-weight:bold; margin-bottom:8px; }
+    #welcome a { font-weight:normal; font-size:12px; color:#1F4E78; margin-left:8px; text-decoration:underline; }
+    #adminBlock { display:none; margin-top:28px; padding-top:16px; border-top:2px dashed #ccc; }
+    #adminToggle { display:none; margin-top:20px; background:none; border:1px solid #1F4E78; color:#1F4E78; padding:8px; font-size:13px; }
+    #debug { font-size:11px; color:#999; margin-top:20px; border-top:1px solid #ddd; padding-top:8px; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>출결체크</h2>
+
+  <div id="welcome" style="display:none;"></div>
+
+  <label>모임 선택</label>
+  <select id="classSelect"></select>
+
+  <div id="manualSelectBlock">
+    <label>본인 이름</label>
+    <select id="personSelect"></select>
+    <div class="checkbox-row">
+      <input type="checkbox" id="rememberMe" checked>
+      <label for="rememberMe">다음부터 자동으로 알아보기</label>
+    </div>
+  </div>
+
+  <label>참석 여부</label>
+  <div class="radio-group">
+    <label><input type="radio" name="status" value="참석" checked> 참석</label>
+    <label><input type="radio" name="status" value="불참"> 불참</label>
+    <label><input type="radio" name="status" value="지각"> 지각</label>
+  </div>
+
+  <label>사유 (불참/지각 시 작성)</label>
+  <textarea id="reason" rows="2"></textarea>
+
+  <button id="submitBtn" onclick="submitForm()">제출</button>
+  <div id="msg"></div>
+
+  <button id="adminToggle" onclick="toggleAdminBlock()">+ 모임 공지 만들기</button>
+
+  <div id="adminBlock">
+    <h3>모임 공지 만들기 (교관 이상)</h3>
+    <label>모임유형</label>
+    <select id="noticeTypeSelect"></select>
+
+    <label>일시</label>
+    <input type="datetime-local" id="noticeDatetime">
+
+    <label>장소</label>
+    <select id="noticePlace">
+      <option value="">-- 장소 선택 --</option>
+      <option value="스담">스담</option>
+      <option value="총회 사무실">총회 사무실</option>
+      <option value="SMC">SMC</option>
+      <option value="코드원 스튜디오">코드원 스튜디오</option>
+      <option value="벽산 편집실">벽산 편집실</option>
+      <option value="과천성전(9층)">과천성전(9층)</option>
+      <option value="과천성전(10층)">과천성전(10층)</option>
+    </select>
+
+    <button id="noticeSubmitBtn" onclick="submitNotice()">공지 저장</button>
+    <div id="adminMsg"></div>
+  </div>
+
+  <div id="debug"></div>
+
+  <script>
+    var API_URL = 'https://script.google.com/macros/s/AKfycbz5rjT76_NTywRcYDL5BOXKKbfaBZm-V3Fk82_0z5qngfTs2NUDueX0irFH5Uaqi7Hm/exec';
+
+    var STORAGE_KEY_ID = 'myPersonId';
+    var STORAGE_KEY_NAME = 'myPersonName';
+    var identifiedPerson = null;
+
+    if (window.Telegram && Telegram.WebApp) {
+      Telegram.WebApp.ready();
+      Telegram.WebApp.expand();
+    }
+
+    function callApi(action, params) {
+      var url = API_URL + '?action=' + encodeURIComponent(action);
+      if (params) {
+        Object.keys(params).forEach(function(k) {
+          url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+        });
+      }
+      return fetch(url)
+        .then(function(res) { return res.json(); })
+        .then(function(json) {
+          if (json.ok) return json.result;
+          throw new Error(json.error || '알 수 없는 오류');
+        });
+    }
+
+    function safeGetLocal(key) {
+      try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
+    function safeSetLocal(key, value) {
+      try { localStorage.setItem(key, value); } catch (e) {}
+    }
+    function safeClearLocal() {
+      try {
+        localStorage.removeItem(STORAGE_KEY_ID);
+        localStorage.removeItem(STORAGE_KEY_NAME);
+      } catch (e) {}
+    }
+
+    function showWelcome(name) {
+      var w = document.getElementById('welcome');
+      w.style.display = 'block';
+      w.innerHTML = name + '님, 안녕하세요! <a href="#" onclick="forgetMe();return false;">저 아니에요</a>';
+      document.getElementById('manualSelectBlock').style.display = 'none';
+    }
+
+    function forgetMe() {
+      safeClearLocal();
+      identifiedPerson = null;
+      document.getElementById('welcome').style.display = 'none';
+      document.getElementById('manualSelectBlock').style.display = 'block';
+      hideAdminUI();
+    }
+
+    function currentPersonId() {
+      return identifiedPerson ? identifiedPerson.id : document.getElementById('personSelect').value;
+    }
+    function currentPersonName() {
+      if (identifiedPerson) return identifiedPerson.name;
+      var sel = document.getElementById('personSelect');
+      return sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+    }
+
+    function hideAdminUI() {
+      document.getElementById('adminToggle').style.display = 'none';
+      document.getElementById('adminBlock').style.display = 'none';
+    }
+
+    function checkAndShowAdmin(personId) {
+      if (!personId) { hideAdminUI(); return; }
+      callApi('checkAdmin', { personId: personId }).then(function(isAdmin) {
+        document.getElementById('adminToggle').style.display = isAdmin ? 'block' : 'none';
+        if (!isAdmin) hideAdminUI();
+      }).catch(function(err) {
+        document.getElementById('debug').textContent = '권한확인 오류: ' + err.message;
+      });
+    }
+
+    function toggleAdminBlock() {
+      var block = document.getElementById('adminBlock');
+      var show = block.style.display !== 'block';
+      block.style.display = show ? 'block' : 'none';
+      if (show && document.getElementById('noticeTypeSelect').options.length === 0) {
+        loadMeetingTypes();
+      }
+    }
+
+    function loadMeetingTypes() {
+      callApi('getMeetingTypesForNotice').then(function(types) {
+        var sel = document.getElementById('noticeTypeSelect');
+        types.forEach(function(t) {
+          var opt = document.createElement('option');
+          opt.value = t.id;
+          opt.textContent = t.name;
+          sel.appendChild(opt);
+        });
+      }).catch(function(err) {
+        document.getElementById('adminMsg').textContent = '오류: ' + err.message;
+      });
+    }
+
+    function loadMeetings() {
+      var sel = document.getElementById('classSelect');
+      sel.innerHTML = '';
+      callApi('getUpcomingMeetings').then(function(meetings) {
+        meetings.forEach(function(c) {
+          var opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = '[' + c.typeName + '] ' + c.datetime + ' (' + c.place + ')';
+          sel.appendChild(opt);
+        });
+      }).catch(function(err) {
+        document.getElementById('debug').textContent = '모임목록 오류: ' + err.message;
+      });
+    }
+
+    loadMeetings();
+
+    callApi('getPeople').then(function(people) {
+      var sel = document.getElementById('personSelect');
+      var placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '── 이름을 선택하세요 ──';
+      sel.appendChild(placeholder);
+      people.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        sel.appendChild(opt);
+      });
+
+      sel.addEventListener('change', function() {
+        checkAndShowAdmin(sel.value);
+      });
+
+      var savedId = safeGetLocal(STORAGE_KEY_ID);
+      var savedName = safeGetLocal(STORAGE_KEY_NAME);
+      if (savedId) {
+        var stillExists = people.some(function(p) { return String(p.id) === String(savedId); });
+        if (stillExists) {
+          identifiedPerson = { id: savedId, name: savedName };
+          showWelcome(savedName);
+          checkAndShowAdmin(savedId);
+        } else {
+          safeClearLocal();
+        }
+      }
+    }).catch(function(err) {
+      document.getElementById('debug').textContent = '인물목록 오류: ' + err.message;
+    });
+
+    function submitForm() {
+      var classId = document.getElementById('classSelect').value;
+      var personId = currentPersonId();
+      var personName = currentPersonName();
+
+      if (!identifiedPerson && !personId) {
+        document.getElementById('msg').textContent = '본인 이름을 선택해주세요!';
+        return;
+      }
+
+      var status = document.querySelector('input[name="status"]:checked').value;
+      var reason = document.getElementById('reason').value;
+
+      document.getElementById('submitBtn').disabled = true;
+      document.getElementById('msg').textContent = '제출 중...';
+
+      var payload = JSON.stringify({ classId: classId, personId: personId, personName: personName, status: status, reason: reason });
+
+      callApi('submitAttendance', { data: payload }).then(function() {
+        document.getElementById('msg').textContent = '제출 완료!';
+        document.getElementById('submitBtn').disabled = false;
+
+        var remember = document.getElementById('rememberMe');
+        if (!identifiedPerson && remember && remember.checked) {
+          safeSetLocal(STORAGE_KEY_ID, personId);
+          safeSetLocal(STORAGE_KEY_NAME, personName);
+        }
+      }).catch(function(err) {
+        document.getElementById('msg').textContent = '오류: ' + err.message;
+        document.getElementById('submitBtn').disabled = false;
+      });
+    }
+
+    function submitNotice() {
+      var personId = currentPersonId();
+      var personName = currentPersonName();
+      var typeId = document.getElementById('noticeTypeSelect').value;
+      var datetime = document.getElementById('noticeDatetime').value;
+      var place = document.getElementById('noticePlace').value;
+
+      if (!typeId || !datetime) {
+        document.getElementById('adminMsg').textContent = '모임유형과 일시를 입력해주세요!';
+        return;
+      }
+
+      document.getElementById('noticeSubmitBtn').disabled = true;
+      document.getElementById('adminMsg').textContent = '저장 중...';
+
+      var payload = JSON.stringify({ personId: personId, hostName: personName, typeId: typeId, datetime: datetime, place: place });
+
+      callApi('createMeeting', { data: payload }).then(function() {
+        document.getElementById('adminMsg').textContent = '공지 저장 완료! 목록이 갱신됩니다.';
+        document.getElementById('noticeSubmitBtn').disabled = false;
+        document.getElementById('noticeDatetime').value = '';
+        document.getElementById('noticePlace').value = '';
+        loadMeetings();
+      }).catch(function(err) {
+        document.getElementById('adminMsg').textContent = '오류: ' + err.message;
+        document.getElementById('noticeSubmitBtn').disabled = false;
+      });
+    }
+  </script>
+</body>
+</html>
