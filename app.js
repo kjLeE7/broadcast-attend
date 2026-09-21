@@ -17,6 +17,20 @@ if (tg) {
   try { tg.setHeaderColor('#F4F1EC'); tg.setBackgroundColor('#F4F1EC'); } catch (e) {}
   tgInitData = tg.initData || ''; // 텔레그램이 서명한 원본 (서버가 진짜인지 검사함)
 }
+// 텔레그램 스크립트가 서명을 못 읽었을 때를 대비해 주소(#tgWebAppData=…)와 저장값에서 직접 찾아봄
+var tgSource = tgInitData ? 'sdk' : '';
+if (!tgInitData) {
+  try {
+    var hp = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+    if (hp.get('tgWebAppData')) { tgInitData = hp.get('tgWebAppData'); tgSource = 'hash'; }
+  } catch (e) {}
+}
+if (!tgInitData) {
+  try {
+    var saved = JSON.parse(sessionStorage.getItem('__telegram__initParams') || '{}');
+    if (saved.tgWebAppData) { tgInitData = saved.tgWebAppData; tgSource = 'saved'; }
+  } catch (e) {}
+}
 function haptic(type) {
   try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(type); } catch (e) {}
 }
@@ -567,9 +581,9 @@ function submitNotice() {
   // 메뉴 맨 아래에 텔레그램 연결 상태 표시 (문제 확인용)
   var foot = document.querySelector('.drawer-foot');
   if (foot) {
-    foot.textContent = '방송예술과 미니앱 · ' + (tg && tgInitData
-      ? '텔레그램 서명 ✓ (' + (tg.platform || '?') + ' v' + (tg.version || '?') + ')'
-      : '텔레그램 서명 없음' + (tg ? ' (' + (tg.platform || 'unknown') + ')' : ''));
+    foot.textContent = '방송예술과 미니앱 · ' + (tgInitData ? '텔레그램 서명 ✓' : '텔레그램 서명 없음') +
+      ' [' + (tg ? (tg.platform || 'unknown') + ' v' + (tg.version || '?') : 'SDK없음') +
+      ' · ' + (tgSource || '-') + ' · hash:' + (/tgWebApp/.test(location.hash) ? 'Y' : 'N') + ']';
   }
   loadPeople();
   autoLogin();
