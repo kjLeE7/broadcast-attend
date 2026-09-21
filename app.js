@@ -413,6 +413,7 @@ function setIdentity(person, roles) {
   loadAnnouncements();
   loadAssignments();
   loadProfile();
+  loadPhoto();
 }
 
 function applyRoles(r) {
@@ -443,6 +444,10 @@ function showLoggedOut() {
   document.getElementById('hwArea').innerHTML = '<div class="empty"><b>로그인하면 우리 팀 과제가 보여요</b>출결 탭에서 처음 한 번만 로그인해요</div>';
   setProfileEnabled(false);
   document.querySelectorAll('#sub-info input[data-f]').forEach(function(i) { i.value = ''; });
+  myPhoto = ''; setAvatarPhoto('');
+  document.getElementById('photoInput').disabled = true;
+  document.getElementById('avatarEdit').classList.remove('on');
+  document.getElementById('photoActions').style.display = 'none';
 }
 
 // 앱을 열면: 텔레그램 서명 또는 저장된 토큰으로 자동 로그인 시도
@@ -614,6 +619,100 @@ function renderAssignments(list) {
       '<div class="hw-state">' + (h.done ? '✅ 제출 완료' : (late ? '⏰ 마감 지남 · 미제출' : '⬜ 아직 제출 전')) + '</div>' +
     '</div>';
   }).join('');
+}
+
+// ===== 프로필 사진 =====
+var PHOTO_KEY = 'myPhoto';
+var myPhoto = '';
+
+// 텔레그램 프로필 사진 (앱에서 따로 안 올렸을 때 대신 보여줌)
+function telegramPhotoUrl() {
+  try { return (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.photo_url) || ''; } catch (e) { return ''; }
+}
+
+function setAvatarPhoto(url) {
+  ['avatar', 'drawerAvatar', 'profileAvatar'].forEach(function(id) {
+    var el = document.getElementById(id);
+    el.style.backgroundImage = url ? 'url("' + url.replace(/"/g, '%22') + '")' : '';
+    el.classList.toggle('has-photo', !!url);
+  });
+}
+
+function showPhoto() {
+  setAvatarPhoto(myPhoto || telegramPhotoUrl());
+  document.getElementById('photoRemoveBtn').style.display = myPhoto ? 'inline-block' : 'none';
+}
+
+function loadPhoto() {
+  if (!identifiedPerson) return;
+  var cacheKey = PHOTO_KEY + '_' + identifiedPerson.id;
+  myPhoto = safeGetLocal(cacheKey) || '';
+  showPhoto();
+  document.getElementById('photoInput').disabled = false;
+  document.getElementById('avatarEdit').classList.add('on');
+  document.getElementById('photoActions').style.display = 'flex';
+  postApi('getMyPhoto').then(function(r) {
+    myPhoto = r.photo || '';
+    if (myPhoto) safeSetLocal(cacheKey, myPhoto); else safeRemoveLocal(cacheKey);
+    showPhoto();
+  }).catch(function() {});
+}
+
+// 고른 사진을 가운데 기준 정사각형 256px JPEG로 줄임 (서버에는 작은 사진만 저장)
+function shrinkPhoto(file) {
+  return new Promise(function(resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function() {
+      var side = Math.min(img.naturalWidth, img.naturalHeight);
+      var sx = (img.naturalWidth - side) / 2, sy = (img.naturalHeight - side) / 2;
+      var c = document.createElement('canvas');
+      c.width = c.height = 256;
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 256, 256);
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
+      URL.revokeObjectURL(url);
+      var q = 0.85, out = c.toDataURL('image/jpeg', q);
+      while (out.length > 44000 && q > 0.35) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+      if (out.length > 44000) reject(new Error('사진을 줄이지 못했어요. 다른 사진으로 해주세요.'));
+      else resolve(out);
+    };
+    img.onerror = function() { URL.revokeObjectURL(url); reject(new Error('이 사진은 열 수 없어요. 다른 사진으로 해주세요.')); };
+    img.src = url;
+  });
+}
+
+function onPhotoPicked(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file || !identifiedPerson) return;
+  if (!/^image\//.test(file.type || 'image/')) { setMsg('photoMsg', '사진 파일만 올릴 수 있어요.', true); return; }
+  var box = document.getElementById('avatarEdit');
+  box.classList.add('busy');
+  setMsg('photoMsg', '올리는 중...');
+  shrinkPhoto(file).then(function(dataUrl) {
+    return postApi('saveMyPhoto', { photo: dataUrl }).then(function() {
+      myPhoto = dataUrl;
+      safeSetLocal(PHOTO_KEY + '_' + identifiedPerson.id, dataUrl);
+      showPhoto();
+      haptic('success');
+      setMsg('photoMsg', '사진을 바꿨어요!');
+      setTimeout(function() { setMsg('photoMsg', ''); }, 2000);
+    });
+  }).catch(function(err) { setMsg('photoMsg', err.message, true); haptic('error'); })
+    .then(function() { box.classList.remove('busy'); });
+}
+
+function removePhoto() {
+  if (!identifiedPerson || !confirm('프로필 사진을 지울까요?')) return;
+  setMsg('photoMsg', '지우는 중...');
+  postApi('saveMyPhoto', { photo: '' }).then(function() {
+    myPhoto = '';
+    safeRemoveLocal(PHOTO_KEY + '_' + identifiedPerson.id);
+    showPhoto();
+    setMsg('photoMsg', '지웠어요.');
+    setTimeout(function() { setMsg('photoMsg', ''); }, 2000);
+  }).catch(function(err) { setMsg('photoMsg', err.message, true); });
 }
 
 // ===== 프로필 (인적사항 수정) =====
