@@ -369,3 +369,38 @@
         }
       }).catch(function(err) {
         
+document.getElementById('msg').textContent = '오류: ' + err.message;
+        document.getElementById('submitBtn').disabled = false;
+      });
+    }
+
+    function submitNotice() {
+      var typeId = document.getElementById('noticeTypeSelect').value;
+      var datetime = document.getElementById('noticeDatetime').value;
+      var place = document.getElementById('noticePlace').value;
+
+      if (!typeId || !datetime || !place) {
+        document.getElementById('adminMsg').textContent = '모든 정보를 입력해주세요!';
+        return;
+      }
+
+      var payload = JSON.stringify({ typeId: typeId, datetime: datetime, place: place });
+
+      document.getElementById('noticeSubmitBtn').disabled = true;
+      document.getElementById('adminMsg').textContent = '저장 중...';
+
+      callApi('submitNotice', { data: payload }).then(function() {
+        document.getElementById('adminMsg').textContent = '저장 완료!';
+        document.getElementById('noticeSubmitBtn').disabled = false;
+        loadMeetings();
+        setTimeout(function() {
+          document.getElementById('adminBlock').style.display = 'none';
+        }, 1500);
+      }).catch(function(err) {
+        document.getElementById('adminMsg').textContent = '오류: ' + err.message;
+        document.getElementById('noticeSubmitBtn').disabled = false;
+      });
+    }
+  </script>
+</body>
+</html>
