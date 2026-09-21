@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260921h">
+  <link rel="stylesheet" href="style.css?v=20260922j">
 </head>
 <body>
   <div class="app">
@@ -63,23 +63,8 @@
         <div class="section-head"><h2>진행 중인 프로젝트</h2><span class="section-count" id="projCount"></span></div>
         <div id="projectArea"><div class="skeleton row-skel"></div></div>
 
-        <div class="divider"><span>모임 일정</span></div>
-      </div>
-
-      <!-- 모임 (모두에게 보임) -->
-      <div class="stats" id="memberStats">
-        <div class="stat"><div class="stat-label">진행 중</div><div class="stat-value" id="statNow">–</div></div>
-        <div class="stat"><div class="stat-label">예정된 모임</div><div class="stat-value" id="statUpcoming">–</div></div>
-        <div class="stat"><div class="stat-label">다음 모임</div><div class="stat-value" id="statNext">–</div></div>
-      </div>
-
-      <div class="section-head"><h2>지금 진행 중인 모임</h2><span class="live-dot" id="liveDot"></span></div>
-      <div id="nowArea"><div class="skeleton hero-skel"></div></div>
-
-      <div class="section-head"><h2>예정된 모임</h2><span class="section-count" id="upcomingCount"></span></div>
-      <div id="upcomingArea">
-        <div class="skeleton row-skel"></div>
-        <div class="skeleton row-skel"></div>
+        <div class="section-head"><h2>12지파 방송예술과 인원현황</h2><span class="section-count" id="tribeTotal"></span></div>
+        <div class="card tribe-card" id="tribeArea"><div class="skeleton row-skel"></div></div>
       </div>
 
       <div id="debug" class="debug"></div>
@@ -88,7 +73,38 @@
     <!-- ===== 공지 ===== -->
     <section class="page" id="page-notice">
       <h1 class="page-title">Notice</h1>
-      <p class="page-desc">모임 공지를 확인하세요</p>
+      <p class="page-desc">공지사항과 모임 공지를 확인하세요</p>
+
+      <!-- 공지사항 (과장·부과장·팀장 작성) -->
+      <div class="section-head"><h2>공지사항</h2><span class="section-count" id="annCount"></span></div>
+      <div class="card admin-card" id="annAdminCard" style="display:none;">
+        <button class="admin-toggle" onclick="toggleAnnForm()">
+          <span><b>+ 공지사항 쓰기</b><small>과장·부과장·팀장만 보이는 메뉴예요</small></span>
+          <i class="chev" id="annChev"></i>
+        </button>
+        <div id="annForm" class="collapse">
+          <label class="field-label" for="annScope">범위</label>
+          <div class="select-wrap">
+            <select id="annScope">
+              <option value="방송예술과 전체">방송예술과 전체</option>
+              <option value="문화부 전체">문화부 전체</option>
+              <option value="성우팀">성우팀</option>
+              <option value="아나운서팀">아나운서팀</option>
+              <option value="엔지니어팀">엔지니어팀</option>
+            </select>
+          </div>
+          <label class="field-label" for="annTitle">제목</label>
+          <input type="text" id="annTitle" maxlength="100" placeholder="예) 10월 문화부 전체 모임 안내">
+          <label class="field-label" for="annContent">내용</label>
+          <textarea id="annContent" rows="5" maxlength="3000" placeholder="공유할 내용을 적어주세요"></textarea>
+          <label class="check-row"><input type="checkbox" id="annPinned"><span>📌 맨 위에 고정</span></label>
+          <button class="btn-primary" id="annSubmitBtn" onclick="submitAnnouncement()">공지 올리기</button>
+          <div id="annMsg" class="msg"></div>
+        </div>
+      </div>
+      <div id="annList"><div class="skeleton row-skel"></div></div>
+
+      <div class="divider"><span>모임</span></div>
 
       <div class="card admin-card" id="adminCard" style="display:none;">
         <button class="admin-toggle" onclick="toggleNoticeForm()">
@@ -121,6 +137,42 @@
         </div>
       </div>
 
+      <!-- 체크인 만들기 (교관 이상) -->
+      <div class="card admin-card" id="checkinAdminCard" style="display:none;">
+        <button class="admin-toggle" onclick="toggleCheckinForm()">
+          <span><b>+ 체크인 만들기</b><small>기상·출발·도착 시간을 받아요</small></span>
+          <i class="chev" id="checkinChev"></i>
+        </button>
+        <div id="checkinForm" class="collapse">
+          <label class="field-label" for="ciTitle">제목</label>
+          <input type="text" id="ciTitle" placeholder="예) 수련회 이동">
+          <label class="field-label" for="ciDate">날짜</label>
+          <input type="date" id="ciDate">
+          <label class="field-label">받을 항목</label>
+          <div class="item-checks" id="ciItems">
+            <label><input type="checkbox" value="기상" checked><span>☀️ 기상</span></label>
+            <label><input type="checkbox" value="출발" checked><span>🚗 출발</span></label>
+            <label><input type="checkbox" value="도착" checked><span>📍 도착</span></label>
+          </div>
+          <label class="field-label" for="ciTarget">대상</label>
+          <div class="select-wrap">
+            <select id="ciTarget">
+              <option value="전체">전체</option>
+              <option value="1조">1조</option><option value="2조">2조</option><option value="3조">3조</option><option value="4조">4조</option>
+              <option value="성우팀">성우팀</option><option value="아나운서팀">아나운서팀</option><option value="엔지니어팀">엔지니어팀</option>
+            </select>
+          </div>
+          <button class="btn-primary" id="ciSubmitBtn" onclick="submitCheckin()">체크인 만들기</button>
+          <div id="ciMsg" class="msg"></div>
+        </div>
+      </div>
+
+      <!-- 체크인 현황 (교관 이상) -->
+      <div id="checkinBoardWrap" style="display:none;">
+        <div class="section-head"><h2>체크인 현황</h2><span class="section-count" id="ciBoardCount"></span></div>
+        <div id="checkinBoard"></div>
+      </div>
+
       <div class="section-head"><h2>모임 공지</h2><span class="section-count" id="noticeCount"></span></div>
       <div id="noticeList"><div class="skeleton row-skel"></div></div>
     </section>
@@ -129,6 +181,9 @@
     <section class="page" id="page-attend">
       <h1 class="page-title">Attendance</h1>
       <p class="page-desc">모임 출결을 남겨주세요</p>
+
+      <!-- 오늘의 체크인 (기상·출발·도착) -->
+      <div id="checkinArea"></div>
 
       <div class="card">
         <!-- 로그인 (처음 한 번) -->
@@ -171,25 +226,9 @@
     <!-- ===== 과제 ===== -->
     <section class="page" id="page-task">
       <h1 class="page-title">Assignments</h1>
-      <p class="page-desc">이번 주 과제를 확인하세요</p>
+      <p class="page-desc" id="hwDesc">우리 팀 과제를 확인하세요</p>
 
-      <div class="soon-banner">📌 과제 제출 기능은 곧 연결돼요. 지금은 일정만 확인할 수 있어요.</div>
-
-      <div class="task">
-        <div class="task-top"><span class="chip">공통과제</span><span class="task-due">매일 22:00 마감</span></div>
-        <div class="task-title">필사</div>
-        <div class="task-desc">각 조장 과제 취합창에 제출 · 피드백 없음</div>
-      </div>
-      <div class="task">
-        <div class="task-top"><span class="chip dark">주간과제 A</span><span class="task-due">월 ~ 수</span></div>
-        <div class="task-title">주간과제 A</div>
-        <div class="task-desc">피드백 있음</div>
-      </div>
-      <div class="task">
-        <div class="task-top"><span class="chip dark">주간과제 B</span><span class="task-due">목 ~ 토</span></div>
-        <div class="task-title">주간과제 B</div>
-        <div class="task-desc">피드백 있음</div>
-      </div>
+      <div id="hwArea"><div class="skeleton row-skel"></div></div>
     </section>
 
     <!-- ===== 프로필 (메뉴) ===== -->
@@ -212,15 +251,17 @@
       </div>
 
       <div class="card sub active" id="sub-info">
-        <div class="soon-banner small">✏️ 수정·저장 기능은 곧 연결돼요</div>
-        <label class="field-label">생년월일</label><input type="text" disabled placeholder="1998-05-12">
-        <label class="field-label">입교일</label><input type="text" disabled placeholder="2015-03-01">
-        <label class="field-label">연락처</label><input type="text" disabled placeholder="010-0000-0000">
-        <label class="field-label">거주지</label><input type="text" disabled placeholder="서울시 동작구">
-        <label class="field-label">교회소속</label><input type="text" disabled placeholder="청년회">
-        <label class="field-label">지역(구역)</label><input type="text" disabled placeholder="사당3지역 10구역">
-        <label class="field-label">구역장님 / 연락처</label><input type="text" disabled placeholder="김OO · 010-0000-0001">
-        <button class="btn-primary" disabled>저장 (준비 중)</button>
+        <div class="soon-banner small" id="pfNotice">🔐 로그인하면 내 정보를 고칠 수 있어요</div>
+        <label class="field-label" for="pf0">생년월일</label><input type="date" id="pf0" data-f="생년월일" disabled>
+        <label class="field-label" for="pf1">입교일</label><input type="date" id="pf1" data-f="입교일" disabled>
+        <label class="field-label" for="pf2">연락처</label><input type="tel" id="pf2" data-f="연락처" disabled placeholder="010-0000-0000">
+        <label class="field-label" for="pf3">거주지</label><input type="text" id="pf3" data-f="거주지" disabled placeholder="서울시 동작구">
+        <label class="field-label" for="pf4">교회소속</label><input type="text" id="pf4" data-f="교회소속(청년회등)" disabled placeholder="청년회">
+        <label class="field-label" for="pf5">지역(구역)</label><input type="text" id="pf5" data-f="지역(구역)" disabled placeholder="사당3지역 10구역">
+        <label class="field-label" for="pf6">구역장님</label><input type="text" id="pf6" data-f="구역장님" disabled placeholder="김OO">
+        <label class="field-label" for="pf7">구역장님 연락처</label><input type="tel" id="pf7" data-f="구역장님연락처" disabled placeholder="010-0000-0001">
+        <button class="btn-primary" id="pfSaveBtn" onclick="saveProfile()" disabled>저장</button>
+        <div id="pfMsg" class="msg"></div>
       </div>
 
       <div class="card sub" id="sub-work">
@@ -307,6 +348,6 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260921h"></script>
+  <script src="app.js?v=20260922j"></script>
 </body>
 </html>
