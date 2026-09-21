@@ -2,10 +2,9 @@
 var API_URL = 'https://script.google.com/macros/s/AKfycbz5rjT76_NTywRcYDL5BOXKKbfaBZm-V3Fk82_0z5qngfTs2NUDueX0irFH5Uaqi7Hm/exec';
 var DEFAULT_DURATION_HOURS = 3; // 끝나는 시간이 없으면 시작 후 3시간을 '진행 중'으로 봄
 
-var STORAGE_KEY_ID = 'myPersonId';
-var STORAGE_KEY_NAME = 'myPersonName';
+var TOKEN_KEY = 'authToken';
 var identifiedPerson = null;
-var telegramId = null;
+var tgInitData = '';
 var meetingsCache = [];
 
 var WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -16,8 +15,7 @@ if (tg) {
   tg.ready();
   tg.expand();
   try { tg.setHeaderColor('#F4F1EC'); tg.setBackgroundColor('#F4F1EC'); } catch (e) {}
-  var u = tg.initDataUnsafe && tg.initDataUnsafe.user;
-  if (u && u.id) telegramId = u.id;
+  tgInitData = tg.initData || ''; // 텔레그램이 서명한 원본 (서버가 진짜인지 검사함)
 }
 function haptic(type) {
   try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(type); } catch (e) {}
@@ -39,12 +37,24 @@ function callApi(action, params) {
     });
 }
 
+// 로그인·저장은 POST로 (서버가 텔레그램 서명 또는 로그인 토큰으로 본인 확인)
+function postApi(action, data) {
+  var body = Object.assign({ action: action, initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '' }, data || {});
+  return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) })
+    .then(function(res) { return res.json(); })
+    .then(function(json) {
+      if (json.ok) return json.result;
+      if (/로그인이 필요/.test(json.error || '')) { safeRemoveLocal(TOKEN_KEY); showLoggedOut(); }
+      throw new Error(json.error || '알 수 없는 오류');
+    });
+}
+
 // ===== 저장소(이 폰 기억) =====
 function safeGetLocal(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
 function safeSetLocal(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
-function safeClearLocal() {
-  try { localStorage.removeItem(STORAGE_KEY_ID); localStorage.removeItem(STORAGE_KEY_NAME); } catch (e) {}
-}
+function safeRemoveLocal(key) { try { localStorage.removeItem(key); } catch (e) {} }
+// 예전 방식(이름만 기억)으로 저장된 값 정리
+safeRemoveLocal('myPersonId'); safeRemoveLocal('myPersonName');
 
 // ===== 탭 이동 =====
 function goTab(name) {
@@ -260,7 +270,7 @@ function loadMeetings() {
 }
 
 // ===== 본인 인식 =====
-function setIdentity(person) {
+function setIdentity(person, roles) {
   identifiedPerson = person;
   document.getElementById('greeting').textContent = person.name + '님, 반가워요 👋';
   var short = String(person.name || '?').slice(-2);
@@ -273,55 +283,77 @@ function setIdentity(person) {
   var w = document.getElementById('welcome');
   w.style.display = 'flex';
   w.innerHTML = '<span>' + escapeHtml(person.name) + '님으로 제출돼요</span><a href="#" onclick="forgetMe();return false;">저 아니에요</a>';
-  document.getElementById('manualSelectBlock').style.display = 'none';
-  checkAndShowAdmin(person.id);
+  document.getElementById('loginBlock').style.display = 'none';
+  document.getElementById('attendForm').style.display = 'block';
+  document.getElementById('loginItem').style.display = 'none';
+  document.getElementById('logoutItem').style.display = 'flex';
+  applyRoles(roles);
 }
 
-function forgetMe() {
-  safeClearLocal();
-  if (telegramId) callApi('unlinkTelegramId', { telegramId: telegramId }).catch(function() {});
+function applyRoles(r) {
+  if (!r) return;
+  document.getElementById('adminCard').style.display = r.isAdmin ? 'block' : 'none';
+  if (r.roles && r.roles.length) document.getElementById('profileRole').textContent = '방송예술과 · ' + r.roles.join(', ');
+}
+
+function showLoggedOut() {
   identifiedPerson = null;
   document.getElementById('greeting').textContent = '반가워요 👋';
   ['avatar', 'drawerAvatar', 'profileAvatar'].forEach(function(id) { document.getElementById(id).textContent = '?'; });
   document.getElementById('drawerName').textContent = '게스트';
-  document.getElementById('profileName').textContent = '이름을 먼저 선택해주세요';
-  document.getElementById('profileRole').textContent = '출결 탭에서 본인 이름을 고르면 표시돼요';
-  document.getElementById('welcome').style.display = 'none';
-  document.getElementById('manualSelectBlock').style.display = 'block';
+  document.getElementById('profileName').textContent = '로그인이 필요해요';
+  document.getElementById('profileRole').textContent = '출결 탭에서 이름과 인증코드로 로그인하세요';
+  document.getElementById('loginBlock').style.display = 'block';
+  document.getElementById('attendForm').style.display = 'none';
+  document.getElementById('loginItem').style.display = 'flex';
+  document.getElementById('logoutItem').style.display = 'none';
   hideAdminUI();
 }
 
-function currentPersonId() {
-  return identifiedPerson ? identifiedPerson.id : document.getElementById('personSelect').value;
-}
-function currentPersonName() {
-  if (identifiedPerson) return identifiedPerson.name;
-  var sel = document.getElementById('personSelect');
-  return sel.value && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+// 앱을 열면: 텔레그램 서명 또는 저장된 토큰으로 자동 로그인 시도
+function autoLogin() {
+  return postApi('whoami').then(function(r) {
+    if (r.person) setIdentity(r.person, r.roles);
+    else showLoggedOut();
+  }).catch(function() { showLoggedOut(); });
 }
 
-function trySavedLocal(people) {
-  var savedId = safeGetLocal(STORAGE_KEY_ID);
-  var savedName = safeGetLocal(STORAGE_KEY_NAME);
-  if (!savedId) return;
-  var stillExists = people.some(function(p) { return String(p.id) === String(savedId); });
-  if (stillExists) setIdentity({ id: savedId, name: savedName });
-  else safeClearLocal();
+function doLogin() {
+  var personId = document.getElementById('personSelect').value;
+  var code = document.getElementById('authCode').value.trim();
+  if (!personId) { setMsg('loginMsg', '이름을 선택해주세요!', true); return; }
+  if (!code) { setMsg('loginMsg', '인증코드를 입력해주세요!', true); return; }
+  var btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  setMsg('loginMsg', '확인 중...');
+  postApi('login', { personId: personId, code: code }).then(function(r) {
+    safeSetLocal(TOKEN_KEY, r.token);
+    document.getElementById('authCode').value = '';
+    setMsg('loginMsg', '');
+    haptic('success');
+    setIdentity(r.person, r.roles);
+    btn.disabled = false;
+  }).catch(function(err) {
+    setMsg('loginMsg', err.message, true);
+    haptic('error');
+    btn.disabled = false;
+  });
 }
+
+// 로그아웃 (텔레그램 연결도 해제 → 다음에 다시 인증코드 필요)
+function forgetMe() {
+  closeDrawer();
+  postApi('logout').catch(function() {});
+  safeRemoveLocal(TOKEN_KEY);
+  showLoggedOut();
+  goTab('attend');
+}
+
+function currentPersonId() { return identifiedPerson ? identifiedPerson.id : ''; }
 
 // ===== 교관 이상 메뉴 =====
 function hideAdminUI() {
   document.getElementById('adminCard').style.display = 'none';
-}
-function checkAndShowAdmin(personId) {
-  if (!personId) { hideAdminUI(); return; }
-  callApi('getMyRoles', { personId: personId }).then(function(r) {
-    if (r.isAdmin) document.getElementById('adminCard').style.display = 'block';
-    else hideAdminUI();
-    if (identifiedPerson && String(identifiedPerson.id) === String(personId) && r.roles.length) {
-      document.getElementById('profileRole').textContent = '방송예술과 · ' + r.roles.join(', ');
-    }
-  }).catch(function() {});
 }
 
 // ===== 과 대시보드 (모두 같은 화면) =====
@@ -467,18 +499,6 @@ function loadPeople() {
       opt.textContent = p.name;
       sel.appendChild(opt);
     });
-    sel.addEventListener('change', function() { checkAndShowAdmin(sel.value); });
-
-    if (telegramId) {
-      // 텔레그램 계정 기준 자동인식 (기기 안 가리고 인식됨)
-      document.getElementById('rememberRow').style.display = 'none';
-      callApi('findPersonByTelegramId', { telegramId: telegramId }).then(function(person) {
-        if (person) setIdentity(person);
-        else trySavedLocal(people);
-      }).catch(function() { trySavedLocal(people); });
-    } else {
-      trySavedLocal(people);
-    }
   }).catch(function(err) {
     document.getElementById('debug').textContent += '\n인물목록 오류: ' + err.message;
   });
@@ -487,11 +507,9 @@ function loadPeople() {
 // ===== 출결 제출 =====
 function submitForm() {
   var classId = document.getElementById('classSelect').value;
-  var personId = currentPersonId();
-  var personName = currentPersonName();
 
+  if (!identifiedPerson) { showLoggedOut(); return; }
   if (!classId) { setMsg('msg', '출결할 모임을 선택해주세요!', true); return; }
-  if (!personId) { setMsg('msg', '본인 이름을 선택해주세요!', true); return; }
 
   var status = document.querySelector('input[name="status"]:checked').value;
   var reason = document.getElementById('reason').value;
@@ -501,27 +519,11 @@ function submitForm() {
   btn.disabled = true;
   setMsg('msg', '제출 중...');
 
-  var payload = JSON.stringify({ classId: classId, personId: personId, personName: personName, status: status, reason: reason });
-
-  callApi('submitAttendance', { data: payload }).then(function() {
+  postApi('submitAttendance', { classId: classId, status: status, reason: reason }).then(function() {
     setMsg('msg', '제출 완료! 수고하셨어요 🙌');
     haptic('success');
     btn.disabled = false;
     document.getElementById('reason').value = '';
-
-    if (!identifiedPerson) {
-      if (telegramId) {
-        callApi('linkTelegramId', { personId: personId, telegramId: telegramId }).catch(function() {});
-        setIdentity({ id: personId, name: personName });
-      } else {
-        var remember = document.getElementById('rememberMe');
-        if (remember && remember.checked) {
-          safeSetLocal(STORAGE_KEY_ID, personId);
-          safeSetLocal(STORAGE_KEY_NAME, personName);
-          setIdentity({ id: personId, name: personName });
-        }
-      }
-    }
   }).catch(function(err) {
     setMsg('msg', '오류: ' + err.message, true);
     haptic('error');
@@ -537,16 +539,11 @@ function submitNotice() {
 
   if (!typeId || !datetime || !place) { setMsg('adminMsg', '모든 정보를 입력해주세요!', true); return; }
 
-  var payload = JSON.stringify({
-    typeId: typeId, datetime: datetime, place: place,
-    personId: currentPersonId(), hostName: currentPersonName()
-  });
-
   var btn = document.getElementById('noticeSubmitBtn');
   btn.disabled = true;
   setMsg('adminMsg', '저장 중...');
 
-  callApi('submitNotice', { data: payload }).then(function() {
+  postApi('createMeeting', { typeId: typeId, datetime: datetime, place: place }).then(function() {
     setMsg('adminMsg', '저장 완료!');
     haptic('success');
     btn.disabled = false;
@@ -568,6 +565,7 @@ function submitNotice() {
     d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + WEEKDAYS[d.getDay()] + '요일';
   loadMeetings();
   loadPeople();
+  autoLogin();
   loadDashboard();
   setInterval(renderDashboard, 60 * 1000); // 1분마다 진행 중/예정 다시 계산
   setInterval(loadDashboard, 5 * 60 * 1000); // 5분마다 대시보드 새로고침
