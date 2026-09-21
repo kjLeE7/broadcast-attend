@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260922j">
+  <link rel="stylesheet" href="style.css?v=20260922k">
 </head>
 <body>
   <div class="app">
@@ -238,10 +238,19 @@
       <p class="page-desc">내 인적사항과 실무 참여 이력</p>
 
       <div class="profile-head card">
-        <div class="avatar big" id="profileAvatar">?</div>
-        <div>
+        <label class="avatar-edit" id="avatarEdit" aria-label="프로필 사진 바꾸기">
+          <div class="avatar big" id="profileAvatar">?</div>
+          <span class="avatar-cam" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
+          <input type="file" id="photoInput" accept="image/*" hidden disabled onchange="onPhotoPicked(this)">
+        </label>
+        <div class="profile-meta">
           <div class="profile-name" id="profileName">이름을 먼저 선택해주세요</div>
           <div class="profile-role" id="profileRole">출결 탭에서 본인 이름을 고르면 표시돼요</div>
+          <div class="photo-actions" id="photoActions" style="display:none;">
+            <button type="button" onclick="document.getElementById('photoInput').click()">사진 바꾸기</button>
+            <button type="button" id="photoRemoveBtn" onclick="removePhoto()" style="display:none;">삭제</button>
+          </div>
+          <div class="msg" id="photoMsg"></div>
         </div>
       </div>
 
@@ -348,6 +357,6 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260922j"></script>
+  <script src="app.js?v=20260922k"></script>
 </body>
 </html>
