@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260921d">
+  <link rel="stylesheet" href="style.css?v=20260921e">
 </head>
 <body>
   <div class="app">
@@ -131,19 +131,26 @@
       <p class="page-desc">모임 출결을 남겨주세요</p>
 
       <div class="card">
+        <!-- 로그인 (처음 한 번) -->
+        <div id="loginBlock">
+          <div class="login-head">
+            <span class="login-icon">🔐</span>
+            <div><b>처음 한 번만 로그인해요</b><small>이름과 개인 인증코드를 입력하면, 다음부터는 자동으로 알아봐요.</small></div>
+          </div>
+          <label class="field-label" for="personSelect">이름</label>
+          <div class="select-wrap"><select id="personSelect"></select></div>
+          <label class="field-label" for="authCode">인증코드 <span class="hint">담당자에게 받은 6자리</span></label>
+          <input type="password" id="authCode" class="code-input" maxlength="12" autocomplete="one-time-code" autocapitalize="characters" placeholder="••••••">
+          <button class="btn-primary" id="loginBtn" onclick="doLogin()">로그인</button>
+          <div id="loginMsg" class="msg"></div>
+        </div>
+
+        <!-- 출결 (로그인 후) -->
+        <div id="attendForm" style="display:none;">
         <div id="welcome" class="welcome"></div>
 
         <label class="field-label" for="classSelect">모임 선택</label>
         <div class="select-wrap"><select id="classSelect"></select></div>
-
-        <div id="manualSelectBlock">
-          <label class="field-label" for="personSelect">본인 이름</label>
-          <div class="select-wrap"><select id="personSelect"></select></div>
-          <label class="checkbox-row" id="rememberRow">
-            <input type="checkbox" id="rememberMe" checked>
-            <span>다음부터 자동으로 알아보기</span>
-          </label>
-        </div>
 
         <label class="field-label">참석 여부</label>
         <div class="segmented">
@@ -157,6 +164,7 @@
 
         <button class="btn-primary" id="submitBtn" onclick="submitForm()">출결 제출</button>
         <div id="msg" class="msg"></div>
+        </div>
       </div>
     </section>
 
@@ -286,10 +294,19 @@
       <span class="di-text"><b>회계</b><small>수입 · 지출 현황</small></span>
       <span class="chip soon">준비 중</span>
     </button>
+    <button class="drawer-item" id="loginItem" onclick="openMenuPage('attend')">
+      <span class="di-icon">🔐</span>
+      <span class="di-text"><b>로그인</b><small>이름과 인증코드로 처음 한 번</small></span>
+      <span class="di-arrow">›</span>
+    </button>
+    <button class="drawer-item" id="logoutItem" onclick="forgetMe()" style="display:none;">
+      <span class="di-icon">🚪</span>
+      <span class="di-text"><b>로그아웃</b><small>다른 사람이 이 폰을 쓸 때</small></span>
+    </button>
 
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260921d"></script>
+  <script src="app.js?v=20260921e"></script>
 </body>
 </html>
