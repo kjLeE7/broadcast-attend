@@ -173,63 +173,7 @@ function escapeHtml(s) {
   });
 }
 
-// ===== 대시보드 그리기 =====
-function renderDashboard() {
-  var now = new Date();
-  var ongoing = [], upcoming = [], unknown = [];
-
-  meetingsCache.forEach(function(m) {
-    var t = parseMeeting(m);
-    if (!t) { unknown.push(m); return; }
-    m._t = t;
-    if (t.start <= now && now < t.end) ongoing.push(m);
-    else if (t.start > now) upcoming.push(m);
-  });
-  upcoming.sort(function(a, b) { return a._t.start - b._t.start; });
-
-  // 요약 숫자
-  document.getElementById('statNow').innerHTML = ongoing.length + '<small>건</small>';
-  document.getElementById('statUpcoming').innerHTML = (upcoming.length + unknown.length) + '<small>건</small>';
-  document.getElementById('statNext').textContent = upcoming.length ? ddayText(upcoming[0]._t.start) : '–';
-  document.getElementById('liveDot').classList.toggle('on', ongoing.length > 0);
-
-  // 진행 중
-  var nowArea = document.getElementById('nowArea');
-  if (ongoing.length === 0) {
-    nowArea.innerHTML = '<div class="empty"><b>지금 진행 중인 모임이 없어요</b>' +
-      (upcoming.length ? '다음 모임은 ' + (upcoming[0]._t.start.getMonth() + 1) + '/' + upcoming[0]._t.start.getDate() +
-        ' ' + hm(upcoming[0]._t.start) + ' ' + escapeHtml(upcoming[0].typeName) + '이에요' : '예정된 모임도 아직 없어요') +
-      '</div>';
-  } else {
-    nowArea.innerHTML = ongoing.map(function(m) {
-      var total = m._t.end - m._t.start;
-      var pct = Math.max(0, Math.min(100, Math.round((now - m._t.start) / total * 100)));
-      return '<div class="hero">' +
-        '<span class="hero-chip"><i></i>진행 중</span>' +
-        '<div class="hero-title">' + escapeHtml(m.typeName) + '</div>' +
-        '<div class="hero-time">' + hm(m._t.start) + ' ~ ' + hm(m._t.end) + (m._t.hasEnd ? '' : ' (예상)') + '</div>' +
-        '<div class="hero-meta">' +
-          '<span>📍 ' + escapeHtml(m.place || '장소 미정') + '</span>' +
-          (m.host ? '<span>🎙 ' + escapeHtml(m.host) + '</span>' : '') +
-        '</div>' +
-        '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
-        '<div class="progress-label"><span>시작 ' + hm(m._t.start) + '</span><span>' + pct + '%</span></div>' +
-        '<button class="hero-btn" onclick="attendFor(\'' + escapeHtml(m.id) + '\')">지금 출결하기</button>' +
-      '</div>';
-    }).join('');
-  }
-
-  // 예정
-  document.getElementById('upcomingCount').textContent = (upcoming.length + unknown.length) ? (upcoming.length + unknown.length) + '건' : '';
-  var upArea = document.getElementById('upcomingArea');
-  var list = upcoming.concat(unknown);
-  if (list.length === 0) {
-    upArea.innerHTML = '<div class="empty"><b>예정된 일정이 없어요</b>새 모임이 등록되면 여기에 보여요</div>';
-    return;
-  }
-  upArea.innerHTML = list.map(function(m, i) { return eventCard(m, i === 0 && !!m._t); }).join('');
-}
-
+// ===== 모임 카드 (공지 탭) =====
 function eventCard(m, isNext) {
     var t = m._t;
     var dateBlock = t
@@ -269,29 +213,180 @@ function attendFor(meetingId) {
 
 // ===== 모임 목록 =====
 function loadMeetings() {
-  var sel = document.getElementById('classSelect');
   return callApi('getUpcomingMeetings').then(function(meetings) {
     meetingsCache = meetings || [];
-    sel.innerHTML = '';
-    meetingsCache.forEach(function(c) {
-      var opt = document.createElement('option');
-      opt.value = c.id;
-      opt.textContent = '[' + c.typeName + '] ' + c.datetime + ' · ' + (c.place || '');
-      sel.appendChild(opt);
-    });
-    if (!meetingsCache.length) {
-      var opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '출결할 모임이 없어요';
-      sel.appendChild(opt);
-    }
-    renderDashboard();
+    meetingsCache.forEach(function(m) { m._t = parseMeeting(m); });
     renderNoticeList();
   }).catch(function(err) {
-    document.getElementById('nowArea').innerHTML = '<div class="empty"><b>모임을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
-    document.getElementById('upcomingArea').innerHTML = '';
+    document.getElementById('noticeList').innerHTML = '<div class="empty"><b>모임을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
     document.getElementById('debug').textContent = '모임목록 오류: ' + err.message;
   });
+}
+
+// ===== 출결 대상 (내 팀의 모임 + 업무, 로그인 후) =====
+function loadAttendTargets() {
+  var sel = document.getElementById('classSelect');
+  if (!identifiedPerson) return;
+  sel.innerHTML = '<option value="">불러오는 중...</option>';
+  return postApi('getMyAttendTargets').then(function(list) {
+    sel.innerHTML = '';
+    if (!list.length) {
+      sel.innerHTML = '<option value="">우리 팀에 출결할 모임·업무가 없어요</option>';
+      return;
+    }
+    ['모임', '업무'].forEach(function(kind) {
+      var items = list.filter(function(t) { return t.kind === kind; });
+      if (!items.length) return;
+      var g = document.createElement('optgroup');
+      g.label = kind;
+      items.forEach(function(t) {
+        var opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.label;
+        g.appendChild(opt);
+      });
+      sel.appendChild(g);
+    });
+  }).catch(function(err) {
+    sel.innerHTML = '<option value="">목록을 불러오지 못했어요</option>';
+  });
+}
+
+// ===== 체크인 (기상·출발·도착) =====
+var CI_EMOJI = { '기상': '☀️', '출발': '🚗', '도착': '📍' };
+var myCheckins = [];
+
+function loadMyCheckins() {
+  if (!identifiedPerson) return;
+  postApi('getMyCheckins').then(function(list) {
+    myCheckins = list || [];
+    renderMyCheckins();
+  }).catch(function() {});
+}
+
+function renderMyCheckins() {
+  var area = document.getElementById('checkinArea');
+  if (!identifiedPerson || !myCheckins.length) { area.innerHTML = ''; return; }
+  area.innerHTML = myCheckins.map(function(c) {
+    return '<div class="ci-card">' +
+      '<div class="ci-head"><span class="hero-chip"><i></i>오늘의 체크인</span><b>' + escapeHtml(c.title) + '</b></div>' +
+      '<div class="ci-btns">' + c.items.map(function(it) {
+        var m = c.mine[it];
+        return '<button class="ci-btn' + (m ? ' done' : '') + '" onclick="tapCheckin(\'' + escapeHtml(c.id) + '\',\'' + it + '\')">' +
+          '<span class="ci-emoji">' + CI_EMOJI[it] + '</span><span class="ci-label">' + it + '</span>' +
+          '<span class="ci-time">' + (m ? m.time + (m.eta ? ' → ' + escapeHtml(m.eta) : '') : '누르면 기록') + '</span></button>';
+      }).join('') + '</div>' +
+      '<div class="ci-eta" id="eta-' + escapeHtml(c.id) + '" style="display:none;">' +
+        '<label>도착 예정 시간 <small>(모르면 비워두세요)</small></label>' +
+        '<div class="ci-eta-row"><input type="time" id="etaInput-' + escapeHtml(c.id) + '">' +
+        '<button onclick="sendCheckin(\'' + escapeHtml(c.id) + '\',\'출발\')">출발했어요</button></div>' +
+      '</div>' +
+      '<div class="msg" id="ciMsg-' + escapeHtml(c.id) + '"></div>' +
+      '<div class="ci-tip">💬 봇 채팅방에 \'기상\' \'출발\' \'도착\'만 보내도 기록돼요</div>' +
+    '</div>';
+  }).join('');
+}
+
+function tapCheckin(id, item) {
+  if (item === '출발') {
+    var box = document.getElementById('eta-' + id);
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+  sendCheckin(id, item);
+}
+
+function sendCheckin(id, item) {
+  var eta = '';
+  if (item === '출발') { var inp = document.getElementById('etaInput-' + id); eta = inp ? inp.value : ''; }
+  setMsg('ciMsg-' + id, '기록 중...');
+  postApi('checkin', { checkinId: id, item: item, eta: eta }).then(function(r) {
+    haptic('success');
+    var c = myCheckins.find(function(x) { return x.id === id; });
+    if (c) c.mine[item] = { time: r.time, eta: r.eta };
+    renderMyCheckins();
+    setMsg('ciMsg-' + id, CI_EMOJI[item] + ' ' + item + ' ' + r.time + ' 기록했어요!');
+  }).catch(function(err) { setMsg('ciMsg-' + id, err.message, true); haptic('error'); });
+}
+
+// ----- 관리자: 체크인 만들기 · 현황 -----
+function toggleCheckinForm() {
+  var f = document.getElementById('checkinForm');
+  var open = !f.classList.contains('open');
+  f.classList.toggle('open', open);
+  document.getElementById('checkinChev').classList.toggle('up', open);
+  if (open && !document.getElementById('ciDate').value) {
+    var d = new Date();
+    document.getElementById('ciDate').value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+}
+
+function submitCheckin() {
+  var items = [].slice.call(document.querySelectorAll('#ciItems input:checked')).map(function(x) { return x.value; });
+  var btn = document.getElementById('ciSubmitBtn');
+  btn.disabled = true;
+  setMsg('ciMsg', '만드는 중...');
+  postApi('createCheckin', {
+    title: document.getElementById('ciTitle').value,
+    date: document.getElementById('ciDate').value,
+    items: items,
+    target: document.getElementById('ciTarget').value
+  }).then(function() {
+    haptic('success');
+    btn.disabled = false;
+    document.getElementById('ciTitle').value = '';
+    setMsg('ciMsg', '만들었어요! 대상자에게 체크인 버튼이 보여요.');
+    loadCheckinBoard();
+    loadMyCheckins();
+    setTimeout(function() { setMsg('ciMsg', ''); toggleCheckinForm(); }, 1500);
+  }).catch(function(err) { setMsg('ciMsg', err.message, true); btn.disabled = false; });
+}
+
+var checkinBoard = [];
+var openBoardId = null;
+
+function loadCheckinBoard() {
+  postApi('getCheckinBoard').then(function(list) {
+    checkinBoard = list || [];
+    renderCheckinBoard();
+  }).catch(function() {});
+}
+
+function renderCheckinBoard() {
+  document.getElementById('ciBoardCount').textContent = checkinBoard.length ? checkinBoard.length + '개' : '';
+  var el = document.getElementById('checkinBoard');
+  if (!checkinBoard.length) { el.innerHTML = '<div class="empty"><b>최근 체크인이 없어요</b>위에서 새로 만들 수 있어요</div>'; return; }
+  el.innerHTML = checkinBoard.map(function(c) {
+    var open = openBoardId === c.id;
+    var head = '<div class="ci-board-head" onclick="toggleBoard(\'' + escapeHtml(c.id) + '\')">' +
+      '<div><div class="ci-board-title">' + escapeHtml(c.title) + '</div>' +
+      '<div class="event-meta">' + escapeHtml(c.date || '날짜 없음') + ' · ' + escapeHtml(c.targets.join(', ')) + '</div></div>' +
+      '<span class="chip' + (c.active ? ' dark' : '') + '">' + (c.active ? '진행 중' : (c.status === '종료' ? '종료' : '지난 날짜')) + '</span></div>' +
+      '<div class="ci-counts">' + c.items.map(function(it) {
+        return '<span>' + CI_EMOJI[it] + ' ' + it + ' <b>' + c.done[it] + '</b>/' + c.total + '</span>';
+      }).join('') + '</div>';
+    var table = '';
+    if (open) {
+      table = '<div class="table-scroll"><table class="sched ci-table"><thead><tr><th>이름</th>' +
+        c.items.map(function(it) { return '<th>' + CI_EMOJI[it] + it + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        c.rows.map(function(r) {
+          return '<tr><td class="c-who"><b>' + escapeHtml(r.name) + '</b><span>' + escapeHtml(r.group) + '</span></td>' +
+            c.items.map(function(it) {
+              var m = r.mine[it];
+              return '<td class="' + (m ? 'ci-ok' : 'ci-miss') + '">' + (m ? m.time + (m.eta ? '<small>→' + escapeHtml(m.eta) + '</small>' : '') : '–') + '</td>';
+            }).join('') + '</tr>';
+        }).join('') + '</tbody></table></div>' +
+        (c.status !== '종료' ? '<button class="ghost-btn" onclick="closeCheckinUI(\'' + escapeHtml(c.id) + '\')">체크인 종료하기</button>' : '');
+    }
+    return '<div class="card ci-board">' + head + table + '</div>';
+  }).join('');
+}
+
+function toggleBoard(id) { openBoardId = openBoardId === id ? null : id; renderCheckinBoard(); }
+
+function closeCheckinUI(id) {
+  postApi('closeCheckin', { checkinId: id }).then(function() { loadCheckinBoard(); loadMyCheckins(); })
+    .catch(function(err) { alert(err.message); });
 }
 
 // ===== 본인 인식 =====
@@ -313,11 +408,19 @@ function setIdentity(person, roles) {
   document.getElementById('loginItem').style.display = 'none';
   document.getElementById('logoutItem').style.display = 'flex';
   applyRoles(roles);
+  loadMyCheckins();
+  loadAttendTargets();
+  loadAnnouncements();
+  loadAssignments();
+  loadProfile();
 }
 
 function applyRoles(r) {
   if (!r) return;
   document.getElementById('adminCard').style.display = r.isAdmin ? 'block' : 'none';
+  document.getElementById('checkinAdminCard').style.display = r.isAdmin ? 'block' : 'none';
+  document.getElementById('checkinBoardWrap').style.display = r.isAdmin ? 'block' : 'none';
+  if (r.isAdmin) loadCheckinBoard();
   if (r.roles && r.roles.length) document.getElementById('profileRole').textContent = '방송예술과 · ' + r.roles.join(', ');
 }
 
@@ -332,7 +435,14 @@ function showLoggedOut() {
   document.getElementById('attendForm').style.display = 'none';
   document.getElementById('loginItem').style.display = 'flex';
   document.getElementById('logoutItem').style.display = 'none';
+  myCheckins = [];
+  renderMyCheckins();
   hideAdminUI();
+  document.getElementById('annCount').textContent = '';
+  document.getElementById('annList').innerHTML = '<div class="empty"><b>로그인하면 공지사항이 보여요</b>출결 탭에서 처음 한 번만 로그인해요</div>';
+  document.getElementById('hwArea').innerHTML = '<div class="empty"><b>로그인하면 우리 팀 과제가 보여요</b>출결 탭에서 처음 한 번만 로그인해요</div>';
+  setProfileEnabled(false);
+  document.querySelectorAll('#sub-info input[data-f]').forEach(function(i) { i.value = ''; });
 }
 
 // 앱을 열면: 텔레그램 서명 또는 저장된 토큰으로 자동 로그인 시도
@@ -379,6 +489,162 @@ function currentPersonId() { return identifiedPerson ? identifiedPerson.id : '';
 // ===== 교관 이상 메뉴 =====
 function hideAdminUI() {
   document.getElementById('adminCard').style.display = 'none';
+  document.getElementById('checkinAdminCard').style.display = 'none';
+  document.getElementById('checkinBoardWrap').style.display = 'none';
+  document.getElementById('annAdminCard').style.display = 'none';
+}
+
+// ===== 12지파 인원현황 =====
+function loadTribes() {
+  return callApi('getTribes').then(function(d) {
+    var el = document.getElementById('tribeArea');
+    document.getElementById('tribeTotal').textContent = d.filled ? '총 ' + d.total + '명' : '';
+    el.innerHTML = '<div class="tribe-grid">' + d.list.map(function(t) {
+      return '<div class="tribe' + (t.count ? '' : ' zero') + '"><span>' + escapeHtml(t.name) + '</span><b>' +
+        (t.count === null ? '–' : t.count + '<small>명</small>') + '</b></div>';
+    }).join('') + '</div>' +
+      (d.filled ? '' : '<div class="tribe-hint">\'지파현황\' 시트에 인원을 적으면 여기에 보여요</div>');
+  }).catch(function() {
+    document.getElementById('tribeArea').innerHTML = '<div class="empty inner"><b>인원현황을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
+  });
+}
+
+// ===== 공지사항 (과장·부과장·팀장 작성) =====
+var announcements = [];
+var openAnnId = null;
+
+function loadAnnouncements() {
+  if (!identifiedPerson) return;
+  postApi('getAnnouncements').then(function(r) {
+    announcements = r.list || [];
+    document.getElementById('annAdminCard').style.display = r.canWrite ? 'block' : 'none';
+    window.annCanManage = !!r.canManage;
+    renderAnnouncements();
+  }).catch(function(err) {
+    document.getElementById('annList').innerHTML = '<div class="empty"><b>공지사항을 불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+function fmtDate(ms) {
+  if (!ms) return '';
+  var d = new Date(ms);
+  return (d.getMonth() + 1) + '/' + d.getDate() + '(' + WEEKDAYS[d.getDay()] + ') ' + hm(d);
+}
+
+function renderAnnouncements() {
+  document.getElementById('annCount').textContent = announcements.length ? announcements.length + '건' : '';
+  var el = document.getElementById('annList');
+  if (!announcements.length) { el.innerHTML = '<div class="empty"><b>아직 공지사항이 없어요</b>문화부·과 전체 공유사항이 올라오면 여기에 보여요</div>'; return; }
+  el.innerHTML = announcements.map(function(a) {
+    var open = openAnnId === a.id;
+    var long = a.content.length > 90 || a.content.split('\n').length > 3;
+    return '<div class="ann' + (a.pinned ? ' pinned' : '') + (open ? ' open' : '') + '" onclick="toggleAnn(\'' + escapeHtml(a.id) + '\')">' +
+      '<div class="ann-top">' + (a.pinned ? '<span class="chip dday">📌 고정</span>' : '') +
+        '<span class="chip' + (/전체/.test(a.scope) ? ' dark' : '') + '">' + escapeHtml(a.scope) + '</span>' +
+        '<span class="ann-date">' + fmtDate(a.date) + '</span></div>' +
+      '<div class="ann-title">' + escapeHtml(a.title) + '</div>' +
+      (a.content ? '<div class="ann-body' + (long && !open ? ' clamp' : '') + '">' + escapeHtml(a.content) + '</div>' : '') +
+      '<div class="ann-foot"><span>' + escapeHtml(a.author) + '</span>' +
+        (long ? '<span class="ann-more">' + (open ? '접기' : '더보기') + '</span>' : '') +
+        ((a.mine || window.annCanManage) && open ? '<button class="ann-hide" onclick="event.stopPropagation();hideAnnouncement(\'' + escapeHtml(a.id) + '\')">내리기</button>' : '') +
+      '</div></div>';
+  }).join('');
+}
+
+function toggleAnn(id) { openAnnId = openAnnId === id ? null : id; renderAnnouncements(); }
+
+function toggleAnnForm() {
+  var f = document.getElementById('annForm');
+  var open = !f.classList.contains('open');
+  f.classList.toggle('open', open);
+  document.getElementById('annChev').classList.toggle('up', open);
+}
+
+function submitAnnouncement() {
+  var title = document.getElementById('annTitle').value.trim();
+  if (!title) { setMsg('annMsg', '제목을 입력해주세요!', true); return; }
+  var btn = document.getElementById('annSubmitBtn');
+  btn.disabled = true;
+  setMsg('annMsg', '올리는 중...');
+  postApi('createAnnouncement', {
+    scope: document.getElementById('annScope').value,
+    title: title,
+    content: document.getElementById('annContent').value,
+    pinned: document.getElementById('annPinned').checked
+  }).then(function() {
+    haptic('success');
+    btn.disabled = false;
+    document.getElementById('annTitle').value = '';
+    document.getElementById('annContent').value = '';
+    document.getElementById('annPinned').checked = false;
+    setMsg('annMsg', '올렸어요!');
+    loadAnnouncements();
+    setTimeout(function() { setMsg('annMsg', ''); toggleAnnForm(); }, 1200);
+  }).catch(function(err) { setMsg('annMsg', err.message, true); haptic('error'); btn.disabled = false; });
+}
+
+function hideAnnouncement(id) {
+  if (!confirm('이 공지를 내릴까요? (시트에는 남아 있어요)')) return;
+  postApi('hideAnnouncement', { id: id }).then(function() { openAnnId = null; loadAnnouncements(); })
+    .catch(function(err) { alert(err.message); });
+}
+
+// ===== 과제 (우리 팀 것만) =====
+function loadAssignments() {
+  if (!identifiedPerson) return;
+  postApi('getMyAssignments').then(renderAssignments).catch(function(err) {
+    document.getElementById('hwArea').innerHTML = '<div class="empty"><b>과제를 불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+function renderAssignments(list) {
+  var el = document.getElementById('hwArea');
+  if (!list.length) { el.innerHTML = '<div class="empty"><b>지금 우리 팀 과제가 없어요</b>과제가 하달되면 여기에 보여요</div>'; return; }
+  var now = Date.now();
+  el.innerHTML = list.map(function(h) {
+    var late = h.due && h.due < now && !h.done;
+    var dueText = h.due ? '마감 ' + fmtDate(h.due) + (h.due >= now ? ' · ' + ddayText(new Date(h.due)) : '') : '마감 미정';
+    return '<div class="task' + (h.done ? ' done' : '') + (late ? ' late' : '') + '">' +
+      '<div class="task-top"><span>' +
+        '<span class="chip' + (h.kind ? ' dark' : '') + '">' + escapeHtml(h.kind || '과제') + '</span> ' +
+        (h.team ? '<span class="chip">' + escapeHtml(h.team) + '</span>' : '') + '</span>' +
+        '<span class="task-due">' + dueText + '</span></div>' +
+      '<div class="task-title">' + escapeHtml(h.title) + '</div>' +
+      '<div class="task-desc">' + escapeHtml([h.where && '제출처 ' + h.where, h.feedback ? '피드백 있음' : ''].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="hw-state">' + (h.done ? '✅ 제출 완료' : (late ? '⏰ 마감 지남 · 미제출' : '⬜ 아직 제출 전')) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ===== 프로필 (인적사항 수정) =====
+function setProfileEnabled(on) {
+  document.querySelectorAll('#sub-info input[data-f]').forEach(function(i) { i.disabled = !on; });
+  document.getElementById('pfSaveBtn').disabled = !on;
+  document.getElementById('pfNotice').style.display = on ? 'none' : 'block';
+}
+
+function loadProfile() {
+  if (!identifiedPerson) return;
+  postApi('getMyProfile').then(function(r) {
+    document.querySelectorAll('#sub-info input[data-f]').forEach(function(i) {
+      i.value = r.fields[i.getAttribute('data-f')] || '';
+    });
+    setProfileEnabled(true);
+  }).catch(function(err) { setMsg('pfMsg', '불러오지 못했어요: ' + err.message, true); });
+}
+
+function saveProfile() {
+  var fields = {};
+  document.querySelectorAll('#sub-info input[data-f]').forEach(function(i) { fields[i.getAttribute('data-f')] = i.value.trim(); });
+  var btn = document.getElementById('pfSaveBtn');
+  btn.disabled = true;
+  setMsg('pfMsg', '저장 중...');
+  postApi('saveMyProfile', { fields: fields }).then(function() {
+    haptic('success');
+    btn.disabled = false;
+    setMsg('pfMsg', '저장했어요!');
+    setTimeout(function() { setMsg('pfMsg', ''); }, 2000);
+  }).catch(function(err) { setMsg('pfMsg', err.message, true); haptic('error'); btn.disabled = false; });
 }
 
 // ===== 과 대시보드 (모두 같은 화면) =====
@@ -599,6 +865,11 @@ function submitNotice() {
   loadPeople();
   autoLogin();
   loadDashboard();
-  setInterval(renderDashboard, 60 * 1000); // 1분마다 진행 중/예정 다시 계산
+  loadTribes();
+  // 봇 버튼에서 ?tab=attend 처럼 열면 그 탭으로 바로 이동
+  try {
+    var startTab = new URLSearchParams(location.search).get('tab');
+    if (['home', 'notice', 'attend', 'task'].indexOf(startTab) !== -1) goTab(startTab);
+  } catch (e) {}
   setInterval(loadDashboard, 5 * 60 * 1000); // 5분마다 대시보드 새로고침
 })();
