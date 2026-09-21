@@ -53,10 +53,50 @@ function goTab(name) {
   document.querySelectorAll('.tab').forEach(function(t) {
     t.classList.toggle('active', t.getAttribute('data-tab') === name);
   });
-  if (name === 'notice' && document.getElementById('noticeTypeSelect').options.length === 0) {
-    loadMeetingTypes();
-  }
   window.scrollTo(0, 0);
+}
+
+// ===== 슬라이드 메뉴 =====
+function openDrawer() {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('drawer').setAttribute('aria-hidden', 'false');
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+}
+function openMenuPage(name) {
+  closeDrawer();
+  setTimeout(function() { goTab(name); }, 180);
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeDrawer(); });
+
+// 오른쪽으로 쓸어서 메뉴 닫기
+(function enableSwipeClose() {
+  var startX = null;
+  var drawer = document.getElementById('drawer');
+  drawer.addEventListener('touchstart', function(e) { startX = e.touches[0].clientX; }, { passive: true });
+  drawer.addEventListener('touchend', function(e) {
+    if (startX !== null && e.changedTouches[0].clientX - startX > 60) closeDrawer();
+    startX = null;
+  });
+})();
+
+// 프로필 안의 인적사항 / 실무 참여 전환
+function switchSub(name) {
+  document.querySelectorAll('.subtab').forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-sub') === name); });
+  document.querySelectorAll('.sub').forEach(function(c) { c.classList.toggle('active', c.id === 'sub-' + name); });
+}
+
+// 공지 작성 폼 열고 닫기
+function toggleNoticeForm() {
+  var f = document.getElementById('noticeForm');
+  var open = !f.classList.contains('open');
+  f.classList.toggle('open', open);
+  document.getElementById('noticeChev').classList.toggle('up', open);
+  if (open && document.getElementById('noticeTypeSelect').options.length === 0) loadMeetingTypes();
 }
 
 // ===== 날짜 처리 =====
@@ -152,9 +192,11 @@ function renderDashboard() {
     upArea.innerHTML = '<div class="empty"><b>예정된 일정이 없어요</b>새 모임이 등록되면 여기에 보여요</div>';
     return;
   }
-  upArea.innerHTML = list.map(function(m, i) {
+  upArea.innerHTML = list.map(function(m, i) { return eventCard(m, i === 0 && !!m._t); }).join('');
+}
+
+function eventCard(m, isNext) {
     var t = m._t;
-    var isNext = (i === 0 && t);
     var dateBlock = t
       ? '<div class="m">' + (t.start.getMonth() + 1) + '월</div><div class="d">' + t.start.getDate() + '</div><div class="w">' + WEEKDAYS[t.start.getDay()] + '요일</div>'
       : '<div class="d">?</div>';
@@ -171,7 +213,17 @@ function renderDashboard() {
       '</div>' +
       '<button class="event-go" onclick="attendFor(\'' + escapeHtml(m.id) + '\')">출결</button>' +
     '</div>';
-  }).join('');
+}
+
+// 공지 탭: 등록된 모임 공지 전체 (진행 중 + 예정)
+function renderNoticeList() {
+  var list = meetingsCache.slice().sort(function(a, b) {
+    return (a._t ? a._t.start : Infinity) - (b._t ? b._t.start : Infinity);
+  });
+  document.getElementById('noticeCount').textContent = list.length ? list.length + '건' : '';
+  document.getElementById('noticeList').innerHTML = list.length
+    ? list.map(function(m, i) { return eventCard(m, i === 0 && !!m._t); }).join('')
+    : '<div class="empty"><b>등록된 공지가 없어요</b>새 모임이 등록되면 여기에 보여요</div>';
 }
 
 // 카드에서 '출결' 누르면 출결 탭으로 이동 + 그 모임 자동 선택
@@ -199,6 +251,7 @@ function loadMeetings() {
       sel.appendChild(opt);
     }
     renderDashboard();
+    renderNoticeList();
   }).catch(function(err) {
     document.getElementById('nowArea').innerHTML = '<div class="empty"><b>모임을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
     document.getElementById('upcomingArea').innerHTML = '';
@@ -210,7 +263,13 @@ function loadMeetings() {
 function setIdentity(person) {
   identifiedPerson = person;
   document.getElementById('greeting').textContent = person.name + '님, 반가워요 👋';
-  document.getElementById('avatar').textContent = String(person.name || '?').slice(-2);
+  var short = String(person.name || '?').slice(-2);
+  document.getElementById('avatar').textContent = short;
+  document.getElementById('drawerAvatar').textContent = short;
+  document.getElementById('profileAvatar').textContent = short;
+  document.getElementById('drawerName').textContent = person.name;
+  document.getElementById('profileName').textContent = person.name;
+  document.getElementById('profileRole').textContent = '방송예술과';
   var w = document.getElementById('welcome');
   w.style.display = 'flex';
   w.innerHTML = '<span>' + escapeHtml(person.name) + '님으로 제출돼요</span><a href="#" onclick="forgetMe();return false;">저 아니에요</a>';
@@ -223,7 +282,10 @@ function forgetMe() {
   if (telegramId) callApi('unlinkTelegramId', { telegramId: telegramId }).catch(function() {});
   identifiedPerson = null;
   document.getElementById('greeting').textContent = '반가워요 👋';
-  document.getElementById('avatar').textContent = '?';
+  ['avatar', 'drawerAvatar', 'profileAvatar'].forEach(function(id) { document.getElementById(id).textContent = '?'; });
+  document.getElementById('drawerName').textContent = '게스트';
+  document.getElementById('profileName').textContent = '이름을 먼저 선택해주세요';
+  document.getElementById('profileRole').textContent = '출결 탭에서 본인 이름을 고르면 표시돼요';
   document.getElementById('welcome').style.display = 'none';
   document.getElementById('manualSelectBlock').style.display = 'block';
   hideAdminUI();
@@ -249,14 +311,17 @@ function trySavedLocal(people) {
 
 // ===== 교관 이상 메뉴 =====
 function hideAdminUI() {
-  document.getElementById('noticeTab').style.display = 'none';
-  if (document.getElementById('page-notice').classList.contains('active')) goTab('home');
+  document.getElementById('adminCard').style.display = 'none';
 }
 function checkAndShowAdmin(personId) {
   if (!personId) { hideAdminUI(); return; }
   callApi('checkAdmin', { personId: personId }).then(function(isAdmin) {
-    if (isAdmin) document.getElementById('noticeTab').style.display = 'flex';
-    else hideAdminUI();
+    if (isAdmin) {
+      document.getElementById('adminCard').style.display = 'block';
+      if (identifiedPerson && String(identifiedPerson.id) === String(personId)) {
+        document.getElementById('profileRole').textContent = '방송예술과 · 교관 이상';
+      }
+    } else hideAdminUI();
   }).catch(function() {});
 }
 
@@ -382,7 +447,7 @@ function submitNotice() {
     document.getElementById('noticeDatetime').value = '';
     document.getElementById('noticePlace').value = '';
     loadMeetings();
-    setTimeout(function() { setMsg('adminMsg', ''); goTab('home'); }, 1200);
+    setTimeout(function() { setMsg('adminMsg', ''); toggleNoticeForm(); }, 1200);
   }).catch(function(err) {
     setMsg('adminMsg', '오류: ' + err.message, true);
     haptic('error');
