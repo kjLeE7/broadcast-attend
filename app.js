@@ -564,6 +564,13 @@ function submitNotice() {
   document.getElementById('todayText').textContent =
     d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + WEEKDAYS[d.getDay()] + '요일';
   loadMeetings();
+  // 메뉴 맨 아래에 텔레그램 연결 상태 표시 (문제 확인용)
+  var foot = document.querySelector('.drawer-foot');
+  if (foot) {
+    foot.textContent = '방송예술과 미니앱 · ' + (tg && tgInitData
+      ? '텔레그램 서명 ✓ (' + (tg.platform || '?') + ' v' + (tg.version || '?') + ')'
+      : '텔레그램 서명 없음' + (tg ? ' (' + (tg.platform || 'unknown') + ')' : ''));
+  }
   loadPeople();
   autoLogin();
   loadDashboard();
