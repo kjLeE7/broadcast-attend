@@ -44,7 +44,10 @@ button { font-family: inherit; cursor: pointer; }
   width: 40px; height: 40px; border-radius: 50%; border: none;
   background: var(--sand); color: var(--accent); font-weight: 700; font-size: 13px;
   white-space: nowrap; flex: none; padding: 0;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  background-size: cover; background-position: center;
 }
+.avatar.has-photo { color: transparent; font-size: 0; }
 
 /* ===== 페이지 ===== */
 .page { display: none; animation: fade .25s ease; }
@@ -463,3 +466,16 @@ input[type="tel"] {
   border-radius: 14px; border: 1.5px solid var(--line); background: var(--card-soft); color: var(--text);
 }
 #sub-info input[type="date"] { min-height: 49px; -webkit-appearance: none; appearance: none; }
+
+/* ===== v26: 프로필 사진 ===== */
+.avatar-edit { position: relative; flex: none; cursor: pointer; display: block; }
+.avatar-edit .avatar.big { width: 64px; height: 64px; font-size: 18px; }
+.avatar-cam { position: absolute; right: -2px; bottom: -2px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); border: 2px solid var(--card); display: none; align-items: center; justify-content: center; }
+.avatar-cam svg { width: 13px; height: 13px; fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
+.avatar-edit.on .avatar-cam { display: flex; }
+.avatar-edit.busy .avatar { opacity: .5; }
+.profile-meta { min-width: 0; flex: 1; }
+.photo-actions { display: flex; gap: 6px; margin-top: 8px; }
+.photo-actions button { border: 1px solid var(--line); background: var(--card-soft); color: var(--accent); font-family: inherit; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 99px; cursor: pointer; }
+.photo-actions button#photoRemoveBtn { color: var(--muted); }
+#photoMsg { margin-top: 6px; min-height: 0; text-align: left; font-size: 12.5px; }
