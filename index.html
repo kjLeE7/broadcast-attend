@@ -384,7 +384,7 @@ document.getElementById('msg').textContent = '오류: ' + err.message;
         return;
       }
 
-      var payload = JSON.stringify({ typeId: typeId, datetime: datetime, place: place });
+      var payload = JSON.stringify({ typeId: typeId, datetime: datetime, place: place, personId: currentPersonId(), hostName: currentPersonName() });
 
       document.getElementById('noticeSubmitBtn').disabled = true;
       document.getElementById('adminMsg').textContent = '저장 중...';
