@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260921c">
+  <link rel="stylesheet" href="style.css?v=20260921d">
 </head>
 <body>
   <div class="app">
@@ -34,24 +34,24 @@
 
     <!-- ===== 홈 ===== -->
     <section class="page active" id="page-home">
-      <h1 class="page-title" id="homeTitle">Overview</h1>
+      <h1 class="page-title home-title" id="homeTitle">방송예술을 한 눈에</h1>
       <p class="page-desc" id="todayText"></p>
 
-      <!-- 과장·부과장 전용 대시보드 -->
-      <div id="managerArea" style="display:none;">
+      <!-- 과 대시보드 (모두 같은 화면) -->
+      <div id="managerArea">
         <div class="stats">
-          <div class="stat accent"><div class="stat-label">진행 중 업무</div><div class="stat-value" id="dStatNow">–</div></div>
-          <div class="stat"><div class="stat-label">예정 업무</div><div class="stat-value" id="dStatUp">–</div></div>
+          <div class="stat accent"><div class="stat-label">우리는 지금</div><div class="stat-value" id="dStatNow">–</div></div>
+          <div class="stat"><div class="stat-label">우리는 준비 중</div><div class="stat-value" id="dStatUp">–</div></div>
           <div class="stat"><div class="stat-label">프로젝트</div><div class="stat-value" id="dStatProj">–</div></div>
         </div>
 
         <div class="section-head"><h2>사명자 일정</h2><span class="section-count">오늘부터 2주</span></div>
         <div class="card table-card" id="scheduleArea"><div class="skeleton row-skel"></div></div>
 
-        <div class="section-head"><h2>진행 중인 업무</h2><span class="live-dot" id="taskLiveDot"></span></div>
+        <div class="section-head"><h2>우리는 지금</h2><span class="section-count">하나님나라 건설 중이예요!</span><span class="live-dot" id="taskLiveDot"></span></div>
         <div id="taskNowArea"><div class="skeleton row-skel"></div></div>
 
-        <div class="section-head"><h2>예정 업무</h2><span class="section-count" id="taskUpCount"></span></div>
+        <div class="section-head"><h2>우리는 준비 중</h2><span class="section-count">많은 기도가 필요해요. <b id="taskUpCount"></b></span></div>
         <div class="filter-chips" id="teamFilter">
           <button class="fchip active" data-team="">전체</button>
           <button class="fchip" data-team="성우팀">성우팀</button>
@@ -290,6 +290,6 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260921c"></script>
+  <script src="app.js?v=20260921d"></script>
 </body>
 </html>
