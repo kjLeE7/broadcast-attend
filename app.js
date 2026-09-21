@@ -43,19 +43,30 @@ function callApi(action, params) {
       url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
     });
   }
-  return fetch(url)
-    .then(function(res) { return res.json(); })
+  return fetchJsonRetry(function() { return fetch(url); }, 3)
     .then(function(json) {
       if (json.ok) return json.result;
       throw new Error(json.error || '알 수 없는 오류');
     });
 }
 
+// 구글 서버가 가끔 데이터 대신 오류 페이지를 돌려줄 때 잠깐 쉬었다가 다시 시도
+function fetchJsonRetry(doFetch, tries) {
+  return doFetch()
+    .then(function(res) { return res.text(); })
+    .then(function(text) { return JSON.parse(text); })
+    .catch(function(err) {
+      if (tries <= 1) throw new Error('서버 연결이 불안정해요. 잠시 후 다시 시도해주세요.');
+      return new Promise(function(r) { setTimeout(r, 900); }).then(function() { return fetchJsonRetry(doFetch, tries - 1); });
+    });
+}
+
 // 로그인·저장은 POST로 (서버가 텔레그램 서명 또는 로그인 토큰으로 본인 확인)
 function postApi(action, data) {
   var body = Object.assign({ action: action, initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '' }, data || {});
-  return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) })
-    .then(function(res) { return res.json(); })
+  // 저장 요청은 두 번 들어가면 안 되니 재시도 안 함 (조회·로그인 확인만 재시도)
+  var tries = (action === 'whoami') ? 3 : 1;
+  return fetchJsonRetry(function() { return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }); }, tries)
     .then(function(json) {
       if (json.ok) return json.result;
       if (/로그인이 필요/.test(json.error || '')) { safeRemoveLocal(TOKEN_KEY); showLoggedOut(); }
