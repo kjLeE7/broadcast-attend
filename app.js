@@ -289,7 +289,6 @@ function forgetMe() {
   document.getElementById('welcome').style.display = 'none';
   document.getElementById('manualSelectBlock').style.display = 'block';
   hideAdminUI();
-  hideManagerUI();
 }
 
 function currentPersonId() {
@@ -315,31 +314,22 @@ function hideAdminUI() {
   document.getElementById('adminCard').style.display = 'none';
 }
 function checkAndShowAdmin(personId) {
-  if (!personId) { hideAdminUI(); hideManagerUI(); return; }
+  if (!personId) { hideAdminUI(); return; }
   callApi('getMyRoles', { personId: personId }).then(function(r) {
     if (r.isAdmin) document.getElementById('adminCard').style.display = 'block';
     else hideAdminUI();
     if (identifiedPerson && String(identifiedPerson.id) === String(personId) && r.roles.length) {
       document.getElementById('profileRole').textContent = '방송예술과 · ' + r.roles.join(', ');
     }
-    if (r.isManager && identifiedPerson && String(identifiedPerson.id) === String(personId)) loadDashboard();
-    else hideManagerUI();
   }).catch(function() {});
 }
 
-// ===== 과 대시보드 (과장·부과장) =====
+// ===== 과 대시보드 (모두 같은 화면) =====
 var dashData = null;
 var teamFilter = '';
 var TASK_ICON = { '녹음': '🎙', '사회': '🎤', '촬영': '🎥', '음향편집': '🎚' };
 
-function hideManagerUI() {
-  document.getElementById('managerArea').style.display = 'none';
-  document.getElementById('homeTitle').textContent = 'Overview';
-}
-
 function loadDashboard() {
-  document.getElementById('managerArea').style.display = 'block';
-  document.getElementById('homeTitle').textContent = 'Dashboard';
   return callApi('getDashboard', { personId: currentPersonId() }).then(function(d) {
     dashData = d;
     renderManager();
@@ -367,16 +357,17 @@ function renderManager() {
     sa.innerHTML = '<div class="empty"><b>2주 안에 등록된 일정이 없어요</b>\'사명자일정\' 시트에 입력하면 여기에 보여요</div>';
   } else {
     var today = Date.now(), prevDay = null;
-    sa.innerHTML = '<table class="sched"><thead><tr><th>날짜·시간</th><th>이름</th><th>일정</th></tr></thead><tbody>' +
+    sa.innerHTML = '<table class="sched"><thead><tr><th>날짜·시간</th><th>일정</th><th>주관자</th><th>참여자</th></tr></thead><tbody>' +
       d.schedules.map(function(r) {
         var showDate = prevDay === null || !sameDay(prevDay, r.start);
         prevDay = r.start;
         return '<tr class="' + (sameDay(r.start, today) ? 'today' : '') + '">' +
           '<td class="c-date">' + (showDate ? mdw(r.start) : '') +
             '<span class="c-time">' + hmMs(r.start) + (r.end ? '~' + hmMs(r.end) : '') + '</span></td>' +
-          '<td class="c-who"><b>' + escapeHtml(r.name) + '</b><span>' + escapeHtml(r.role) + '</span></td>' +
           '<td class="c-what"><b>' + escapeHtml(r.title) + '</b><span>' +
             escapeHtml([r.category, r.place].filter(Boolean).join(' · ')) + '</span></td>' +
+          '<td class="c-who"><b>' + escapeHtml(r.name) + '</b><span>' + escapeHtml(r.role) + '</span></td>' +
+          '<td class="c-part">' + (r.participants ? escapeHtml(r.participants) : '–') + '</td>' +
         '</tr>';
       }).join('') + '</tbody></table>';
   }
@@ -577,6 +568,7 @@ function submitNotice() {
     d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + WEEKDAYS[d.getDay()] + '요일';
   loadMeetings();
   loadPeople();
+  loadDashboard();
   setInterval(renderDashboard, 60 * 1000); // 1분마다 진행 중/예정 다시 계산
-  setInterval(function() { if (dashData) loadDashboard(); }, 5 * 60 * 1000); // 5분마다 대시보드 새로고침
+  setInterval(loadDashboard, 5 * 60 * 1000); // 5분마다 대시보드 새로고침
 })();
