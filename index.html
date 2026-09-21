@@ -1,406 +1,155 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>출결체크</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>방송예술과</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    :root {
-      --primary: #4F46E5;
-      --primary-soft: rgba(79,70,229,0.10);
-      --bg: #F5F6FA;
-      --card: #FFFFFF;
-      --text: #1F2430;
-      --muted: #8A8F98;
-      --border: #E4E7EC;
-      --radius: 16px;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; padding: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
-    .container { max-width: 480px; margin: 0 auto; padding: 24px 16px 48px; }
-    .page-title { font-size: 20px; font-weight: 700; margin: 0 0 20px; display:flex; align-items:center; gap:8px; }
-    .page-title .dot { width:8px; height:8px; border-radius:50%; background:var(--primary); display:inline-block; }
-
-    .card {
-      background: var(--card);
-      border-radius: var(--radius);
-      padding: 20px;
-      margin-bottom: 16px;
-      box-shadow: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.04);
-    }
-
-    #welcome {
-      display:none; align-items:center; justify-content:space-between;
-      background: var(--primary-soft); color: var(--primary);
-      padding: 12px 16px; border-radius: 12px; font-weight:600; margin-bottom:16px; font-size:14px;
-    }
-    #welcome a { font-weight:500; font-size:12px; color: var(--muted); text-decoration:underline; white-space:nowrap; margin-left:12px; }
-
-    label.field-label { display:block; font-size:13px; font-weight:600; color:var(--muted); margin: 16px 0 6px; }
-    label.field-label:first-child { margin-top:0; }
-
-    select, textarea, input[type="text"], input[type="datetime-local"] {
-      width:100%; padding:12px 14px; font-size:15px;
-      border-radius:12px; border:1.5px solid var(--border);
-      background:#fff; color:var(--text);
-      transition: border-color .15s, box-shadow .15s;
-      font-family: inherit;
-    }
-    select:focus, textarea:focus, input:focus {
-      outline:none; border-color: var(--primary);
-      box-shadow: 0 0 0 3px var(--primary-soft);
-    }
-
-    .radio-group { display:flex; gap:8px; margin-top:6px; }
-    .radio-group input { display:none; }
-    .radio-group label {
-      flex:1; text-align:center; padding:10px 0; font-size:14px; font-weight:600;
-      border:1.5px solid var(--border); border-radius:12px; color:var(--muted);
-      cursor:pointer; transition: all .15s;
-    }
-    .radio-group input:checked + label {
-      border-color: var(--primary); color: var(--primary); background: var(--primary-soft);
-    }
-
-    .checkbox-row { display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; color:var(--muted); }
-    .checkbox-row input { width:16px; height:16px; }
-    .checkbox-row label { font-weight:500; }
-
-    button.primary {
-      margin-top:22px; width:100%; padding:14px; border:none; border-radius:12px;
-      background: var(--primary); color:#fff; font-size:15px; font-weight:700;
-      transition: opacity .15s, transform .05s;
-    }
-    button.primary:active { transform: scale(0.98); }
-    button.primary:disabled { opacity:0.5; }
-
-    button.ghost {
-      margin-top:22px; width:100%; padding:12px; border-radius:12px;
-      background:none; border:1.5px dashed var(--border); color:var(--muted);
-      font-size:13px; font-weight:600;
-    }
-
-    #msg, #adminMsg { margin-top:12px; text-align:center; font-weight:600; font-size:14px; white-space:pre-wrap; color: var(--primary); }
-    #debug { font-size:11px; color:#bbb; margin-top:20px; white-space:pre-wrap; }
-
-    .section-title { font-size:14px; font-weight:700; margin:0 0 4px; }
-    .section-sub { font-size:12px; color:var(--muted); margin:0 0 14px; }
-  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+  <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 -->
+  <link rel="stylesheet" href="style.css?v=20260921">
 </head>
 <body>
-  <div class="container">
-    <div class="page-title"><span class="dot"></span>출결체크</div>
+  <div class="app">
 
-    <div class="card">
-      <div id="welcome"></div>
+    <!-- ===== 상단 헤더 ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">방</div>
+        <div>
+          <div class="brand-title">방송예술과</div>
+          <div class="brand-sub" id="greeting">반가워요 👋</div>
+        </div>
+      </div>
+      <button class="avatar" id="avatar" onclick="goTab('attend')" aria-label="내 정보">?</button>
+    </header>
 
-      <label class="field-label">모임 선택</label>
-      <select id="classSelect"></select>
+    <!-- ===== 홈(대시보드) ===== -->
+    <section class="page active" id="page-home">
+      <h1 class="page-title">Overview</h1>
+      <p class="page-desc" id="todayText"></p>
 
-      <div id="manualSelectBlock">
-        <label class="field-label">본인 이름</label>
-        <select id="personSelect"></select>
-        <div class="checkbox-row" id="rememberRow">
-          <input type="checkbox" id="rememberMe" checked>
-          <label for="rememberMe">다음부터 자동으로 알아보기</label>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">진행 중</div>
+          <div class="stat-value" id="statNow">–</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">예정된 모임</div>
+          <div class="stat-value" id="statUpcoming">–</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">다음 모임</div>
+          <div class="stat-value" id="statNext">–</div>
         </div>
       </div>
 
-      <label class="field-label">참석 여부</label>
-      <div class="radio-group">
-        <input type="radio" name="status" id="st1" value="참석" checked><label for="st1">참석</label>
-        <input type="radio" name="status" id="st2" value="불참"><label for="st2">불참</label>
-        <input type="radio" name="status" id="st3" value="지각"><label for="st3">지각</label>
+      <div class="section-head">
+        <h2>지금 진행 중</h2>
+        <span class="live-dot" id="liveDot"></span>
+      </div>
+      <div id="nowArea">
+        <div class="skeleton hero-skel"></div>
       </div>
 
-      <label class="field-label">사유 (불참/지각 시 작성)</label>
-      <textarea id="reason" rows="2"></textarea>
+      <div class="section-head">
+        <h2>예정된 일정</h2>
+        <span class="section-count" id="upcomingCount"></span>
+      </div>
+      <div id="upcomingArea">
+        <div class="skeleton row-skel"></div>
+        <div class="skeleton row-skel"></div>
+      </div>
 
-      <button class="primary" id="submitBtn" onclick="submitForm()">제출</button>
-      <div id="msg"></div>
-    </div>
+      <div id="debug" class="debug"></div>
+    </section>
 
-    <button class="ghost" id="adminToggle" onclick="toggleAdminBlock()" style="display:none;">+ 모임 공지 만들기</button>
+    <!-- ===== 출결 ===== -->
+    <section class="page" id="page-attend">
+      <h1 class="page-title">Attendance</h1>
+      <p class="page-desc">모임 출결을 남겨주세요</p>
 
-    <div class="card" id="adminBlock" style="display:none;">
-      <div class="section-title">모임 공지 만들기</div>
-      <div class="section-sub">교관 이상만 볼 수 있는 메뉴예요</div>
+      <div class="card">
+        <div id="welcome" class="welcome"></div>
 
-      <label class="field-label">모임유형</label>
-      <select id="noticeTypeSelect"></select>
+        <label class="field-label" for="classSelect">모임 선택</label>
+        <div class="select-wrap"><select id="classSelect"></select></div>
 
-      <label class="field-label">일시</label>
-      <input type="datetime-local" id="noticeDatetime">
+        <div id="manualSelectBlock">
+          <label class="field-label" for="personSelect">본인 이름</label>
+          <div class="select-wrap"><select id="personSelect"></select></div>
+          <label class="checkbox-row" id="rememberRow">
+            <input type="checkbox" id="rememberMe" checked>
+            <span>다음부터 자동으로 알아보기</span>
+          </label>
+        </div>
 
-      <label class="field-label">장소</label>
-      <select id="noticePlace">
-        <option value="">-- 장소 선택 --</option>
-        <option value="스담">스담</option>
-        <option value="총회 사무실">총회 사무실</option>
-        <option value="SMC">SMC</option>
-        <option value="코드원 스튜디오">코드원 스튜디오</option>
-        <option value="벽산 편집실">벽산 편집실</option>
-        <option value="과천성전(9층)">과천성전(9층)</option>
-        <option value="과천성전(10층)">과천성전(10층)</option>
-      </select>
+        <label class="field-label">참석 여부</label>
+        <div class="segmented">
+          <input type="radio" name="status" id="st1" value="참석" checked><label for="st1">참석</label>
+          <input type="radio" name="status" id="st2" value="불참"><label for="st2">불참</label>
+          <input type="radio" name="status" id="st3" value="지각"><label for="st3">지각</label>
+        </div>
 
-      <button class="primary" id="noticeSubmitBtn" onclick="submitNotice()">공지 저장</button>
-      <div id="adminMsg"></div>
-    </div>
+        <label class="field-label" for="reason">사유 <span class="hint">불참·지각 시 작성</span></label>
+        <textarea id="reason" rows="3" placeholder="예) 회사 야근으로 30분 늦어요"></textarea>
 
-    <div id="debug"></div>
+        <button class="btn-primary" id="submitBtn" onclick="submitForm()">출결 제출</button>
+        <div id="msg" class="msg"></div>
+      </div>
+    </section>
+
+    <!-- ===== 공지 만들기 (교관 이상) ===== -->
+    <section class="page" id="page-notice">
+      <h1 class="page-title">New Meeting</h1>
+      <p class="page-desc">교관 이상만 볼 수 있는 메뉴예요</p>
+
+      <div class="card">
+        <label class="field-label" for="noticeTypeSelect">모임유형</label>
+        <div class="select-wrap"><select id="noticeTypeSelect"></select></div>
+
+        <label class="field-label" for="noticeDatetime">일시</label>
+        <input type="datetime-local" id="noticeDatetime">
+
+        <label class="field-label" for="noticePlace">장소</label>
+        <div class="select-wrap">
+          <select id="noticePlace">
+            <option value="">장소를 선택하세요</option>
+            <option value="스담">스담</option>
+            <option value="총회 사무실">총회 사무실</option>
+            <option value="SMC">SMC</option>
+            <option value="코드원 스튜디오">코드원 스튜디오</option>
+            <option value="벽산 편집실">벽산 편집실</option>
+            <option value="과천성전(9층)">과천성전(9층)</option>
+            <option value="과천성전(10층)">과천성전(10층)</option>
+          </select>
+        </div>
+
+        <button class="btn-primary" id="noticeSubmitBtn" onclick="submitNotice()">공지 저장</button>
+        <div id="adminMsg" class="msg"></div>
+      </div>
+    </section>
+
+    <!-- ===== 하단 탭 ===== -->
+    <nav class="tabbar">
+      <button class="tab active" data-tab="home" onclick="goTab('home')">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
+        <span>홈</span>
+      </button>
+      <button class="tab" data-tab="attend" onclick="goTab('attend')">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
+        <span>출결</span>
+      </button>
+      <button class="tab" data-tab="notice" id="noticeTab" onclick="goTab('notice')" style="display:none;">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        <span>공지</span>
+      </button>
+    </nav>
   </div>
 
-  <script>
-    var API_URL = 'https://script.google.com/macros/s/AKfycbz5rjT76_NTywRcYDL5BOXKKbfaBZm-V3Fk82_0z5qngfTs2NUDueX0irFH5Uaqi7Hm/exec';
-
-    var STORAGE_KEY_ID = 'myPersonId';
-    var STORAGE_KEY_NAME = 'myPersonName';
-    var identifiedPerson = null;
-    var telegramId = null;
-
-    if (window.Telegram && Telegram.WebApp) {
-      Telegram.WebApp.ready();
-      Telegram.WebApp.expand();
-      var u = Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user;
-      if (u && u.id) telegramId = u.id;
-    }
-
-    function callApi(action, params) {
-      var url = API_URL + '?action=' + encodeURIComponent(action);
-      if (params) {
-        Object.keys(params).forEach(function(k) {
-          url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-        });
-      }
-      return fetch(url)
-        .then(function(res) { return res.json(); })
-        .then(function(json) {
-          if (json.ok) return json.result;
-          throw new Error(json.error || '알 수 없는 오류');
-        });
-    }
-
-    function safeGetLocal(key) {
-      try { return localStorage.getItem(key); } catch (e) { return null; }
-    }
-    function safeSetLocal(key, value) {
-      try { localStorage.setItem(key, value); } catch (e) {}
-    }
-    function safeClearLocal() {
-      try {
-        localStorage.removeItem(STORAGE_KEY_ID);
-        localStorage.removeItem(STORAGE_KEY_NAME);
-      } catch (e) {}
-    }
-
-    function showWelcome(name) {
-      var w = document.getElementById('welcome');
-      w.style.display = 'flex';
-      w.innerHTML = '<span>👋 ' + name + '님, 안녕하세요!</span><a href="#" onclick="forgetMe();return false;">저 아니에요</a>';
-      document.getElementById('manualSelectBlock').style.display = 'none';
-    }
-
-    function forgetMe() {
-      safeClearLocal();
-      if (telegramId) {
-        callApi('unlinkTelegramId', { telegramId: telegramId }).catch(function(){});
-      }
-      identifiedPerson = null;
-      document.getElementById('welcome').style.display = 'none';
-      document.getElementById('manualSelectBlock').style.display = 'block';
-      hideAdminUI();
-    }
-
-    function currentPersonId() {
-      return identifiedPerson ? identifiedPerson.id : document.getElementById('personSelect').value;
-    }
-    function currentPersonName() {
-      if (identifiedPerson) return identifiedPerson.name;
-      var sel = document.getElementById('personSelect');
-      return sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
-    }
-
-    function hideAdminUI() {
-      document.getElementById('adminToggle').style.display = 'none';
-      document.getElementById('adminBlock').style.display = 'none';
-    }
-
-    function checkAndShowAdmin(personId) {
-      if (!personId) { hideAdminUI(); return; }
-      callApi('checkAdmin', { personId: personId }).then(function(isAdmin) {
-        document.getElementById('adminToggle').style.display = isAdmin ? 'block' : 'none';
-        if (!isAdmin) hideAdminUI();
-      }).catch(function() {});
-    }
-
-    function toggleAdminBlock() {
-      var block = document.getElementById('adminBlock');
-      var show = block.style.display !== 'block';
-      block.style.display = show ? 'block' : 'none';
-      if (show && document.getElementById('noticeTypeSelect').options.length === 0) {
-        loadMeetingTypes();
-      }
-    }
-
-    function loadMeetingTypes() {
-      callApi('getMeetingTypesForNotice').then(function(types) {
-        var sel = document.getElementById('noticeTypeSelect');
-        types.forEach(function(t) {
-          var opt = document.createElement('option');
-          opt.value = t.id;
-          opt.textContent = t.name;
-          sel.appendChild(opt);
-        });
-      }).catch(function(err) {
-        document.getElementById('adminMsg').textContent = '오류: ' + err.message;
-      });
-    }
-
-    function loadMeetings() {
-      var sel = document.getElementById('classSelect');
-      sel.innerHTML = '';
-      callApi('getUpcomingMeetings').then(function(meetings) {
-        meetings.forEach(function(c) {
-          var opt = document.createElement('option');
-          opt.value = c.id;
-          opt.textContent = '[' + c.typeName + '] ' + c.datetime + ' (' + c.place + ')';
-          sel.appendChild(opt);
-        });
-      }).catch(function(err) {
-        document.getElementById('debug').textContent = '모임목록 오류: ' + err.message;
-      });
-    }
-
-    loadMeetings();
-
-    function trySavedLocal(people) {
-      var savedId = safeGetLocal(STORAGE_KEY_ID);
-      var savedName = safeGetLocal(STORAGE_KEY_NAME);
-      if (savedId) {
-        var stillExists = people.some(function(p) { return String(p.id) === String(savedId); });
-        if (stillExists) {
-          identifiedPerson = { id: savedId, name: savedName };
-          showWelcome(savedName);
-          checkAndShowAdmin(savedId);
-        } else {
-          safeClearLocal();
-        }
-      }
-    }
-
-    callApi('getPeople').then(function(people) {
-      var sel = document.getElementById('personSelect');
-      var placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = '── 이름을 선택하세요 ──';
-      sel.appendChild(placeholder);
-      people.forEach(function(p) {
-        var opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name;
-        sel.appendChild(opt);
-      });
-
-      sel.addEventListener('change', function() {
-        checkAndShowAdmin(sel.value);
-      });
-
-      if (telegramId) {
-        // 텔레그램 계정 기준 자동인식 (기기 안 가리고 인식됨)
-        document.getElementById('rememberRow').style.display = 'none';
-        callApi('findPersonByTelegramId', { telegramId: telegramId }).then(function(person) {
-          if (person) {
-            identifiedPerson = person;
-            showWelcome(person.name);
-            checkAndShowAdmin(person.id);
-          } else {
-            trySavedLocal(people);
-          }
-        }).catch(function() {
-          trySavedLocal(people);
-        });
-      } else {
-        trySavedLocal(people);
-      }
-    }).catch(function(err) {
-      document.getElementById('debug').textContent = '인물목록 오류: ' + err.message;
-    });
-
-    function submitForm() {
-      var classId = document.getElementById('classSelect').value;
-      var personId = currentPersonId();
-      var personName = currentPersonName();
-
-      if (!identifiedPerson && !personId) {
-        document.getElementById('msg').textContent = '본인 이름을 선택해주세요!';
-        return;
-      }
-
-      var status = document.querySelector('input[name="status"]:checked').value;
-      var reason = document.getElementById('reason').value;
-
-      document.getElementById('submitBtn').disabled = true;
-      document.getElementById('msg').textContent = '제출 중...';
-
-      var payload = JSON.stringify({ classId: classId, personId: personId, personName: personName, status: status, reason: reason });
-
-      callApi('submitAttendance', { data: payload }).then(function() {
-        document.getElementById('msg').textContent = '제출 완료!';
-        document.getElementById('submitBtn').disabled = false;
-
-        if (!identifiedPerson) {
-          if (telegramId) {
-            callApi('linkTelegramId', { personId: personId, telegramId: telegramId }).catch(function(){});
-          } else {
-            var remember = document.getElementById('rememberMe');
-            if (remember && remember.checked) {
-              safeSetLocal(STORAGE_KEY_ID, personId);
-              safeSetLocal(STORAGE_KEY_NAME, personName);
-            }
-          }
-        }
-      }).catch(function(err) {
-        
-document.getElementById('msg').textContent = '오류: ' + err.message;
-        document.getElementById('submitBtn').disabled = false;
-      });
-    }
-
-    function submitNotice() {
-      var typeId = document.getElementById('noticeTypeSelect').value;
-      var datetime = document.getElementById('noticeDatetime').value;
-      var place = document.getElementById('noticePlace').value;
-
-      if (!typeId || !datetime || !place) {
-        document.getElementById('adminMsg').textContent = '모든 정보를 입력해주세요!';
-        return;
-      }
-
-      var payload = JSON.stringify({ typeId: typeId, datetime: datetime, place: place, personId: currentPersonId(), hostName: currentPersonName() });
-
-      document.getElementById('noticeSubmitBtn').disabled = true;
-      document.getElementById('adminMsg').textContent = '저장 중...';
-
-      callApi('submitNotice', { data: payload }).then(function() {
-        document.getElementById('adminMsg').textContent = '저장 완료!';
-        document.getElementById('noticeSubmitBtn').disabled = false;
-        loadMeetings();
-        setTimeout(function() {
-          document.getElementById('adminBlock').style.display = 'none';
-        }, 1500);
-      }).catch(function(err) {
-        document.getElementById('adminMsg').textContent = '오류: ' + err.message;
-        document.getElementById('noticeSubmitBtn').disabled = false;
-      });
-    }
-  </script>
+  <script src="app.js?v=20260921"></script>
 </body>
 </html>
