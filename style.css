@@ -520,8 +520,7 @@ body.sheet-open .fab-wrap, body.drawer-open .fab-wrap { display: none; }
 .people-top button { border: none; background: none; color: var(--accent); font-family: inherit; font-weight: 700; font-size: 13px; cursor: pointer; padding: 2px 0; }
 .people-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .person { border: 1.5px solid var(--line); background: var(--card-soft); color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600; padding: 8px 12px; border-radius: 12px; cursor: pointer; }
-.person.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 800; }
-.person.on::before { content: "✓ "; }
+.person.on { border-color: var(--accent); background: #DEDACA; color: var(--accent); font-weight: 800; }
 .person.me { opacity: .6; cursor: default; }
 .picked-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .poll-card { background: var(--card); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow); margin-bottom: 8px; }
@@ -569,3 +568,14 @@ body.sheet-open .fab-wrap, body.drawer-open .fab-wrap { display: none; }
 .poll-banner b { display: block; font-size: 15px; }
 .poll-banner small { font-size: 12.5px; opacity: .8; }
 .poll-banner .pb-go { margin-left: auto; font-size: 20px; opacity: .8; }
+
+/* ===== v28: 30분 칸 + 특이사항 ===== */
+.tgrid.half .gc { height: 20px; border-radius: 4px; }
+.tgrid.half .gc.hr { margin-top: 3px; }
+.tgrid.half .gt { transform: translateY(-3px); }
+.tgrid.half .gt.hr { margin-top: 3px; }
+.memo-list { background: var(--card); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); margin-top: 10px; }
+.memo-list h3 { font-size: 13px; color: var(--muted); margin: 0 0 6px; font-weight: 700; }
+.memo-list div { font-size: 13.5px; line-height: 1.6; }
+.memo-list b { margin-right: 6px; }
+#pdMemo { font-size: 14px; }
