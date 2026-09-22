@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260922k">
+  <link rel="stylesheet" href="style.css?v=20260922m">
 </head>
 <body>
   <div class="app">
@@ -36,6 +36,9 @@
     <section class="page active" id="page-home">
       <h1 class="page-title home-title" id="homeTitle">방송예술을 한 눈에</h1>
       <p class="page-desc" id="todayText"></p>
+
+      <!-- 응답할 시간취합 알림 -->
+      <div id="pollBanner"></div>
 
       <!-- 과 대시보드 (모두 같은 화면) -->
       <div id="managerArea">
@@ -319,6 +322,91 @@
     </nav>
   </div>
 
+  <!-- ===== 빠른 메뉴 (+ 버튼) ===== -->
+  <div class="fab-dim" id="fabDim" onclick="toggleFab(false)"></div>
+  <div class="fab-wrap" id="fabWrap">
+    <div class="fab-menu" id="fabMenu">
+      <button class="fab-item" onclick="openPollSheet()">
+        <span class="fab-label">시간취합</span>
+        <span class="fab-mini"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M12 13v3l2 1.5"/></svg></span>
+      </button>
+    </div>
+    <button class="fab" id="fab" onclick="toggleFab()" aria-label="빠른 메뉴 열기" aria-expanded="false">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </div>
+
+  <!-- ===== 가능시간 취합 만들기 (아래에서 올라오는 창) ===== -->
+  <div class="sheet-bg" id="pollBg" onclick="closePollSheet()"></div>
+  <section class="sheet" id="pollSheet" aria-hidden="true">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <div><h2>가능시간 취합</h2><small>누구나 만들 수 있어요</small></div>
+      <button class="close-btn" onclick="closePollSheet()" aria-label="닫기">✕</button>
+    </div>
+
+    <div id="pollLogin" class="empty inner" style="display:none;"><b>로그인이 필요해요</b>출결 탭에서 처음 한 번만 로그인해요</div>
+
+    <div id="pollForm">
+      <label class="field-label" for="pollTitle">모임 주제</label>
+      <input type="text" id="pollTitle" maxlength="80" placeholder="예) 웹드라마 3화 녹음 / 아나운서팀 합동 회의">
+
+      <label class="field-label">취합 대상 <span class="hint" id="pollPicked">0명 선택</span></label>
+      <div class="team-chips" id="pollTeams"></div>
+      <div class="people-box" id="pollPeople"><div class="people-empty">소속을 누르면 이름이 나와요</div></div>
+      <div class="picked-row" id="pollPickedList"></div>
+
+      <label class="field-label">후보 날짜 <span class="hint">최대 14일</span></label>
+      <div class="range-row"><input type="date" id="pollD0"><span>~</span><input type="date" id="pollD1"></div>
+
+      <label class="field-label">시간대 <span class="hint">1시간 단위로 칠해요</span></label>
+      <div class="range-row">
+        <div class="select-wrap"><select id="pollH0"><option value="0">0시</option><option value="1">1시</option><option value="2">2시</option><option value="3">3시</option><option value="4">4시</option><option value="5">5시</option><option value="6">6시</option><option value="7">7시</option><option value="8">8시</option><option value="9">9시</option><option value="10" selected>10시</option><option value="11">11시</option><option value="12">12시</option><option value="13">13시</option><option value="14">14시</option><option value="15">15시</option><option value="16">16시</option><option value="17">17시</option><option value="18">18시</option><option value="19">19시</option><option value="20">20시</option><option value="21">21시</option><option value="22">22시</option><option value="23">23시</option></select></div><span>~</span>
+        <div class="select-wrap"><select id="pollH1"><option value="1">1시</option><option value="2">2시</option><option value="3">3시</option><option value="4">4시</option><option value="5">5시</option><option value="6">6시</option><option value="7">7시</option><option value="8">8시</option><option value="9">9시</option><option value="10">10시</option><option value="11">11시</option><option value="12">12시</option><option value="13">13시</option><option value="14">14시</option><option value="15">15시</option><option value="16">16시</option><option value="17">17시</option><option value="18">18시</option><option value="19">19시</option><option value="20">20시</option><option value="21">21시</option><option value="22" selected>22시</option><option value="23">23시</option><option value="24">24시</option></select></div>
+      </div>
+
+      <label class="field-label" for="pollDeadline">취합 마감기한</label>
+      <input type="datetime-local" id="pollDeadline">
+
+      <button class="btn-primary" id="pollSubmitBtn" onclick="submitPoll()">취합 시작하기</button>
+      <div id="pollMsg" class="msg"></div>
+    </div>
+
+    <!-- 취합 하나 보기: 내 가능시간 칠하기 + 결과 -->
+    <div id="pollDetail" style="display:none;">
+      <button class="back" onclick="showPollHome()">‹ 목록으로</button>
+      <div class="pd-title" id="pdTitle"></div>
+      <div class="pd-meta" id="pdMeta"></div>
+      <div class="subtabs">
+        <button class="subtab pd-tab active" data-pd="mine" onclick="switchPd('mine')">내 가능시간</button>
+        <button class="subtab pd-tab" data-pd="result" onclick="switchPd('result')">결과</button>
+      </div>
+      <div id="pdMine">
+        <p class="pd-hint" id="pdHint">가능한 칸을 누르거나 쓸어서 칠해주세요</p>
+        <div class="pd-pager" id="pdPagerMine"></div>
+        <div class="grid-wrap" id="pdGridMine"></div>
+        <div class="pd-actions">
+          <button class="ghost-btn" type="button" onclick="clearMySlots()">전부 지우기</button>
+          <button class="btn-primary" id="pdSaveBtn" onclick="saveMySlots()">저장</button>
+        </div>
+        <div id="pdMsg" class="msg"></div>
+      </div>
+      <div id="pdResult" style="display:none;">
+        <div id="pdBest"></div>
+        <div class="pd-pager" id="pdPagerRes"></div>
+        <div class="grid-wrap" id="pdGridRes"></div>
+        <div class="pd-cell-info" id="pdCellInfo">칸을 누르면 누가 되는지 보여요</div>
+        <div id="pdWho"></div>
+        <button class="ghost-btn" id="pdCloseBtn" style="display:none;" onclick="closePollUI()">지금 마감하기</button>
+      </div>
+    </div>
+
+    <div id="pollListWrap" style="display:none;">
+      <div class="section-head"><h2>내 시간취합</h2><span class="section-count" id="pollListCount"></span></div>
+      <div id="pollList"></div>
+    </div>
+  </section>
+
   <!-- ===== 슬라이드 메뉴 ===== -->
   <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
   <aside class="drawer" id="drawer" aria-hidden="true">
@@ -357,6 +445,6 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260922k"></script>
+  <script src="app.js?v=20260922m"></script>
 </body>
 </html>
