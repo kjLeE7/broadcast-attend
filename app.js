@@ -16,6 +16,7 @@ if (tg) {
   tg.expand();
   try { tg.setHeaderColor('#F4F1EC'); tg.setBackgroundColor('#F4F1EC'); } catch (e) {}
   tgInitData = tg.initData || ''; // 텔레그램이 서명한 원본 (서버가 진짜인지 검사함)
+  try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {} // 아래로 쓸 때 앱이 닫히지 않게 (시간표 칠하기·스크롤용)
 }
 // 텔레그램 스크립트가 서명을 못 읽었을 때를 대비해 주소(#tgWebAppData=…)와 저장값에서 직접 찾아봄
 var tgSource = tgInitData ? 'sdk' : '';
@@ -168,6 +169,7 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { clo
 function switchSub(name) {
   document.querySelectorAll('.subtab').forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-sub') === name); });
   document.querySelectorAll('.sub').forEach(function(c) { c.classList.toggle('active', c.id === 'sub-' + name); });
+  if (name === 'fixed') loadFixed();
 }
 
 // 공지 작성 폼 열고 닫기
@@ -499,6 +501,8 @@ function showLoggedOut() {
   pollPicked = {}; pollTeam = ''; roster = null;
   document.getElementById('pollBanner').innerHTML = '';
   document.getElementById('weeklyBanner').innerHTML = '';
+  fixedList = null;
+  document.getElementById('fxList').innerHTML = '<div class="empty inner"><b>로그인하면 설정할 수 있어요</b></div>';
   document.getElementById('photoInput').disabled = true;
   document.getElementById('avatarEdit').classList.remove('on');
   document.getElementById('photoActions').style.display = 'none';
@@ -974,6 +978,7 @@ function openPollDetail(id, notice) {
     renderPd();
     switchPd(r.open && r.people.some(function(p) { return p.id === identifiedPerson.id; }) ? 'mine' : 'result');
     if (notice) setMsg('pdMsg', notice);
+    loadBusy(r.id);
   }).catch(function(err) {
     document.getElementById('pdTitle').textContent = '취합을 열 수 없어요';
     document.getElementById('pdMeta').textContent = err.message;
@@ -1020,7 +1025,8 @@ function renderPd() {
   document.getElementById('pdSaveBtn').disabled = !pd.open || !isTarget;
   document.getElementById('pdSaveBtn').classList.toggle('dirty', pdDirty);
   document.getElementById('pdHint').textContent = !pd.open ? '마감된 취합이에요. 결과 탭을 확인하세요.' :
-    (isTarget ? '가능한 칸을 누르거나 쓸어서 칠해주세요' : '이 취합의 대상이 아니에요');
+    (isTarget ? '탭: 한 칸 · 꾹 누른 채 쓸기: 여러 칸 · 그냥 쓸면 스크롤' : '이 취합의 대상이 아니에요');
+  renderPdQuick(isTarget);
   if (pdView === 'mine') { pdPager('pdPagerMine'); renderGrid('pdGridMine', false); }
   else { pdPager('pdPagerRes'); renderGrid('pdGridRes', true); renderPdResult(); }
 }
@@ -1041,7 +1047,10 @@ function renderGrid(boxId, res) {
       var key = slotKey(start + i, m);
       var hr = top && half ? ' hr' : '';
       if (!res) {
-        html += '<div class="gc' + hr + (pdMine[key] ? ' on' : '') + '" data-k="' + key + '"></div>';
+        var bl = busyLabel(start + i, m, step);
+        var blTop = bl && bl !== busyLabel(start + i, m - step, step);
+        html += '<div class="gc' + hr + (pdMine[key] ? ' on' : '') + (bl ? ' busy' : '') + '" data-k="' + key + '"' + (bl ? ' title="' + escapeHtml(bl) + '"' : '') + '>' +
+          (blTop ? '<span class="bl">' + escapeHtml(bl) + '</span>' : '') + '</div>';
       } else {
         var n = (pd.slots[key] || []).length;
         var a = n ? 0.15 + 0.85 * n / total : 0;
@@ -1054,13 +1063,19 @@ function renderGrid(boxId, res) {
   html += '</div>';
   var box = document.getElementById(boxId);
   box.innerHTML = html;
-  if (!res) bindPaint(box.firstChild);
+  if (!res) {
+    bindPaint(box.firstChild);
+    document.getElementById('pdBusyLegend').style.display = pd.busy && pd.busy.length ? 'flex' : 'none';
+  }
 }
 
-// 칸 칠하기: 누르면 켜기/끄기, 누른 채로 쓸면 같은 상태로 계속 칠함
+// 칸 칠하기
+// - 손가락: 탭 = 한 칸 켜기/끄기, 꾹(0.3초) 누른 채 쓸기 = 여러 칸 칠하기, 그냥 쓸기 = 화면 스크롤
+// - 마우스: 누른 채 끌면 바로 칠하기
 function bindPaint(grid) {
-  var mode = null;
-  function cellAt(x, y) { var el = document.elementFromPoint(x, y); return el && el.classList && el.classList.contains('gc') && grid.contains(el) ? el : null; }
+  var mode = null, hold = null, sx = 0, sy = 0, startEl = null;
+  function locked() { return document.getElementById('pdSaveBtn').disabled; }
+  function cellAt(x, y) { var el = document.elementFromPoint(x, y); if (el && el.classList && el.classList.contains('bl')) el = el.parentNode; return el && el.classList && el.classList.contains('gc') && grid.contains(el) ? el : null; }
   function paint(el) {
     if (!el) return;
     var k = el.getAttribute('data-k');
@@ -1069,15 +1084,130 @@ function bindPaint(grid) {
     el.classList.toggle('on', mode);
     markPdDirty();
   }
+  function begin(el) { mode = !pdMine[el.getAttribute('data-k')]; paint(el); grid.classList.add('painting'); }
+  function end() { clearTimeout(hold); hold = null; startEl = null; mode = null; grid.classList.remove('painting'); }
   grid.addEventListener('pointerdown', function(e) {
     var el = cellAt(e.clientX, e.clientY);
-    if (!el || document.getElementById('pdSaveBtn').disabled) return;
-    e.preventDefault();
-    mode = !pdMine[el.getAttribute('data-k')];
-    paint(el);
+    if (!el || locked()) return;
+    if (e.pointerType === 'mouse') { e.preventDefault(); begin(el); return; }
+    sx = e.clientX; sy = e.clientY; startEl = el;
+    hold = setTimeout(function() {
+      hold = null;
+      if (!startEl) return;
+      try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light'); } catch (x) {}
+      begin(startEl);
+    }, 300);
   });
-  grid.addEventListener('pointermove', function(e) { if (mode !== null) paint(cellAt(e.clientX, e.clientY)); });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function(t) { grid.addEventListener(t, function() { mode = null; }); });
+  grid.addEventListener('pointermove', function(e) {
+    if (mode !== null) { paint(cellAt(e.clientX, e.clientY)); return; }
+    if (hold && (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8)) { clearTimeout(hold); hold = null; startEl = null; } // 스크롤하는 중
+  });
+  grid.addEventListener('pointerup', function() {
+    if (hold && startEl) { clearTimeout(hold); hold = null; mode = !pdMine[startEl.getAttribute('data-k')]; paint(startEl); } // 짧게 탭
+    end();
+  });
+  grid.addEventListener('pointercancel', end);
+  grid.addEventListener('pointerleave', function(e) { if (e.pointerType === 'mouse') end(); });
+  // 칠하기 모드일 때만 화면이 같이 움직이지 않게 막음
+  grid.addEventListener('touchmove', function(e) { if (mode !== null && e.cancelable) e.preventDefault(); }, { passive: false });
+  grid.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+}
+
+// ----- 이미 일정이 있는 시간 (고정 일정 · 업무) -----
+function busyLabel(di, m, step) {
+  if (!pd || !pd.busy || !pd.busy.length || m < pd.h0 * 60) return '';
+  var d = pd.dates[di];
+  for (var i = 0; i < pd.busy.length; i++) {
+    var b = pd.busy[i];
+    if (b.date === d && b.from < m + step && b.to > m) return b.label;
+  }
+  return '';
+}
+function loadBusy(pollId) {
+  weeklyApi('weeklyBusy', { dates: pd.dates }).then(function(list) {
+    if (!pd || pd.id !== pollId) return;
+    pd.busy = list;
+    renderPd();
+  }).catch(function() {});
+}
+
+// 지난주와 같아요 / 고정 일정 설정 버튼
+function renderPdQuick(isTarget) {
+  var el = document.getElementById('pdQuick');
+  if (!pd.open || !isTarget) { el.innerHTML = ''; return; }
+  var h = '';
+  if (pd.weekly && pd.prev) h += '<button type="button" class="qbtn main" onclick="copyPrevWeek()">↺ 지난주와 같아요</button>';
+  h += '<button type="button" class="qbtn" onclick="goFixedSetting()">⚙ 고정 일정' + (pd.busy && pd.busy.some(function(b) { return b.kind === 'fixed'; }) ? ' 수정' : ' 설정') + '</button>';
+  el.innerHTML = h;
+}
+function copyPrevWeek() {
+  if (!pd || !pd.prev) return;
+  if (Object.keys(pdMine).length && !confirm('지금 칠한 칸을 지우고 ' + pd.prev.label + ' 입력으로 바꿀까요?')) return;
+  pdMine = {};
+  pd.prev.slots.forEach(function(k) { pdMine[k] = true; });
+  var memo = document.getElementById('pdMemo');
+  if (!memo.value.trim() && pd.prev.memo) memo.value = pd.prev.memo;
+  markPdDirty();
+  renderPd();
+  setMsg('pdMsg', pd.prev.label + ' 입력을 불러왔어요. 바뀐 곳만 고치고 저장을 눌러주세요.');
+}
+function goFixedSetting() {
+  if (pdDirty && !confirm('저장하지 않은 칸이 있어요. 그래도 이동할까요?')) return;
+  pdDirty = false;
+  closePollSheet();
+  goTab('profile');
+  switchSub('fixed');
+}
+
+// ===== 고정 일정 (프로필) =====
+var fixedList = null;
+var FX_DAYS = ['월', '화', '수', '목', '금', '토', '일']; // 1~7
+function fxTimeOptions(sel) {
+  var h = '';
+  for (var m = 0; m <= 24 * 60; m += 30) { var v = hmStr(m); h += '<option value="' + v + '"' + (v === sel ? ' selected' : '') + '>' + v + '</option>'; }
+  return h;
+}
+function loadFixed() {
+  if (!identifiedPerson) return;
+  if (fixedList) { renderFixed(); return; }
+  document.getElementById('fxList').innerHTML = '<div class="skeleton row-skel"></div>';
+  weeklyApi('weeklyGetFixed').then(function(list) { fixedList = list || []; renderFixed(); })
+    .catch(function(err) { document.getElementById('fxList').innerHTML = '<div class="empty inner"><b>불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>'; });
+}
+function renderFixed() {
+  var box = document.getElementById('fxList');
+  if (!fixedList.length) { box.innerHTML = '<div class="empty inner"><b>아직 고정 일정이 없어요</b>아래 버튼으로 추가해보세요 (예: 직장 월~금 09:00~18:00)</div>'; return; }
+  box.innerHTML = fixedList.map(function(f, i) {
+    return '<div class="fx-item"><div class="fx-top"><input type="text" maxlength="10" value="' + escapeHtml(f.label) + '" placeholder="직장" oninput="fixedList[' + i + '].label=this.value">' +
+      '<button type="button" class="fx-del" onclick="delFixed(' + i + ')">삭제</button></div>' +
+      '<div class="fx-days">' + FX_DAYS.map(function(d, j) { return '<button type="button" class="fx-day' + (f.days.indexOf(j + 1) !== -1 ? ' on' : '') + '" onclick="fxDay(' + i + ',' + (j + 1) + ')">' + d + '</button>'; }).join('') + '</div>' +
+      '<div class="range-row"><div class="select-wrap"><select onchange="fixedList[' + i + '].from=this.value">' + fxTimeOptions(f.from) + '</select></div><span>~</span>' +
+      '<div class="select-wrap"><select onchange="fixedList[' + i + '].to=this.value">' + fxTimeOptions(f.to) + '</select></div></div></div>';
+  }).join('');
+}
+function fxDay(i, d) { var a = fixedList[i].days, k = a.indexOf(d); if (k === -1) a.push(d); else a.splice(k, 1); renderFixed(); }
+function addFixed() {
+  if (!identifiedPerson) { setMsg('fxMsg', '로그인이 필요해요', true); return; }
+  if (!fixedList) fixedList = [];
+  if (fixedList.length >= 6) { setMsg('fxMsg', '6개까지 넣을 수 있어요', true); return; }
+  fixedList.push(fixedList.length ? { label: '', days: [], from: '19:00', to: '21:00' } : { label: '직장', days: [1, 2, 3, 4, 5], from: '09:00', to: '18:00' });
+  renderFixed();
+}
+function delFixed(i) { fixedList.splice(i, 1); renderFixed(); }
+function saveFixed() {
+  if (!identifiedPerson || !fixedList) return;
+  for (var i = 0; i < fixedList.length; i++) {
+    var f = fixedList[i];
+    if (!String(f.label).trim()) { setMsg('fxMsg', (i + 1) + '번째 일정 이름을 적어주세요 (예: 직장)', true); return; }
+    if (!f.days.length) { setMsg('fxMsg', '\'' + f.label + '\' 요일을 골라주세요', true); return; }
+    if (f.from >= f.to) { setMsg('fxMsg', '\'' + f.label + '\' 끝나는 시간이 시작보다 늦어야 해요', true); return; }
+  }
+  var btn = document.getElementById('fxSaveBtn');
+  btn.disabled = true; setMsg('fxMsg', '저장 중...');
+  weeklyApi('weeklySaveFixed', { list: fixedList }).then(function(r) {
+    fixedList = r; renderFixed(); btn.disabled = false; haptic('success');
+    setMsg('fxMsg', '저장했어요! 이제 가능시간 칠하는 화면에 음영으로 보여요.');
+  }).catch(function(err) { btn.disabled = false; setMsg('fxMsg', err.message, true); });
 }
 
 function clearMySlots() {

@@ -546,7 +546,7 @@ body.sheet-open .fab-wrap, body.drawer-open .fab-wrap { display: none; }
 .tgrid .gh b { display: block; color: var(--text); font-size: 12.5px; }
 .tgrid .gh.sun b { color: var(--bad); } .tgrid .gh.sat b { color: #4F6FA8; }
 .tgrid .gt { font-size: 10.5px; color: var(--muted); text-align: right; padding-right: 4px; transform: translateY(-6px); }
-.tgrid .gc { height: 28px; border-radius: 6px; background: var(--card-soft); border: 1px solid var(--line); touch-action: none; cursor: pointer; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.tgrid .gc { height: 28px; border-radius: 6px; background: var(--card-soft); border: 1px solid var(--line); touch-action: pan-y; -webkit-touch-callout: none; cursor: pointer; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
 .tgrid .gc.on { background: var(--accent); border-color: var(--accent); }
 .tgrid.res .gc { touch-action: manipulation; color: var(--accent); }
 .tgrid.res .gc.full { color: #fff; outline: 2px solid #D9B45A; outline-offset: -2px; }
@@ -587,3 +587,25 @@ body.sheet-open .fab-wrap, body.drawer-open .fab-wrap { display: none; }
 .wkchip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .poll-banner.urgent { background: var(--bad); box-shadow: 0 8px 20px rgba(181,83,63,.25); }
 .chip.bad { background: var(--bad); color: #fff; }
+
+/* 칠하기: 꾹 누르면 칠하기 모드 */
+.tgrid.painting { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
+.tgrid .gc.busy { background: repeating-linear-gradient(135deg, #E9E3D8 0 4px, #F4F0E8 4px 8px); border-color: #DDD5C6; position: relative; }
+.tgrid .gc.busy.on { background: var(--accent); border-color: var(--accent); }
+.tgrid .gc .bl { position: absolute; left: 1px; right: 1px; top: 1px; font-size: 9.5px; font-weight: 800; color: #7A7263; line-height: 1.1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: clip; pointer-events: none; }
+.tgrid .gc.busy.on .bl { color: rgba(255,255,255,.85); }
+.busy-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin: 8px 2px 0; }
+.busy-legend .sw { width: 16px; height: 12px; border-radius: 3px; background: repeating-linear-gradient(135deg, #E9E3D8 0 3px, #F4F0E8 3px 6px); border: 1px solid #DDD5C6; }
+.pd-quick { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+.pd-quick:empty { display: none; }
+.qbtn { border: 1.5px solid var(--line); background: var(--card); color: var(--text); font-family: inherit; font-size: 12.5px; font-weight: 700; padding: 7px 11px; border-radius: 99px; cursor: pointer; }
+.qbtn.main { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent); }
+/* 고정 일정 */
+.fx-desc { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0 0 12px; }
+.fx-item { border: 1.5px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+.fx-top { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.fx-top input { flex: 1; min-width: 0; }
+.fx-del { border: none; background: none; color: var(--bad); font-weight: 700; font-size: 13px; font-family: inherit; padding: 6px; cursor: pointer; }
+.fx-days { display: flex; gap: 4px; margin-bottom: 10px; }
+.fx-day { flex: 1; border: 1.5px solid var(--line); background: var(--card); color: var(--muted); font-family: inherit; font-weight: 700; font-size: 13px; padding: 8px 0; border-radius: 10px; cursor: pointer; }
+.fx-day.on { background: var(--accent); border-color: var(--accent); color: #fff; }

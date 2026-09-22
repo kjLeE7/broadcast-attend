@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260922w">
+  <link rel="stylesheet" href="style.css?v=20260922x">
 </head>
 <body>
   <div class="app">
@@ -261,6 +261,7 @@
 
       <div class="subtabs">
         <button class="subtab active" data-sub="info" onclick="switchSub('info')">인적사항</button>
+        <button class="subtab" data-sub="fixed" onclick="switchSub('fixed')">고정 일정</button>
         <button class="subtab" data-sub="work" onclick="switchSub('work')">실무 참여</button>
       </div>
 
@@ -276,6 +277,14 @@
         <label class="field-label" for="pf7">구역장님 연락처</label><input type="tel" id="pf7" data-f="구역장님연락처" disabled placeholder="010-0000-0001">
         <button class="btn-primary" id="pfSaveBtn" onclick="saveProfile()" disabled>저장</button>
         <div id="pfMsg" class="msg"></div>
+      </div>
+
+      <div class="card sub" id="sub-fixed">
+        <p class="fx-desc">직장·학교처럼 <b>매주 같은 일정</b>을 적어두면, 가능시간을 칠하는 화면에 미리 음영으로 표시돼요. 휴가 등으로 되는 날엔 그 칸도 그대로 고를 수 있어요.</p>
+        <div id="fxList"><div class="empty inner"><b>로그인하면 설정할 수 있어요</b></div></div>
+        <button class="ghost-btn" type="button" id="fxAddBtn" onclick="addFixed()">+ 일정 추가</button>
+        <button class="btn-primary" id="fxSaveBtn" onclick="saveFixed()">저장</button>
+        <div id="fxMsg" class="msg"></div>
       </div>
 
       <div class="card sub" id="sub-work">
@@ -394,8 +403,10 @@
       </div>
       <div id="pdMine">
         <p class="pd-hint" id="pdHint">가능한 칸을 누르거나 쓸어서 칠해주세요</p>
+        <div class="pd-quick" id="pdQuick"></div>
         <div class="pd-pager" id="pdPagerMine"></div>
         <div class="grid-wrap" id="pdGridMine"></div>
+        <div class="busy-legend" id="pdBusyLegend" style="display:none;"><span class="sw"></span>이미 일정이 있는 시간 (그래도 고를 수 있어요)</div>
         <label class="field-label" for="pdMemo">특이사항 <span class="hint">선택 · 칸으로 애매할 때</span></label>
         <textarea id="pdMemo" rows="2" maxlength="200" placeholder="예) 19:40까지 가능해요 / 22:10부터 가능해요" oninput="markPdDirty()"></textarea>
         <div class="pd-actions">
@@ -460,6 +471,6 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260922w"></script>
+  <script src="app.js?v=20260922x"></script>
 </body>
 </html>
