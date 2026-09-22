@@ -96,17 +96,20 @@ function openDrawer() {
   document.getElementById('drawer').classList.add('open');
   document.getElementById('overlay').classList.add('show');
   document.getElementById('drawer').setAttribute('aria-hidden', 'false');
+  document.body.classList.add('drawer-open');
+  toggleFab(false);
 }
 function closeDrawer() {
   document.getElementById('drawer').classList.remove('open');
   document.getElementById('overlay').classList.remove('show');
   document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('drawer-open');
 }
 function openMenuPage(name) {
   closeDrawer();
   setTimeout(function() { goTab(name); }, 180);
 }
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeDrawer(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeDrawer(); toggleFab(false); closePollSheet(); } });
 
 // 오른쪽으로 쓸어서 메뉴 닫기
 (function enableSwipeClose() {
@@ -414,6 +417,8 @@ function setIdentity(person, roles) {
   loadAssignments();
   loadProfile();
   loadPhoto();
+  loadMyPolls();
+  if (pendingPollId) { var pid = pendingPollId; pendingPollId = ''; openPollDetail(pid); }
 }
 
 function applyRoles(r) {
@@ -445,6 +450,8 @@ function showLoggedOut() {
   setProfileEnabled(false);
   document.querySelectorAll('#sub-info input[data-f]').forEach(function(i) { i.value = ''; });
   myPhoto = ''; setAvatarPhoto('');
+  pollPicked = {}; pollTeam = ''; roster = null;
+  document.getElementById('pollBanner').innerHTML = '';
   document.getElementById('photoInput').disabled = true;
   document.getElementById('avatarEdit').classList.remove('on');
   document.getElementById('photoActions').style.display = 'none';
@@ -715,6 +722,363 @@ function removePhoto() {
   }).catch(function(err) { setMsg('photoMsg', err.message, true); });
 }
 
+// ===== 빠른 메뉴 (+ 버튼) =====
+function toggleFab(force) {
+  var wrap = document.getElementById('fabWrap');
+  var open = typeof force === 'boolean' ? force : !wrap.classList.contains('open');
+  wrap.classList.toggle('open', open);
+  document.getElementById('fabDim').classList.toggle('show', open);
+  document.getElementById('fab').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+// ===== 가능시간 취합 만들기 =====
+var roster = null;         // { teams, people: [{id, name, teams}] }
+var pollTeam = '';         // 지금 보고 있는 소속
+var pollPicked = {};       // 고른 사람 { id: true }
+var pendingPollId = '';    // 링크로 열었는데 아직 로그인 확인 전
+
+function openPollSheet() {
+  toggleFab(false);
+  document.body.classList.add('sheet-open');
+  document.getElementById('pollBg').classList.add('show');
+  var sh = document.getElementById('pollSheet');
+  sh.classList.add('open');
+  sh.setAttribute('aria-hidden', 'false');
+  var logged = !!identifiedPerson;
+  document.getElementById('pollLogin').style.display = logged ? 'none' : 'block';
+  document.getElementById('pollForm').style.display = logged ? 'block' : 'none';
+  if (!logged) { document.getElementById('pollDetail').style.display = 'none'; return; }
+  showPollHome();
+}
+
+// 만들기 폼 + 내 목록 화면
+function showPollHome() {
+  document.getElementById('pollDetail').style.display = 'none';
+  document.getElementById('pollForm').style.display = 'block';
+  document.getElementById('pollSheet').scrollTop = 0;
+  var now = new Date();
+  var dl = document.getElementById('pollDeadline');
+  dl.min = localDT(now);
+  if (!dl.value) { var d = new Date(now.getTime() + 2 * 86400000); d.setHours(22, 0, 0, 0); dl.value = localDT(d); }
+  var d0 = document.getElementById('pollD0'), d1 = document.getElementById('pollD1');
+  d0.min = d1.min = localDT(now).slice(0, 10);
+  if (!d0.value) { d0.value = localDT(new Date(now.getTime() + 86400000)).slice(0, 10); d1.value = localDT(new Date(now.getTime() + 7 * 86400000)).slice(0, 10); }
+  if (!roster) loadRoster(); else renderPollPeople();
+  loadMyPolls();
+}
+
+function closePollSheet() {
+  if (pdDirty && pd && document.getElementById('pollDetail').style.display !== 'none' && !confirm('저장하지 않은 칸이 있어요. 그래도 닫을까요?')) return;
+  pdDirty = false;
+  document.body.classList.remove('sheet-open');
+  document.getElementById('pollBg').classList.remove('show');
+  var sh = document.getElementById('pollSheet');
+  sh.classList.remove('open');
+  sh.setAttribute('aria-hidden', 'true');
+}
+
+function localDT(d) {
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+function loadRoster() {
+  document.getElementById('pollPeople').innerHTML = '<div class="people-empty">이름을 불러오는 중...</div>';
+  postApi('getRoster').then(function(r) {
+    roster = r;
+    renderPollPeople();
+  }).catch(function(err) {
+    document.getElementById('pollPeople').innerHTML = '<div class="people-empty">이름을 불러오지 못했어요: ' + escapeHtml(err.message) + '</div>';
+  });
+}
+
+// 소속 목록: 3개 팀 + (팀 없는 사람이 있으면) 기타
+function pollTeamList() {
+  var list = roster.teams.slice();
+  if (roster.people.some(function(p) { return !p.teams.length; })) list.push('기타');
+  return list;
+}
+function teamMembers(team) {
+  return roster.people.filter(function(p) { return team === '기타' ? !p.teams.length : p.teams.indexOf(team) !== -1; });
+}
+function pickedCount(list) { return list.filter(function(p) { return pollPicked[p.id]; }).length; }
+
+function renderPollPeople() {
+  if (!roster) return;
+  var myId = identifiedPerson ? identifiedPerson.id : '';
+  document.getElementById('pollTeams').innerHTML = pollTeamList().map(function(t) {
+    var n = pickedCount(teamMembers(t));
+    return '<button type="button" class="team-chip' + (t === pollTeam ? ' active' : '') + '" onclick="pickTeam(\'' + t + '\')">' +
+      escapeHtml(t) + (n ? '<span class="n">' + n + '</span>' : '') + '</button>';
+  }).join('');
+  var box = document.getElementById('pollPeople');
+  if (!pollTeam) {
+    box.innerHTML = '<div class="people-empty">소속을 누르면 이름이 나와요</div>';
+  } else {
+    var members = teamMembers(pollTeam);
+    var others = members.filter(function(p) { return p.id !== myId; });
+    var allOn = others.length && others.every(function(p) { return pollPicked[p.id]; });
+    box.innerHTML = members.length
+      ? '<div class="people-top"><span>' + escapeHtml(pollTeam) + ' ' + members.length + '명</span>' +
+          (others.length ? '<button type="button" onclick="pickAll(' + (allOn ? 'false' : 'true') + ')">' + (allOn ? '모두 해제' : '모두 선택') + '</button>' : '') + '</div>' +
+        '<div class="people-grid">' + members.map(function(p) {
+          var me = p.id === myId;
+          return '<button type="button" class="person' + (pollPicked[p.id] || me ? ' on' : '') + (me ? ' me' : '') + '"' +
+            (me ? ' disabled title="만든 사람은 자동으로 포함돼요"' : ' onclick="togglePerson(\'' + escapeHtml(p.id) + '\')"') + '>' +
+            escapeHtml(p.name) + (me ? ' (나)' : '') + '</button>';
+        }).join('') + '</div>'
+      : '<div class="people-empty">' + escapeHtml(pollTeam) + '에 등록된 사람이 없어요</div>';
+  }
+  var names = roster.people.filter(function(p) { return pollPicked[p.id] && p.id !== myId; }).map(function(p) { return p.name; });
+  document.getElementById('pollPicked').textContent = names.length ? names.length + '명 선택 (나 포함 ' + (names.length + 1) + '명)' : '0명 선택';
+  document.getElementById('pollPickedList').textContent = names.length ? names.join(' · ') : '';
+}
+
+function pickTeam(t) { pollTeam = pollTeam === t ? '' : t; renderPollPeople(); }
+function togglePerson(id) { if (pollPicked[id]) delete pollPicked[id]; else pollPicked[id] = true; renderPollPeople(); }
+function pickAll(on) {
+  var myId = identifiedPerson ? identifiedPerson.id : '';
+  teamMembers(pollTeam).forEach(function(p) { if (p.id === myId) return; if (on) pollPicked[p.id] = true; else delete pollPicked[p.id]; });
+  renderPollPeople();
+}
+
+function submitPoll() {
+  var title = document.getElementById('pollTitle').value.trim();
+  var myId = identifiedPerson ? identifiedPerson.id : '';
+  var targets = Object.keys(pollPicked).filter(function(id) { return id !== myId; });
+  var deadline = document.getElementById('pollDeadline').value;
+  if (!title) { setMsg('pollMsg', '모임 주제를 입력해주세요!', true); return; }
+  if (!targets.length) { setMsg('pollMsg', '취합 대상을 한 명 이상 골라주세요!', true); return; }
+  if (!deadline) { setMsg('pollMsg', '마감기한을 골라주세요!', true); return; }
+  var d0 = document.getElementById('pollD0').value, d1 = document.getElementById('pollD1').value;
+  var h0 = +document.getElementById('pollH0').value, h1 = +document.getElementById('pollH1').value;
+  if (!d0 || !d1) { setMsg('pollMsg', '후보 날짜를 골라주세요!', true); return; }
+  if (d1 < d0) { setMsg('pollMsg', '끝 날짜가 시작 날짜보다 빨라요!', true); return; }
+  if ((new Date(d1) - new Date(d0)) / 86400000 + 1 > 14) { setMsg('pollMsg', '후보 날짜는 14일 안으로 골라주세요!', true); return; }
+  if (h0 >= h1) { setMsg('pollMsg', '시간대를 확인해주세요!', true); return; }
+  var btn = document.getElementById('pollSubmitBtn');
+  btn.disabled = true;
+  setMsg('pollMsg', '만드는 중...');
+  postApi('createTimePoll', { title: title, targets: targets, deadline: deadline, startDate: d0, endDate: d1, startHour: h0, endHour: h1 }).then(function(r) {
+    haptic('success');
+    btn.disabled = false;
+    setMsg('pollMsg', '');
+    document.getElementById('pollTitle').value = '';
+    pollPicked = {}; pollTeam = '';
+    renderPollPeople();
+    loadMyPolls();
+    openPollDetail(r.id, '취합을 시작했어요! ' + r.count + '명' + (r.notified ? ' · 텔레그램 알림 ' + r.notified + '명' : '') + '\n내 가능시간도 칠해주세요.');
+  }).catch(function(err) { setMsg('pollMsg', err.message, true); haptic('error'); btn.disabled = false; });
+}
+
+function loadMyPolls() {
+  if (!identifiedPerson) return;
+  postApi('getMyTimePolls').then(function(list) {
+    var wrap = document.getElementById('pollListWrap');
+    wrap.style.display = list.length && document.getElementById('pollDetail').style.display === 'none' ? 'block' : 'none';
+    document.getElementById('pollListCount').textContent = list.length ? list.length + '건' : '';
+    renderPollBanner(list);
+    document.getElementById('pollList').innerHTML = list.map(function(p) {
+      return '<div class="poll-card" onclick="openPollDetail(\'' + escapeHtml(p.id) + '\')"><div>' +
+        '<span class="chip' + (p.open ? ' dark' : '') + '">' + (p.open ? '취합 중' : '마감') + '</span> ' +
+        (p.mine ? '<span class="chip">내가 만듦</span>' : '') + '</div>' +
+        '<div class="t">' + escapeHtml(p.title) + '</div>' +
+        '<div class="m">' + (p.due ? '마감 ' + fmtDate(p.due) + (p.open ? ' · ' + ddayText(new Date(p.due)) : '') : '') +
+          ' · 응답 ' + p.responded + '/' + p.count + ' · ' + escapeHtml(p.owner) +
+          (p.open && !p.answered ? ' · <span class="todo">내 입력 전</span>' : '') + '</div></div>';
+    }).join('');
+  }).catch(function() {});
+}
+
+function renderPollBanner(list) {
+  var todo = list.filter(function(p) { return p.open && !p.answered; });
+  document.getElementById('pollBanner').innerHTML = todo.length
+    ? '<div class="poll-banner" onclick="openPollDetail(\'' + escapeHtml(todo[0].id) + '\')"><span class="pb-i">🗓</span>' +
+        '<div><b>가능시간 입력이 필요해요' + (todo.length > 1 ? ' (' + todo.length + '건)' : '') + '</b>' +
+        '<small>' + escapeHtml(todo[0].title) + (todo[0].due ? ' · 마감 ' + fmtDate(todo[0].due) : '') + '</small></div><span class="pb-go">›</span></div>'
+    : '';
+}
+
+// ----- 취합 하나 보기 -----
+var pd = null;        // 지금 보고 있는 취합
+var pdMine = {};      // 내가 칠한 칸 { '0-10': true }
+var pdDirty = false;
+var pdPage = 0;       // 7일씩 넘겨보기
+var pdView = 'mine';
+var pdSel = '';
+
+function openPollDetail(id, notice) {
+  if (!document.getElementById('pollSheet').classList.contains('open')) openPollSheet();
+  if (!identifiedPerson) return;
+  document.getElementById('pollForm').style.display = 'none';
+  document.getElementById('pollListWrap').style.display = 'none';
+  document.getElementById('pollDetail').style.display = 'block';
+  document.getElementById('pollSheet').scrollTop = 0;
+  document.getElementById('pdTitle').textContent = '불러오는 중...';
+  document.getElementById('pdMeta').textContent = '';
+  document.getElementById('pdGridMine').innerHTML = '';
+  document.getElementById('pdGridRes').innerHTML = '';
+  setMsg('pdMsg', '');
+  postApi('getTimePoll', { id: id }).then(function(r) {
+    pd = r; pdMine = {}; pdDirty = false; pdPage = 0; pdSel = '';
+    r.mySlots.forEach(function(s) { pdMine[s] = true; });
+    renderPd();
+    switchPd(r.open && r.people.some(function(p) { return p.id === identifiedPerson.id; }) ? 'mine' : 'result');
+    if (notice) setMsg('pdMsg', notice);
+  }).catch(function(err) {
+    document.getElementById('pdTitle').textContent = '취합을 열 수 없어요';
+    document.getElementById('pdMeta').textContent = err.message;
+  });
+}
+
+function switchPd(v) {
+  pdView = v;
+  document.querySelectorAll('.pd-tab').forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-pd') === v); });
+  document.getElementById('pdMine').style.display = v === 'mine' ? 'block' : 'none';
+  document.getElementById('pdResult').style.display = v === 'result' ? 'block' : 'none';
+  renderPd();
+}
+
+var PD_DAYS = 7;
+function pdDates() { return pd.dates.slice(pdPage * PD_DAYS, pdPage * PD_DAYS + PD_DAYS); }
+function pdPager(id) {
+  var pages = Math.ceil(pd.dates.length / PD_DAYS);
+  var el = document.getElementById(id);
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  var ds = pdDates();
+  el.innerHTML = '<button type="button" onclick="pdGo(-1)"' + (pdPage ? '' : ' disabled') + '>‹ 이전</button>' +
+    '<span>' + shortDate(ds[0]) + ' ~ ' + shortDate(ds[ds.length - 1]) + '</span>' +
+    '<button type="button" onclick="pdGo(1)"' + (pdPage < pages - 1 ? '' : ' disabled') + '>다음 ›</button>';
+}
+function pdGo(d) { pdPage += d; renderPd(); }
+function ymdDate(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+function shortDate(s) { var d = ymdDate(s); return (d.getMonth() + 1) + '/' + d.getDate() + '(' + WEEKDAYS[d.getDay()] + ')'; }
+function slotLabel(s) { var di = +s.split('-')[0], h = +s.split('-')[1]; return shortDate(pd.dates[di]) + ' ' + h + '시~' + (h + 1) + '시'; }
+
+function renderPd() {
+  if (!pd) return;
+  var answered = pd.people.filter(function(p) { return p.answered; }).length;
+  document.getElementById('pdTitle').textContent = pd.title;
+  document.getElementById('pdMeta').innerHTML = (pd.open ? '<span class="chip dark">취합 중</span> ' : '<span class="chip">마감</span> ') +
+    (pd.due ? '마감 ' + fmtDate(pd.due) : '') + ' · 응답 ' + answered + '/' + pd.people.length + ' · ' + escapeHtml(pd.owner);
+  var isTarget = pd.people.some(function(p) { return p.id === identifiedPerson.id; });
+  document.getElementById('pdSaveBtn').disabled = !pd.open || !isTarget;
+  document.getElementById('pdSaveBtn').classList.toggle('dirty', pdDirty);
+  document.getElementById('pdHint').textContent = !pd.open ? '마감된 취합이에요. 결과 탭을 확인하세요.' :
+    (isTarget ? '가능한 칸을 누르거나 쓸어서 칠해주세요' : '이 취합의 대상이 아니에요');
+  if (pdView === 'mine') { pdPager('pdPagerMine'); renderGrid('pdGridMine', false); }
+  else { pdPager('pdPagerRes'); renderGrid('pdGridRes', true); renderPdResult(); }
+}
+
+function renderGrid(boxId, res) {
+  var ds = pdDates(), start = pdPage * PD_DAYS;
+  var total = pd.people.length;
+  var html = '<div class="tgrid' + (res ? ' res' : '') + '" style="grid-template-columns: 34px repeat(' + ds.length + ', 1fr);">';
+  html += '<div></div>' + ds.map(function(s) {
+    var d = ymdDate(s), w = d.getDay();
+    return '<div class="gh' + (w === 0 ? ' sun' : w === 6 ? ' sat' : '') + '"><b>' + (d.getMonth() + 1) + '/' + d.getDate() + '</b>' + WEEKDAYS[w] + '</div>';
+  }).join('');
+  for (var h = pd.h0; h < pd.h1; h++) {
+    html += '<div class="gt">' + h + '시</div>';
+    for (var i = 0; i < ds.length; i++) {
+      var key = (start + i) + '-' + h;
+      if (!res) {
+        html += '<div class="gc' + (pdMine[key] ? ' on' : '') + '" data-k="' + key + '"></div>';
+      } else {
+        var n = (pd.slots[key] || []).length;
+        var a = n ? 0.15 + 0.85 * n / total : 0;
+        html += '<div class="gc' + (n === total && n > 0 ? ' full' : '') + (pdSel === key ? ' sel' : '') + '" data-k="' + key + '"' +
+          (n ? ' style="background: rgba(79,78,48,' + a.toFixed(2) + '); border-color: transparent;' + (a > 0.55 ? ' color:#fff;' : '') + '"' : '') +
+          ' onclick="pickCell(\'' + key + '\')">' + (n || '') + '</div>';
+      }
+    }
+  }
+  html += '</div>';
+  var box = document.getElementById(boxId);
+  box.innerHTML = html;
+  if (!res) bindPaint(box.firstChild);
+}
+
+// 칸 칠하기: 누르면 켜기/끄기, 누른 채로 쓸면 같은 상태로 계속 칠함
+function bindPaint(grid) {
+  var mode = null;
+  function cellAt(x, y) { var el = document.elementFromPoint(x, y); return el && el.classList && el.classList.contains('gc') && grid.contains(el) ? el : null; }
+  function paint(el) {
+    if (!el) return;
+    var k = el.getAttribute('data-k');
+    if (!!pdMine[k] === mode) return;
+    if (mode) pdMine[k] = true; else delete pdMine[k];
+    el.classList.toggle('on', mode);
+    if (!pdDirty) { pdDirty = true; document.getElementById('pdSaveBtn').classList.add('dirty'); }
+  }
+  grid.addEventListener('pointerdown', function(e) {
+    var el = cellAt(e.clientX, e.clientY);
+    if (!el || document.getElementById('pdSaveBtn').disabled) return;
+    e.preventDefault();
+    mode = !pdMine[el.getAttribute('data-k')];
+    paint(el);
+  });
+  grid.addEventListener('pointermove', function(e) { if (mode !== null) paint(cellAt(e.clientX, e.clientY)); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function(t) { grid.addEventListener(t, function() { mode = null; }); });
+}
+
+function clearMySlots() {
+  if (document.getElementById('pdSaveBtn').disabled) return;
+  pdMine = {}; pdDirty = true; renderPd();
+}
+
+function saveMySlots() {
+  var btn = document.getElementById('pdSaveBtn');
+  btn.disabled = true;
+  setMsg('pdMsg', '저장 중...');
+  var slots = Object.keys(pdMine);
+  postApi('saveTimeAvail', { id: pd.id, slots: slots }).then(function(r) {
+    haptic('success');
+    pdDirty = false;
+    // 결과에 내 칸 반영
+    var me = identifiedPerson.id;
+    Object.keys(pd.slots).forEach(function(k) { pd.slots[k] = pd.slots[k].filter(function(x) { return x !== me; }); });
+    slots.forEach(function(k) { (pd.slots[k] = pd.slots[k] || []).push(me); });
+    pd.people.forEach(function(p) { if (p.id === me) p.answered = true; });
+    btn.disabled = false;
+    renderPd();
+    setMsg('pdMsg', r.count ? r.count + '칸 저장했어요! 마감 전까지 언제든 고칠 수 있어요.' : '가능한 시간이 없다고 저장했어요.');
+    loadMyPolls();
+  }).catch(function(err) { btn.disabled = false; setMsg('pdMsg', err.message, true); haptic('error'); });
+}
+
+function pickCell(k) { pdSel = pdSel === k ? '' : k; renderPd(); }
+
+function renderPdResult() {
+  var total = pd.people.length;
+  var nameOf = {}; pd.people.forEach(function(p) { nameOf[p.id] = p.name; });
+  var keys = Object.keys(pd.slots).filter(function(k) { return pd.slots[k].length; });
+  keys.sort(function(a, b) {
+    var d = pd.slots[b].length - pd.slots[a].length; if (d) return d;
+    var x = a.split('-'), y = b.split('-'); return (x[0] - y[0]) || (x[1] - y[1]);
+  });
+  document.getElementById('pdBest').innerHTML = keys.length
+    ? '<div class="best"><h3>가장 많이 되는 시간</h3><ol>' + keys.slice(0, 3).map(function(k) {
+        return '<li>' + slotLabel(k) + ' <small>' + pd.slots[k].length + '/' + total + '명' + (pd.slots[k].length === total ? ' · 전원 가능 ✨' : '') + '</small></li>';
+      }).join('') + '</ol></div>'
+    : '<div class="empty inner"><b>아직 입력한 사람이 없어요</b>응답이 들어오면 여기에 모여요</div>';
+  var info = document.getElementById('pdCellInfo');
+  if (pdSel) {
+    var yes = (pd.slots[pdSel] || []).map(function(id) { return nameOf[id]; });
+    var no = pd.people.filter(function(p) { return p.answered && (pd.slots[pdSel] || []).indexOf(p.id) === -1; }).map(function(p) { return p.name; });
+    info.innerHTML = '<b>' + slotLabel(pdSel) + '</b><br>가능 ' + yes.length + '명: ' + (yes.length ? escapeHtml(yes.join(', ')) : '없음') +
+      (no.length ? '<br>안 됨: ' + escapeHtml(no.join(', ')) : '');
+  } else info.textContent = '칸을 누르면 누가 되는지 보여요';
+  var wait = pd.people.filter(function(p) { return !p.answered; }).map(function(p) { return p.name; });
+  document.getElementById('pdWho').innerHTML = wait.length ? '<div class="who-row">아직 입력 전 <b>' + wait.length + '명</b>: ' + escapeHtml(wait.join(', ')) + '</div>' : '<div class="who-row"><b>모두 입력했어요 🎉</b></div>';
+  document.getElementById('pdCloseBtn').style.display = pd.mine && pd.open ? 'block' : 'none';
+}
+
+function closePollUI() {
+  if (!confirm('이 취합을 지금 마감할까요? 더 이상 입력할 수 없어요.')) return;
+  postApi('closeTimePoll', { id: pd.id }).then(function() { pd.open = false; renderPd(); loadMyPolls(); })
+    .catch(function(err) { alert(err.message); });
+}
+
 // ===== 프로필 (인적사항 수정) =====
 function setProfileEnabled(on) {
   document.querySelectorAll('#sub-info input[data-f]').forEach(function(i) { i.disabled = !on; });
@@ -969,6 +1333,9 @@ function submitNotice() {
   try {
     var startTab = new URLSearchParams(location.search).get('tab');
     if (['home', 'notice', 'attend', 'task'].indexOf(startTab) !== -1) goTab(startTab);
+    // 봇 알림의 '가능시간 입력하기' 버튼 (?poll=ID): 로그인 확인되면 바로 그 취합을 엶
+    var startPoll = new URLSearchParams(location.search).get('poll');
+    if (startPoll && /^TP\w+$/.test(startPoll)) { if (identifiedPerson) openPollDetail(startPoll); else pendingPollId = startPoll; }
   } catch (e) {}
   setInterval(loadDashboard, 5 * 60 * 1000); // 5분마다 대시보드 새로고침
 })();
