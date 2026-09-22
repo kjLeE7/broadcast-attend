@@ -579,3 +579,11 @@ body.sheet-open .fab-wrap, body.drawer-open .fab-wrap { display: none; }
 .memo-list div { font-size: 13.5px; line-height: 1.6; }
 .memo-list b { margin-right: 6px; }
 #pdMemo { font-size: 14px; }
+
+/* ===== 주간 녹음 가능시간 ===== */
+.wk-tabs { margin: 0 0 12px; }
+.wk-chips { display: flex; gap: 6px; overflow-x: auto; margin: 0 0 12px; padding-bottom: 2px; }
+.wkchip { flex: none; border: 1.5px solid var(--line); background: var(--card); color: var(--muted); font-size: 12.5px; font-weight: 700; padding: 7px 12px; border-radius: 99px; font-family: inherit; cursor: pointer; }
+.wkchip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.poll-banner.urgent { background: var(--bad); box-shadow: 0 8px 20px rgba(181,83,63,.25); }
+.chip.bad { background: var(--bad); color: #fff; }

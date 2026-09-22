@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260922p">
+  <link rel="stylesheet" href="style.css?v=20260922w">
 </head>
 <body>
   <div class="app">
@@ -37,6 +37,8 @@
       <h1 class="page-title home-title" id="homeTitle">방송예술을 한 눈에</h1>
       <p class="page-desc" id="todayText"></p>
 
+      <!-- 주간 녹음가능시간 미제출 알림 -->
+      <div id="weeklyBanner"></div>
       <!-- 응답할 시간취합 알림 -->
       <div id="pollBanner"></div>
 
@@ -326,6 +328,10 @@
   <div class="fab-dim" id="fabDim" onclick="toggleFab(false)"></div>
   <div class="fab-wrap" id="fabWrap">
     <div class="fab-menu" id="fabMenu">
+      <button class="fab-item" onclick="openWeekly('next')">
+        <span class="fab-label">주간 녹음가능</span>
+        <span class="fab-mini"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg></span>
+      </button>
       <button class="fab-item" onclick="openPollSheet()">
         <span class="fab-label">시간취합</span>
         <span class="fab-mini"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M12 13v3l2 1.5"/></svg></span>
@@ -374,7 +380,12 @@
 
     <!-- 취합 하나 보기: 내 가능시간 칠하기 + 결과 -->
     <div id="pollDetail" style="display:none;">
-      <button class="back" onclick="showPollHome()">‹ 목록으로</button>
+      <button class="back" id="pdBackBtn" onclick="showPollHome()">‹ 목록으로</button>
+      <!-- 주간 녹음가능: 다음 주 / 이번 주 -->
+      <div class="subtabs wk-tabs" id="pdWeekTabs" style="display:none;">
+        <button class="subtab wk-tab" data-wk="next" onclick="openWeekly('next')">다음 주</button>
+        <button class="subtab wk-tab" data-wk="this" onclick="openWeekly('this')">이번 주</button>
+      </div>
       <div class="pd-title" id="pdTitle"></div>
       <div class="pd-meta" id="pdMeta"></div>
       <div class="subtabs">
@@ -394,6 +405,7 @@
         <div id="pdMsg" class="msg"></div>
       </div>
       <div id="pdResult" style="display:none;">
+        <div class="wk-chips" id="pdTeamFilter" style="display:none;"></div>
         <div id="pdBest"></div>
         <div class="pd-pager" id="pdPagerRes"></div>
         <div class="grid-wrap" id="pdGridRes"></div>
@@ -448,6 +460,6 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260922p"></script>
+  <script src="app.js?v=20260922w"></script>
 </body>
 </html>

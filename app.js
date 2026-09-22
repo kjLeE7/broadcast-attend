@@ -462,7 +462,9 @@ function setIdentity(person, roles) {
   loadProfile();
   loadPhoto();
   loadMyPolls();
+  loadWeeklyBanner();
   if (pendingPollId) { var pid = pendingPollId; pendingPollId = ''; openPollDetail(pid); }
+  else if (pendingWeekly) { var wk = pendingWeekly; pendingWeekly = ''; openWeekly(wk); }
 }
 
 function applyRoles(r) {
@@ -496,6 +498,7 @@ function showLoggedOut() {
   myPhoto = ''; setAvatarPhoto('');
   pollPicked = {}; pollTeam = ''; roster = null;
   document.getElementById('pollBanner').innerHTML = '';
+  document.getElementById('weeklyBanner').innerHTML = '';
   document.getElementById('photoInput').disabled = true;
   document.getElementById('avatarEdit').classList.remove('on');
   document.getElementById('photoActions').style.display = 'none';
@@ -781,7 +784,7 @@ var pollTeam = '';         // 지금 보고 있는 소속
 var pollPicked = {};       // 고른 사람 { id: true }
 var pendingPollId = '';    // 링크로 열었는데 아직 로그인 확인 전
 
-function openPollSheet() {
+function openPollSheet(skipHome) {
   toggleFab(false);
   document.body.classList.add('sheet-open');
   document.getElementById('pollBg').classList.add('show');
@@ -792,7 +795,7 @@ function openPollSheet() {
   document.getElementById('pollLogin').style.display = logged ? 'none' : 'block';
   document.getElementById('pollForm').style.display = logged ? 'block' : 'none';
   if (!logged) { document.getElementById('pollDetail').style.display = 'none'; return; }
-  showPollHome();
+  if (skipHome !== true) { setSheetHead(false); showPollHome(); }
 }
 
 // 만들기 폼 + 내 목록 화면
@@ -951,8 +954,9 @@ var pdView = 'mine';
 var pdSel = '';
 
 function openPollDetail(id, notice) {
-  if (!document.getElementById('pollSheet').classList.contains('open')) openPollSheet();
+  if (!document.getElementById('pollSheet').classList.contains('open')) openPollSheet(true);
   if (!identifiedPerson) return;
+  resetWeeklyUI();
   document.getElementById('pollForm').style.display = 'none';
   document.getElementById('pollListWrap').style.display = 'none';
   document.getElementById('pollDetail').style.display = 'block';
@@ -1011,7 +1015,8 @@ function renderPd() {
   document.getElementById('pdTitle').textContent = pd.title;
   document.getElementById('pdMeta').innerHTML = (pd.open ? '<span class="chip dark">취합 중</span> ' : '<span class="chip">마감</span> ') +
     (pd.due ? '마감 ' + fmtDate(pd.due) : '') + ' · 응답 ' + answered + '/' + pd.people.length + ' · ' + escapeHtml(pd.owner);
-  var isTarget = pd.people.some(function(p) { return p.id === identifiedPerson.id; });
+  if (pd.weekly) weeklyMeta();
+  var isTarget = (pd.allPeople || pd.people).some(function(p) { return p.id === identifiedPerson.id; });
   document.getElementById('pdSaveBtn').disabled = !pd.open || !isTarget;
   document.getElementById('pdSaveBtn').classList.toggle('dirty', pdDirty);
   document.getElementById('pdHint').textContent = !pd.open ? '마감된 취합이에요. 결과 탭을 확인하세요.' :
@@ -1086,18 +1091,23 @@ function saveMySlots() {
   setMsg('pdMsg', '저장 중...');
   var slots = Object.keys(pdMine);
   var memo = document.getElementById('pdMemo').value.trim();
-  postApi('saveTimeAvail', { id: pd.id, slots: slots, memo: memo }).then(function(r) {
+  var req = pd.weekly
+    ? weeklyApi('weeklySave', { week: pd.week, slots: slots, memo: memo })
+    : postApi('saveTimeAvail', { id: pd.id, slots: slots, memo: memo });
+  req.then(function(r) {
     haptic('success');
     pdDirty = false;
     // 결과에 내 칸 반영
     var me = identifiedPerson.id;
-    Object.keys(pd.slots).forEach(function(k) { pd.slots[k] = pd.slots[k].filter(function(x) { return x !== me; }); });
-    slots.forEach(function(k) { (pd.slots[k] = pd.slots[k] || []).push(me); });
-    pd.people.forEach(function(p) { if (p.id === me) { p.answered = true; p.memo = memo; } });
+    var bs = pd.allSlots || pd.slots, bp = pd.allPeople || pd.people;
+    Object.keys(bs).forEach(function(k) { bs[k] = bs[k].filter(function(x) { return x !== me; }); });
+    slots.forEach(function(k) { (bs[k] = bs[k] || []).push(me); });
+    bp.forEach(function(p) { if (p.id === me) { p.answered = true; p.memo = memo; } });
+    if (pd.weekly) { pd.submitted = true; applyWkFilter(); loadWeeklyBanner(); }
     btn.disabled = false;
     renderPd();
     setMsg('pdMsg', r.count ? r.count + '칸 저장했어요! 마감 전까지 언제든 고칠 수 있어요.' : (memo ? '특이사항을 저장했어요.' : '가능한 시간이 없다고 저장했어요.'));
-    loadMyPolls();
+    if (!pd.weekly) loadMyPolls();
   }).catch(function(err) { btn.disabled = false; setMsg('pdMsg', err.message, true); haptic('error'); });
 }
 
@@ -1144,6 +1154,126 @@ function closePollUI() {
   if (!confirm('이 취합을 지금 마감할까요? 더 이상 입력할 수 없어요.')) return;
   postApi('closeTimePoll', { id: pd.id }).then(function() { pd.open = false; renderPd(); loadMyPolls(); })
     .catch(function(err) { alert(err.message); });
+}
+
+
+// ===== 주간 녹음 가능시간 (매주 주일 → 다음 주 월~일) =====
+// 화면은 시간취합(pd) 화면을 그대로 빌려 씀. 서버 동작 이름은 모두 weekly로 시작.
+var pendingWeekly = '';   // 링크로 열었는데 아직 로그인 확인 전
+var wkWhich = 'next';
+var wkTeam = '';
+
+function weeklyApi(action, data) {
+  var body = Object.assign({ action: action, initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '' }, data || {});
+  var tries = action === 'weeklySave' ? 1 : 3; // 저장은 두 번 들어가면 안 되니 재시도 안 함
+  return apiSlot(function() { return fetchJsonRetry(function() { return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }); }, tries); })
+    .then(function(json) { return unwrapApi(json.ok, json.result, json.error); });
+}
+
+function setSheetHead(weekly) {
+  var h = document.querySelector('#pollSheet .sheet-head');
+  h.querySelector('h2').textContent = weekly ? '주간 녹음 가능시간' : '가능시간 취합';
+  h.querySelector('small').textContent = weekly ? '매주 주일 22시 마감 · 다음 주 월~일' : '누구나 만들 수 있어요';
+}
+function resetWeeklyUI() {
+  setSheetHead(false);
+  document.getElementById('pdBackBtn').style.display = '';
+  document.getElementById('pdWeekTabs').style.display = 'none';
+  document.getElementById('pdTeamFilter').style.display = 'none';
+  document.querySelector('.pd-tab[data-pd="result"]').style.display = '';
+}
+
+function openWeekly(which) {
+  toggleFab(false);
+  which = which === 'this' ? 'this' : 'next';
+  var sheetOpen = document.getElementById('pollSheet').classList.contains('open');
+  if (sheetOpen && pdDirty && pd && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
+  if (!sheetOpen) openPollSheet(true);
+  if (!identifiedPerson) return;
+  wkWhich = which; wkTeam = '';
+  pd = null; pdDirty = false;
+  document.getElementById('pollForm').style.display = 'none';
+  document.getElementById('pollListWrap').style.display = 'none';
+  document.getElementById('pollDetail').style.display = 'block';
+  setSheetHead(true);
+  document.getElementById('pdBackBtn').style.display = 'none';
+  document.getElementById('pdWeekTabs').style.display = 'flex';
+  document.querySelectorAll('.wk-tab').forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-wk') === which); });
+  document.getElementById('pollSheet').scrollTop = 0;
+  document.getElementById('pdTitle').textContent = '불러오는 중...';
+  document.getElementById('pdMeta').textContent = '';
+  document.getElementById('pdGridMine').innerHTML = '';
+  document.getElementById('pdGridRes').innerHTML = '';
+  document.getElementById('pdMemo').value = '';
+  setMsg('pdMsg', '');
+  weeklyApi('weeklyLoad', { which: which }).then(function(r) {
+    if (wkWhich !== which) return; // 그새 다른 주를 눌렀으면 무시
+    pd = r; pdMine = {}; pdDirty = false; pdPage = 0; pdSel = '';
+    pd.allPeople = r.people; pd.allSlots = r.slots;
+    r.mySlots.forEach(function(k) { pdMine[k] = true; });
+    document.getElementById('pdMemo').value = r.myMemo || '';
+    applyWkFilter();
+    document.querySelector('.pd-tab[data-pd="result"]').style.display = r.canView ? '' : 'none';
+    renderWkChips();
+    switchPd('mine');
+    if (!r.submitted) setMsg('pdMsg', which === 'next'
+      ? '가능한 칸을 칠하고 저장하면 제출돼요. 되는 시간이 없으면 빈 채로 저장해도 돼요.'
+      : '이번 주도 바뀐 일정이 있으면 고쳐서 저장해주세요.');
+  }).catch(function(err) {
+    document.getElementById('pdTitle').textContent = '불러오지 못했어요';
+    document.getElementById('pdMeta').textContent = err.message;
+  });
+}
+
+function weeklyMeta() {
+  var all = pd.allPeople || pd.people;
+  var done = all.filter(function(p) { return p.answered; }).length;
+  var late = !pd.submitted && pd.due && Date.now() > pd.due;
+  document.getElementById('pdMeta').innerHTML =
+    (pd.submitted ? '<span class="chip dark">제출 완료</span> ' : '<span class="chip' + (late ? ' bad' : '') + '">' + (late ? '미제출 · 마감 지남' : '미제출') + '</span> ') +
+    '마감 ' + fmtDate(pd.due) +
+    (pd.canView ? ' · 제출 ' + done + '/' + all.length + '명' : '') +
+    (pd.target ? '' : ' · 대상 아님(선택 제출)');
+}
+
+// 결과 탭: 소속으로 걸러보기 (성우만 / 엔지니어만)
+function renderWkChips() {
+  var el = document.getElementById('pdTeamFilter');
+  if (!pd || !pd.canView) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = [''].concat(pd.teams || []).map(function(t) {
+    return '<button type="button" class="wkchip' + (t === wkTeam ? ' active' : '') + '" onclick="pickWkTeam(\'' + escapeHtml(t) + '\')">' + (t ? escapeHtml(t) : '전체') + '</button>';
+  }).join('');
+}
+function pickWkTeam(t) { wkTeam = t; pdSel = ''; applyWkFilter(); renderWkChips(); renderPd(); }
+
+function applyWkFilter() {
+  if (!pd || !pd.allPeople) return;
+  var ppl = wkTeam ? pd.allPeople.filter(function(p) { return (p.teams || []).indexOf(wkTeam) !== -1; }) : pd.allPeople;
+  var ids = {}; ppl.forEach(function(p) { ids[p.id] = true; });
+  var s = {};
+  Object.keys(pd.allSlots).forEach(function(k) {
+    var v = pd.allSlots[k].filter(function(id) { return ids[id]; });
+    if (v.length) s[k] = v;
+  });
+  pd.people = ppl; pd.slots = s;
+}
+
+// 홈 알림: 이번 주 미제출(빨강) > 주일에 다음 주 미제출
+function loadWeeklyBanner() {
+  if (!identifiedPerson) return;
+  weeklyApi('weeklyStatus').then(function(st) {
+    var el = document.getElementById('weeklyBanner');
+    var b = function(which, urgent, title, sub) {
+      return '<div class="poll-banner' + (urgent ? ' urgent' : '') + '" onclick="openWeekly(\'' + which + '\')"><span class="pb-i">🎙</span>' +
+        '<div><b>' + title + '</b><small>' + sub + '</small></div><span class="pb-go">›</span></div>';
+    };
+    if (st.this.active && st.this.target && !st.this.submitted) {
+      el.innerHTML = b('this', true, '이번 주 녹음 가능시간 미제출', escapeHtml(st.this.label) + ' · 지금이라도 입력해주세요');
+    } else if (st.next.active && st.next.target && !st.next.submitted && (st.isSunday || Date.now() > st.next.due)) {
+      el.innerHTML = b('next', Date.now() > st.next.due, '다음 주 녹음 가능시간을 입력해주세요', escapeHtml(st.next.label) + ' · 마감 ' + fmtDate(st.next.due));
+    } else el.innerHTML = '';
+  }).catch(function() {});
 }
 
 // ===== 프로필 (인적사항 수정) =====
@@ -1403,6 +1533,9 @@ function submitNotice() {
     // 봇 알림의 '가능시간 입력하기' 버튼 (?poll=ID): 로그인 확인되면 바로 그 취합을 엶
     var startPoll = new URLSearchParams(location.search).get('poll');
     if (startPoll && /^TP\w+$/.test(startPoll)) { if (identifiedPerson) openPollDetail(startPoll); else pendingPollId = startPoll; }
+    // 봇 독촉 알림의 '입력하러 가기' 버튼 (?weekly=next|this)
+    var startWk = new URLSearchParams(location.search).get('weekly');
+    if (startWk === 'next' || startWk === 'this') { if (identifiedPerson) openWeekly(startWk); else pendingWeekly = startWk; }
   } catch (e) {}
   setInterval(loadDashboard, 5 * 60 * 1000); // 5분마다 대시보드 새로고침
 })();
