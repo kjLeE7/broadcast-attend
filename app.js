@@ -43,7 +43,7 @@ function callApi(action, params) {
       url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
     });
   }
-  return fetchJsonRetry(function() { return fetch(url); }, 3)
+  return apiSlot(function() { return fetchJsonRetry(function() { return fetch(url); }, 3); })
     .then(function(json) {
       if (json.ok) return json.result;
       throw new Error(json.error || '알 수 없는 오류');
@@ -62,16 +62,54 @@ function fetchJsonRetry(doFetch, tries) {
 }
 
 // 로그인·저장은 POST로 (서버가 텔레그램 서명 또는 로그인 토큰으로 본인 확인)
-function postApi(action, data) {
-  var body = Object.assign({ action: action, initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '' }, data || {});
-  // 저장 요청은 두 번 들어가면 안 되니 재시도 안 함 (조회·로그인 확인만 재시도)
-  var tries = (action === 'whoami') ? 3 : 1;
-  return fetchJsonRetry(function() { return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }); }, tries)
-    .then(function(json) {
-      if (json.ok) return json.result;
-      if (/로그인이 필요/.test(json.error || '')) { safeRemoveLocal(TOKEN_KEY); showLoggedOut(); }
-      throw new Error(json.error || '알 수 없는 오류');
+// 구글 서버는 요청이 한꺼번에 몰리면 가끔 오류 페이지를 돌려줌 → 동시에 2개까지만 보내고 나머지는 줄 세움
+var API_MAX = 2, apiBusy = 0, apiQueue = [];
+function apiSlot(job) {
+  return new Promise(function(resolve, reject) {
+    apiQueue.push(function() {
+      apiBusy++;
+      job().then(resolve, reject).then(function() { apiBusy--; if (apiQueue.length) apiQueue.shift()(); });
     });
+    if (apiBusy < API_MAX) apiQueue.shift()();
+  });
+}
+function readOnlyAction(a) { return a === 'whoami' || /^get/.test(a); }
+
+function postApi(action, data) {
+  // 조회는 같은 순간에 나가는 것끼리 모아서 요청 1번으로 보냄 (아래 batchRead)
+  if (readOnlyAction(action) && action !== 'whoami') return batchRead(action, data);
+  var body = Object.assign({ action: action, initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '' }, data || {});
+  // 저장 요청은 두 번 들어가면 안 되니 재시도 안 함 (조회만 재시도)
+  var tries = readOnlyAction(action) ? 3 : 1;
+  return apiSlot(function() { return fetchJsonRetry(function() { return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }); }, tries); })
+    .then(function(json) { return unwrapApi(json.ok, json.result, json.error); });
+}
+
+function unwrapApi(ok, result, error) {
+  if (ok) return result;
+  if (/로그인이 필요/.test(error || '') && identifiedPerson) { safeRemoveLocal(TOKEN_KEY); showLoggedOut(); }
+  throw new Error(error || '알 수 없는 오류');
+}
+
+var batchQ = null;
+function batchRead(action, data) {
+  return new Promise(function(resolve, reject) {
+    if (!batchQ) { batchQ = []; setTimeout(flushBatch, 30); }
+    batchQ.push({ call: Object.assign({ action: action }, data || {}), resolve: resolve, reject: reject });
+  });
+}
+function flushBatch() {
+  var q = batchQ; batchQ = null;
+  var body = { action: 'batch', initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '', calls: q.map(function(x) { return x.call; }) };
+  apiSlot(function() { return fetchJsonRetry(function() { return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }); }, 3); })
+    .then(function(json) {
+      if (!json.ok) throw new Error(json.error || '알 수 없는 오류');
+      q.forEach(function(x, i) {
+        var r = json.result[i] || { ok: false, error: '응답이 없어요' };
+        try { x.resolve(unwrapApi(r.ok, r.result, r.error)); } catch (e) { x.reject(e); }
+      });
+    })
+    .catch(function(err) { q.forEach(function(x) { x.reject(err); }); });
 }
 
 // ===== 저장소(이 폰 기억) =====
@@ -83,6 +121,10 @@ safeRemoveLocal('myPersonId'); safeRemoveLocal('myPersonName');
 
 // ===== 탭 이동 =====
 function goTab(name) {
+  if (name === 'attend' && identifiedPerson && document.getElementById('classSelect').getAttribute('data-failed')) {
+    document.getElementById('classSelect').removeAttribute('data-failed');
+    loadAttendTargets();
+  }
   document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
   document.getElementById('page-' + name).classList.add('active');
   document.querySelectorAll('.tab').forEach(function(t) {
@@ -231,6 +273,7 @@ function loadAttendTargets() {
   var sel = document.getElementById('classSelect');
   if (!identifiedPerson) return;
   sel.innerHTML = '<option value="">불러오는 중...</option>';
+  sel.removeAttribute('data-failed');
   return postApi('getMyAttendTargets').then(function(list) {
     sel.innerHTML = '';
     if (!list.length) {
@@ -251,7 +294,8 @@ function loadAttendTargets() {
       sel.appendChild(g);
     });
   }).catch(function(err) {
-    sel.innerHTML = '<option value="">목록을 불러오지 못했어요</option>';
+    sel.innerHTML = '<option value="">목록을 불러오지 못했어요 — 탭을 다시 눌러주세요</option>';
+    sel.setAttribute('data-failed', '1');
   });
 }
 
