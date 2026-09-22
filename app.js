@@ -920,7 +920,9 @@ function openPollDetail(id, notice) {
   setMsg('pdMsg', '');
   postApi('getTimePoll', { id: id }).then(function(r) {
     pd = r; pdMine = {}; pdDirty = false; pdPage = 0; pdSel = '';
+    pd.unit = r.unit || 60;
     r.mySlots.forEach(function(s) { pdMine[s] = true; });
+    document.getElementById('pdMemo').value = r.myMemo || '';
     renderPd();
     switchPd(r.open && r.people.some(function(p) { return p.id === identifiedPerson.id; }) ? 'mine' : 'result');
     if (notice) setMsg('pdMsg', notice);
@@ -952,7 +954,12 @@ function pdPager(id) {
 function pdGo(d) { pdPage += d; renderPd(); }
 function ymdDate(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
 function shortDate(s) { var d = ymdDate(s); return (d.getMonth() + 1) + '/' + d.getDate() + '(' + WEEKDAYS[d.getDay()] + ')'; }
-function slotLabel(s) { var di = +s.split('-')[0], h = +s.split('-')[1]; return shortDate(pd.dates[di]) + ' ' + h + '시~' + (h + 1) + '시'; }
+// 칸 키: 30분 취합 = "날짜번호-시작분"(0-1170 = 첫날 19:30), 예전 1시간 취합 = "날짜번호-시"
+function slotKey(di, min) { return di + '-' + (pd.unit === 60 ? min / 60 : min); }
+function slotMin(s) { var v = +s.split('-')[1]; return pd.unit === 60 ? v * 60 : v; }
+function hmStr(min) { return pad(Math.floor(min / 60)) + ':' + pad(min % 60); }
+function slotLabel(s) { var di = +s.split('-')[0], m = slotMin(s); return shortDate(pd.dates[di]) + ' ' + hmStr(m) + '~' + hmStr(m + pd.unit); }
+function markPdDirty() { if (!pdDirty) { pdDirty = true; document.getElementById('pdSaveBtn').classList.add('dirty'); } }
 
 function renderPd() {
   if (!pd) return;
@@ -972,21 +979,24 @@ function renderPd() {
 function renderGrid(boxId, res) {
   var ds = pdDates(), start = pdPage * PD_DAYS;
   var total = pd.people.length;
-  var html = '<div class="tgrid' + (res ? ' res' : '') + '" style="grid-template-columns: 34px repeat(' + ds.length + ', 1fr);">';
+  var step = pd.unit, half = step < 60;
+  var html = '<div class="tgrid' + (res ? ' res' : '') + (half ? ' half' : '') + '" style="grid-template-columns: 34px repeat(' + ds.length + ', 1fr);">';
   html += '<div></div>' + ds.map(function(s) {
     var d = ymdDate(s), w = d.getDay();
     return '<div class="gh' + (w === 0 ? ' sun' : w === 6 ? ' sat' : '') + '"><b>' + (d.getMonth() + 1) + '/' + d.getDate() + '</b>' + WEEKDAYS[w] + '</div>';
   }).join('');
-  for (var h = pd.h0; h < pd.h1; h++) {
-    html += '<div class="gt">' + h + '시</div>';
+  for (var m = pd.h0 * 60; m < pd.h1 * 60; m += step) {
+    var top = m % 60 === 0;
+    html += '<div class="gt' + (top ? ' hr' : '') + '">' + (top ? (m / 60) + '시' : '') + '</div>';
     for (var i = 0; i < ds.length; i++) {
-      var key = (start + i) + '-' + h;
+      var key = slotKey(start + i, m);
+      var hr = top && half ? ' hr' : '';
       if (!res) {
-        html += '<div class="gc' + (pdMine[key] ? ' on' : '') + '" data-k="' + key + '"></div>';
+        html += '<div class="gc' + hr + (pdMine[key] ? ' on' : '') + '" data-k="' + key + '"></div>';
       } else {
         var n = (pd.slots[key] || []).length;
         var a = n ? 0.15 + 0.85 * n / total : 0;
-        html += '<div class="gc' + (n === total && n > 0 ? ' full' : '') + (pdSel === key ? ' sel' : '') + '" data-k="' + key + '"' +
+        html += '<div class="gc' + hr + (n === total && n > 0 ? ' full' : '') + (pdSel === key ? ' sel' : '') + '" data-k="' + key + '"' +
           (n ? ' style="background: rgba(79,78,48,' + a.toFixed(2) + '); border-color: transparent;' + (a > 0.55 ? ' color:#fff;' : '') + '"' : '') +
           ' onclick="pickCell(\'' + key + '\')">' + (n || '') + '</div>';
       }
@@ -1008,7 +1018,7 @@ function bindPaint(grid) {
     if (!!pdMine[k] === mode) return;
     if (mode) pdMine[k] = true; else delete pdMine[k];
     el.classList.toggle('on', mode);
-    if (!pdDirty) { pdDirty = true; document.getElementById('pdSaveBtn').classList.add('dirty'); }
+    markPdDirty();
   }
   grid.addEventListener('pointerdown', function(e) {
     var el = cellAt(e.clientX, e.clientY);
@@ -1031,17 +1041,18 @@ function saveMySlots() {
   btn.disabled = true;
   setMsg('pdMsg', '저장 중...');
   var slots = Object.keys(pdMine);
-  postApi('saveTimeAvail', { id: pd.id, slots: slots }).then(function(r) {
+  var memo = document.getElementById('pdMemo').value.trim();
+  postApi('saveTimeAvail', { id: pd.id, slots: slots, memo: memo }).then(function(r) {
     haptic('success');
     pdDirty = false;
     // 결과에 내 칸 반영
     var me = identifiedPerson.id;
     Object.keys(pd.slots).forEach(function(k) { pd.slots[k] = pd.slots[k].filter(function(x) { return x !== me; }); });
     slots.forEach(function(k) { (pd.slots[k] = pd.slots[k] || []).push(me); });
-    pd.people.forEach(function(p) { if (p.id === me) p.answered = true; });
+    pd.people.forEach(function(p) { if (p.id === me) { p.answered = true; p.memo = memo; } });
     btn.disabled = false;
     renderPd();
-    setMsg('pdMsg', r.count ? r.count + '칸 저장했어요! 마감 전까지 언제든 고칠 수 있어요.' : '가능한 시간이 없다고 저장했어요.');
+    setMsg('pdMsg', r.count ? r.count + '칸 저장했어요! 마감 전까지 언제든 고칠 수 있어요.' : (memo ? '특이사항을 저장했어요.' : '가능한 시간이 없다고 저장했어요.'));
     loadMyPolls();
   }).catch(function(err) { btn.disabled = false; setMsg('pdMsg', err.message, true); haptic('error'); });
 }
@@ -1051,14 +1062,22 @@ function pickCell(k) { pdSel = pdSel === k ? '' : k; renderPd(); }
 function renderPdResult() {
   var total = pd.people.length;
   var nameOf = {}; pd.people.forEach(function(p) { nameOf[p.id] = p.name; });
-  var keys = Object.keys(pd.slots).filter(function(k) { return pd.slots[k].length; });
-  keys.sort(function(a, b) {
-    var d = pd.slots[b].length - pd.slots[a].length; if (d) return d;
-    var x = a.split('-'), y = b.split('-'); return (x[0] - y[0]) || (x[1] - y[1]);
+  // 같은 사람들이 되는 연속 칸은 하나로 묶기 (예: 19:00~20:30)
+  var runs = [];
+  pd.dates.forEach(function(ds, di) {
+    var cur = null;
+    for (var m = pd.h0 * 60; m < pd.h1 * 60; m += pd.unit) {
+      var set = (pd.slots[slotKey(di, m)] || []).slice().sort().join(',');
+      if (cur && set && cur.set === set) { cur.end = m + pd.unit; continue; }
+      if (cur) runs.push(cur);
+      cur = set ? { di: di, start: m, end: m + pd.unit, set: set, n: set.split(',').length } : null;
+    }
+    if (cur) runs.push(cur);
   });
-  document.getElementById('pdBest').innerHTML = keys.length
-    ? '<div class="best"><h3>가장 많이 되는 시간</h3><ol>' + keys.slice(0, 3).map(function(k) {
-        return '<li>' + slotLabel(k) + ' <small>' + pd.slots[k].length + '/' + total + '명' + (pd.slots[k].length === total ? ' · 전원 가능 ✨' : '') + '</small></li>';
+  runs.sort(function(x, y) { return y.n - x.n || (y.end - y.start) - (x.end - x.start) || x.di - y.di || x.start - y.start; });
+  document.getElementById('pdBest').innerHTML = runs.length
+    ? '<div class="best"><h3>가장 많이 되는 시간</h3><ol>' + runs.slice(0, 3).map(function(r) {
+        return '<li>' + shortDate(pd.dates[r.di]) + ' ' + hmStr(r.start) + '~' + hmStr(r.end) + ' <small>' + r.n + '/' + total + '명' + (r.n === total ? ' · 전원 가능 ✨' : '') + '</small></li>';
       }).join('') + '</ol></div>'
     : '<div class="empty inner"><b>아직 입력한 사람이 없어요</b>응답이 들어오면 여기에 모여요</div>';
   var info = document.getElementById('pdCellInfo');
@@ -1068,6 +1087,10 @@ function renderPdResult() {
     info.innerHTML = '<b>' + slotLabel(pdSel) + '</b><br>가능 ' + yes.length + '명: ' + (yes.length ? escapeHtml(yes.join(', ')) : '없음') +
       (no.length ? '<br>안 됨: ' + escapeHtml(no.join(', ')) : '');
   } else info.textContent = '칸을 누르면 누가 되는지 보여요';
+  var memos = pd.people.filter(function(p) { return p.memo; });
+  document.getElementById('pdMemos').innerHTML = memos.length
+    ? '<div class="memo-list"><h3>📝 특이사항</h3>' + memos.map(function(p) { return '<div><b>' + escapeHtml(p.name) + '</b>' + escapeHtml(p.memo) + '</div>'; }).join('') + '</div>'
+    : '';
   var wait = pd.people.filter(function(p) { return !p.answered; }).map(function(p) { return p.name; });
   document.getElementById('pdWho').innerHTML = wait.length ? '<div class="who-row">아직 입력 전 <b>' + wait.length + '명</b>: ' + escapeHtml(wait.join(', ')) + '</div>' : '<div class="who-row"><b>모두 입력했어요 🎉</b></div>';
   document.getElementById('pdCloseBtn').style.display = pd.mine && pd.open ? 'block' : 'none';
