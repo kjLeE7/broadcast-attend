@@ -481,7 +481,11 @@ function setIdentity(person, roles) {
   document.getElementById('attendForm').style.display = 'block';
   document.getElementById('loginItem').style.display = 'none';
   document.getElementById('logoutItem').style.display = 'flex';
+  document.body.classList.remove('locked'); // 로그인 확인 → 앱 화면 열기
   applyRoles(roles);
+  loadMeetings();
+  loadDashboard();
+  loadTribes();
   loadMyCheckins();
   loadAttendTargets();
   loadAnnouncements();
@@ -505,6 +509,7 @@ function applyRoles(r) {
 
 function showLoggedOut() {
   identifiedPerson = null;
+  document.body.classList.add('locked'); // 로그인 화면만 보이게
   document.getElementById('greeting').textContent = '반가워요 👋';
   ['avatar', 'drawerAvatar', 'profileAvatar'].forEach(function(id) { document.getElementById(id).textContent = '?'; });
   document.getElementById('drawerName').textContent = '게스트';
@@ -1814,7 +1819,6 @@ function submitNotice() {
   var d = new Date();
   document.getElementById('todayText').textContent =
     d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + WEEKDAYS[d.getDay()] + '요일';
-  loadMeetings();
   // 메뉴 맨 아래에 텔레그램 연결 상태 표시 (문제 확인용)
   var foot = document.querySelector('.drawer-foot');
   if (foot) {
@@ -1824,8 +1828,6 @@ function submitNotice() {
   }
   loadPeople();
   autoLogin();
-  loadDashboard();
-  loadTribes();
   // 봇 버튼에서 ?tab=attend 처럼 열면 그 탭으로 바로 이동
   try {
     var startTab = new URLSearchParams(location.search).get('tab');
