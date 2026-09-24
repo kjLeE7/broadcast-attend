@@ -107,6 +107,30 @@ function flushBatch() {
     .catch(function(err) { q.forEach(function(x) { x.reject(err); }); });
 }
 
+// ===== 화면 먼저 보여주기 =====
+// 지난번에 받은 내용을 이 폰에 저장해 두고, 앱을 열면 그것부터 그린 뒤
+// 서버에서 새 내용이 오면 다시 그림 (두 번째부터는 기다림 없이 바로 보임)
+function cachedRead(action, data, use, onError) {
+  var key = 'c_' + action + (data ? '_' + JSON.stringify(data) : '');
+  var hit = null;
+  try { var raw = safeGetLocal(key); hit = raw ? JSON.parse(raw) : null; } catch (e) {}
+  if (hit && hit.v !== undefined) { try { use(hit.v, true); } catch (e) {} }
+  return batchRead(action, data).then(function(r) {
+    try { safeSetLocal(key, JSON.stringify({ v: r, t: Date.now() })); } catch (e) {}
+    use(r, false);
+    return r;
+  }).catch(function(err) {
+    if (onError) onError(err, !!hit); // 저장해둔 게 있으면 그대로 두고 오류 화면을 덮지 않음
+  });
+}
+function clearCachedReads() {
+  try {
+    var del = [];
+    for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf('c_') === 0) del.push(k); }
+    del.forEach(safeRemoveLocal);
+  } catch (e) {}
+}
+
 // ===== 저장소(이 폰 기억) =====
 function safeGetLocal(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
 function safeSetLocal(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
@@ -255,12 +279,12 @@ function attendFor(meetingId) {
 
 // ===== 모임 목록 =====
 function loadMeetings() {
-  return callApi('getUpcomingMeetings').then(function(meetings) {
+  return cachedRead('getUpcomingMeetings', null, function(meetings) {
     meetingsCache = meetings || [];
     meetingsCache.forEach(function(m) { m._t = parseMeeting(m); });
     renderNoticeList();
-  }).catch(function(err) {
-    document.getElementById('noticeList').innerHTML = '<div class="empty"><b>모임을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
+  }, function(err, hadCache) {
+    if (!hadCache) document.getElementById('noticeList').innerHTML = '<div class="empty"><b>모임을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
     document.getElementById('debug').textContent = '모임목록 오류: ' + err.message;
   });
 }
@@ -271,7 +295,7 @@ function loadAttendTargets() {
   if (!identifiedPerson) return;
   sel.innerHTML = '<option value="">불러오는 중...</option>';
   sel.removeAttribute('data-failed');
-  return postApi('getMyAttendTargets').then(function(list) {
+  return cachedRead('getMyAttendTargets', null, function(list) {
     sel.innerHTML = '';
     if (!list.length) {
       sel.innerHTML = '<option value="">우리 팀에 출결할 모임·업무가 없어요</option>';
@@ -290,7 +314,8 @@ function loadAttendTargets() {
       });
       sel.appendChild(g);
     });
-  }).catch(function(err) {
+  }, function(err, hadCache) {
+    if (hadCache) return;
     sel.innerHTML = '<option value="">목록을 불러오지 못했어요 — 탭을 다시 눌러주세요</option>';
     sel.setAttribute('data-failed', '1');
   });
@@ -302,10 +327,10 @@ var myCheckins = [];
 
 function loadMyCheckins() {
   if (!identifiedPerson) return;
-  postApi('getMyCheckins').then(function(list) {
+  cachedRead('getMyCheckins', null, function(list) {
     myCheckins = list || [];
     renderMyCheckins();
-  }).catch(function() {});
+  });
 }
 
 function renderMyCheckins() {
@@ -505,10 +530,21 @@ function showLoggedOut() {
 
 // 앱을 열면: 텔레그램 서명 또는 저장된 토큰으로 자동 로그인 시도
 function autoLogin() {
+  // 지난번 로그인 정보를 먼저 써서 화면을 바로 그림 (서버 확인은 뒤에서)
+  var cached = null;
+  try { var raw = safeGetLocal('c_whoami'); cached = raw ? JSON.parse(raw) : null; } catch (e) {}
+  if (cached && cached.person) setIdentity(cached.person, cached.roles);
   return postApi('whoami').then(function(r) {
-    if (r.person) setIdentity(r.person, r.roles);
-    else showLoggedOut();
-  }).catch(function() { showLoggedOut(); });
+    if (r.person) {
+      safeSetLocal('c_whoami', JSON.stringify(r));
+      if (!identifiedPerson || identifiedPerson.id !== r.person.id) setIdentity(r.person, r.roles);
+      else applyRoles(r.roles); // 이미 그려둔 화면은 그대로 두고 권한만 최신으로
+    } else {
+      safeRemoveLocal('c_whoami');
+      clearCachedReads();
+      showLoggedOut();
+    }
+  }).catch(function() { if (!identifiedPerson) showLoggedOut(); });
 }
 
 function doLogin() {
@@ -538,6 +574,8 @@ function forgetMe() {
   closeDrawer();
   postApi('logout').catch(function() {});
   safeRemoveLocal(TOKEN_KEY);
+  safeRemoveLocal('c_whoami');
+  clearCachedReads();
   showLoggedOut();
   goTab('attend');
 }
@@ -554,7 +592,7 @@ function hideAdminUI() {
 
 // ===== 12지파 인원현황 =====
 function loadTribes() {
-  return callApi('getTribes').then(function(d) {
+  return cachedRead('getTribes', null, function(d) {
     var el = document.getElementById('tribeArea');
     document.getElementById('tribeTotal').textContent = d.filled ? '총 ' + d.total + '명' : '';
     el.innerHTML = '<div class="tribe-grid">' + d.list.map(function(t) {
@@ -562,8 +600,8 @@ function loadTribes() {
         (t.count === null ? '–' : t.count + '<small>명</small>') + '</b></div>';
     }).join('') + '</div>' +
       (d.filled ? '' : '<div class="tribe-hint">\'지파현황\' 시트에 인원을 적으면 여기에 보여요</div>');
-  }).catch(function() {
-    document.getElementById('tribeArea').innerHTML = '<div class="empty inner"><b>인원현황을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
+  }, function(err, hadCache) {
+    if (!hadCache) document.getElementById('tribeArea').innerHTML = '<div class="empty inner"><b>인원현황을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
   });
 }
 
@@ -573,13 +611,13 @@ var openAnnId = null;
 
 function loadAnnouncements() {
   if (!identifiedPerson) return;
-  postApi('getAnnouncements').then(function(r) {
+  cachedRead('getAnnouncements', null, function(r) {
     announcements = r.list || [];
     document.getElementById('annAdminCard').style.display = r.canWrite ? 'block' : 'none';
     window.annCanManage = !!r.canManage;
     renderAnnouncements();
-  }).catch(function(err) {
-    document.getElementById('annList').innerHTML = '<div class="empty"><b>공지사항을 불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>';
+  }, function(err, hadCache) {
+    if (!hadCache) document.getElementById('annList').innerHTML = '<div class="empty"><b>공지사항을 불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>';
   });
 }
 
@@ -650,8 +688,8 @@ function hideAnnouncement(id) {
 // ===== 과제 (우리 팀 것만) =====
 function loadAssignments() {
   if (!identifiedPerson) return;
-  postApi('getMyAssignments').then(renderAssignments).catch(function(err) {
-    document.getElementById('hwArea').innerHTML = '<div class="empty"><b>과제를 불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>';
+  cachedRead('getMyAssignments', null, renderAssignments, function(err, hadCache) {
+    if (!hadCache) document.getElementById('hwArea').innerHTML = '<div class="empty"><b>과제를 불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>';
   });
 }
 
@@ -920,7 +958,7 @@ function submitPoll() {
 
 function loadMyPolls() {
   if (!identifiedPerson) return;
-  postApi('getMyTimePolls').then(function(list) {
+  cachedRead('getMyTimePolls', null, function(list) {
     var wrap = document.getElementById('pollListWrap');
     wrap.style.display = list.length && document.getElementById('pollDetail').style.display === 'none' ? 'block' : 'none';
     document.getElementById('pollListCount').textContent = list.length ? list.length + '건' : '';
@@ -934,7 +972,7 @@ function loadMyPolls() {
           ' · 응답 ' + p.responded + '/' + p.count + ' · ' + escapeHtml(p.owner) +
           (p.open && !p.answered ? ' · <span class="todo">내 입력 전</span>' : '') + '</div></div>';
     }).join('');
-  }).catch(function() {});
+  });
 }
 
 function renderPollBanner(list) {
@@ -1390,7 +1428,7 @@ function applyWkFilter() {
 // 홈 알림: 이번 주 미제출(빨강) > 주일에 다음 주 미제출
 function loadWeeklyBanner() {
   if (!identifiedPerson) return;
-  weeklyApi('weeklyStatus').then(function(st) {
+  cachedRead('weeklyStatus', null, function(st) {
     var el = document.getElementById('weeklyBanner');
     var b = function(which, urgent, title, sub) {
       return '<div class="poll-banner' + (urgent ? ' urgent' : '') + '" onclick="openWeekly(\'' + which + '\')"><span class="pb-i">🎙</span>' +
@@ -1401,7 +1439,7 @@ function loadWeeklyBanner() {
     } else if (st.next.active && st.next.target && !st.next.submitted && (st.isSunday || Date.now() > st.next.due)) {
       el.innerHTML = b('next', Date.now() > st.next.due, '다음 주 녹음 가능시간을 입력해주세요', escapeHtml(st.next.label) + ' · 마감 ' + fmtDate(st.next.due));
     } else el.innerHTML = '';
-  }).catch(function() {});
+  });
 }
 
 // ===== 프로필 (인적사항 수정) =====
@@ -1443,10 +1481,11 @@ var TASK_ICON = { '녹음': '🎙', '사회': '🎤', '촬영': '🎥', '음향�
 var lastDashAt = 0;
 function loadDashboard() {
   lastDashAt = Date.now();
-  return callApi('getDashboard', { personId: currentPersonId() }).then(function(d) {
+  return cachedRead('getDashboard', { personId: currentPersonId() }, function(d) {
     dashData = d;
     renderManager();
-  }).catch(function(err) {
+  }, function(err, hadCache) {
+    if (hadCache) return;
     document.getElementById('scheduleArea').innerHTML = '<div class="empty"><b>대시보드를 불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>';
     ['taskNowArea', 'taskUpArea', 'projectArea'].forEach(function(id) { document.getElementById(id).innerHTML = ''; });
   });
