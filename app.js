@@ -37,18 +37,10 @@ function haptic(type) {
 }
 
 // ===== API 호출 =====
+// 조회는 전부 묶음 요청(batch)으로 보냄. 같은 순간에 나가는 것끼리 모아 요청 1번으로 처리해서
+// 구글 서버 왕복(한 번에 1~3초)을 줄임.
 function callApi(action, params) {
-  var url = API_URL + '?action=' + encodeURIComponent(action);
-  if (params) {
-    Object.keys(params).forEach(function(k) {
-      url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-    });
-  }
-  return apiSlot(function() { return fetchJsonRetry(function() { return fetch(url); }, 3); })
-    .then(function(json) {
-      if (json.ok) return json.result;
-      throw new Error(json.error || '알 수 없는 오류');
-    });
+  return batchRead(action, params);
 }
 
 // 구글 서버가 가끔 데이터 대신 오류 페이지를 돌려줄 때 잠깐 쉬었다가 다시 시도
@@ -74,11 +66,11 @@ function apiSlot(job) {
     if (apiBusy < API_MAX) apiQueue.shift()();
   });
 }
-function readOnlyAction(a) { return a === 'whoami' || /^get/.test(a); }
+function readOnlyAction(a) { return a === 'whoami' || /^get/.test(a) || a === 'weeklyStatus' || a === 'weeklyLoad' || a === 'weeklyBusy' || a === 'weeklyGetFixed'; }
 
 function postApi(action, data) {
   // 조회는 같은 순간에 나가는 것끼리 모아서 요청 1번으로 보냄 (아래 batchRead)
-  if (readOnlyAction(action) && action !== 'whoami') return batchRead(action, data);
+  if (readOnlyAction(action)) return batchRead(action, data);
   var body = Object.assign({ action: action, initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '' }, data || {});
   // 저장 요청은 두 번 들어가면 안 되니 재시도 안 함 (조회만 재시도)
   var tries = readOnlyAction(action) ? 3 : 1;
@@ -102,8 +94,10 @@ function batchRead(action, data) {
 function flushBatch() {
   var q = batchQ; batchQ = null;
   var body = { action: 'batch', initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '', calls: q.map(function(x) { return x.call; }) };
+  var t0 = Date.now();
   apiSlot(function() { return fetchJsonRetry(function() { return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }); }, 3); })
     .then(function(json) {
+      try { console.log('[api] ' + (Date.now() - t0) + 'ms · ' + q.map(function(x) { return x.call.action; }).join(', ')); } catch (e) {}
       if (!json.ok) throw new Error(json.error || '알 수 없는 오류');
       q.forEach(function(x, i) {
         var r = json.result[i] || { ok: false, error: '응답이 없어요' };
@@ -151,6 +145,7 @@ function closeDrawer() {
 function openMenuPage(name) {
   closeDrawer();
   setTimeout(function() { goTab(name); }, 180);
+  if (name === 'profile' && identifiedPerson) { loadProfile(); loadPhoto(true); }
 }
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeDrawer(); toggleFab(false); closePollSheet(); } });
 
@@ -461,8 +456,8 @@ function setIdentity(person, roles) {
   loadAttendTargets();
   loadAnnouncements();
   loadAssignments();
-  loadProfile();
-  loadPhoto();
+  setProfileEnabled(true);
+  loadPhoto(); // 폰에 저장해둔 사진을 바로 보여주고, 서버 확인은 프로필을 열 때
   loadMyPolls();
   loadWeeklyBanner();
   if (pendingPollId) { var pid = pendingPollId; pendingPollId = ''; openPollDetail(pid); }
@@ -701,7 +696,7 @@ function showPhoto() {
   document.getElementById('photoRemoveBtn').style.display = myPhoto ? 'inline-block' : 'none';
 }
 
-function loadPhoto() {
+function loadPhoto(force) {
   if (!identifiedPerson) return;
   var cacheKey = PHOTO_KEY + '_' + identifiedPerson.id;
   myPhoto = safeGetLocal(cacheKey) || '';
@@ -709,6 +704,8 @@ function loadPhoto() {
   document.getElementById('photoInput').disabled = false;
   document.getElementById('avatarEdit').classList.add('on');
   document.getElementById('photoActions').style.display = 'flex';
+  // 사진은 용량이 커서, 폰에 저장된 게 있으면 프로필을 열 때만 서버에 다시 물어봄
+  if (myPhoto && !force) return;
   postApi('getMyPhoto').then(function(r) {
     myPhoto = r.photo || '';
     if (myPhoto) safeSetLocal(cacheKey, myPhoto); else safeRemoveLocal(cacheKey);
@@ -1294,6 +1291,7 @@ var wkWhich = 'next';
 var wkTeam = '';
 
 function weeklyApi(action, data) {
+  if (readOnlyAction(action)) return batchRead(action, data);
   var body = Object.assign({ action: action, initData: tgInitData, token: safeGetLocal(TOKEN_KEY) || '' }, data || {});
   var tries = action === 'weeklySave' ? 1 : 3; // 저장은 두 번 들어가면 안 되니 재시도 안 함
   return apiSlot(function() { return fetchJsonRetry(function() { return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }); }, tries); })
@@ -1442,7 +1440,9 @@ var dashData = null;
 var teamFilter = '';
 var TASK_ICON = { '녹음': '🎙', '사회': '🎤', '촬영': '🎥', '음향편집': '🎚' };
 
+var lastDashAt = 0;
 function loadDashboard() {
+  lastDashAt = Date.now();
   return callApi('getDashboard', { personId: currentPersonId() }).then(function(d) {
     dashData = d;
     renderManager();
@@ -1667,5 +1667,11 @@ function submitNotice() {
     var startWk = new URLSearchParams(location.search).get('weekly');
     if (startWk === 'next' || startWk === 'this') { if (identifiedPerson) openWeekly(startWk); else pendingWeekly = startWk; }
   } catch (e) {}
-  setInterval(loadDashboard, 5 * 60 * 1000); // 5분마다 대시보드 새로고침
+  // 5분마다 대시보드 새로고침 (앱을 보고 있을 때만 — 가려져 있으면 건너뜀)
+  setInterval(function() {
+    if (document.visibilityState === 'visible' && document.getElementById('page-home').classList.contains('active')) loadDashboard();
+  }, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && Date.now() - lastDashAt > 5 * 60 * 1000) loadDashboard();
+  });
 })();
