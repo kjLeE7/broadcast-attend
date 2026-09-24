@@ -149,6 +149,10 @@ function goTab(name) {
   document.querySelectorAll('.tab').forEach(function(t) {
     t.classList.toggle('active', t.getAttribute('data-tab') === name);
   });
+  document.querySelectorAll('.pc-item').forEach(function(t) {
+    t.classList.toggle('active', t.getAttribute('data-go') === name);
+  });
+  if (name === 'assign' && !asData) loadAssign(asWhich);
   window.scrollTo(0, 0);
 }
 
@@ -467,6 +471,7 @@ function setIdentity(person, roles) {
   document.getElementById('drawerAvatar').textContent = short;
   document.getElementById('profileAvatar').textContent = short;
   document.getElementById('drawerName').textContent = person.name;
+  document.getElementById('pcWho').textContent = person.name + '님';
   document.getElementById('profileName').textContent = person.name;
   document.getElementById('profileRole').textContent = '방송예술과';
   var w = document.getElementById('welcome');
@@ -503,6 +508,9 @@ function showLoggedOut() {
   document.getElementById('greeting').textContent = '반가워요 👋';
   ['avatar', 'drawerAvatar', 'profileAvatar'].forEach(function(id) { document.getElementById(id).textContent = '?'; });
   document.getElementById('drawerName').textContent = '게스트';
+  document.getElementById('pcWho').textContent = '게스트';
+  document.getElementById('pcAssignBtn').style.display = 'none';
+  asData = null;
   document.getElementById('profileName').textContent = '로그인이 필요해요';
   document.getElementById('profileRole').textContent = '출결 탭에서 이름과 인증코드로 로그인하세요';
   document.getElementById('loginBlock').style.display = 'block';
@@ -1429,6 +1437,8 @@ function applyWkFilter() {
 function loadWeeklyBanner() {
   if (!identifiedPerson) return;
   cachedRead('weeklyStatus', null, function(st) {
+    // 녹음자 배치 메뉴(PC)는 결과를 볼 수 있는 사람에게만
+    document.getElementById('pcAssignBtn').style.display = st.canView ? 'block' : 'none';
     var el = document.getElementById('weeklyBanner');
     var b = function(which, urgent, title, sub) {
       return '<div class="poll-banner' + (urgent ? ' urgent' : '') + '" onclick="openWeekly(\'' + which + '\')"><span class="pb-i">🎙</span>' +
@@ -1440,6 +1450,127 @@ function loadWeeklyBanner() {
       el.innerHTML = b('next', Date.now() > st.next.due, '다음 주 녹음 가능시간을 입력해주세요', escapeHtml(st.next.label) + ' · 마감 ' + fmtDate(st.next.due));
     } else el.innerHTML = '';
   });
+}
+
+
+// ===== 녹음자 배치 (PC 전용 화면) =====
+var asData = null, asWhich = 'next', asSel = '';
+
+function loadAssign(which) {
+  asWhich = which === 'this' ? 'this' : 'next';
+  document.querySelectorAll('.as-week').forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-as') === asWhich); });
+  document.getElementById('asMeta').textContent = '불러오는 중...';
+  asSel = '';
+  weeklyApi('weeklyLoad', { which: asWhich }).then(function(r) {
+    asData = r;
+    if (!r.canView) {
+      document.getElementById('asGrid').innerHTML = '<div class="empty inner"><b>팀장 이상만 볼 수 있어요</b>내 가능시간 입력은 왼쪽 아래 버튼에서 하실 수 있어요</div>';
+      document.getElementById('asMeta').textContent = '';
+      return;
+    }
+    renderAssign();
+  }).catch(function(err) {
+    document.getElementById('asGrid').innerHTML = '<div class="empty inner"><b>불러오지 못했어요</b>' + escapeHtml(err.message) + '</div>';
+    document.getElementById('asMeta').textContent = '';
+  });
+}
+
+function asTeamOf(id) {
+  var p = (asData.people || []).find(function(x) { return x.id === id; });
+  return p && p.teams && p.teams.length ? p.teams[0] : '기타';
+}
+function asNameOf(id) {
+  var p = (asData.people || []).find(function(x) { return x.id === id; });
+  return p ? p.name : id;
+}
+
+function renderAssign() {
+  var d = asData, W = WEEKDAYS;
+  var done = d.people.filter(function(p) { return p.answered; }).length;
+  document.getElementById('asMeta').textContent = d.title + ' · 제출 ' + done + '/' + d.people.length + '명';
+
+  var step = d.unit, html = '<div class="tgrid res" style="grid-template-columns: 40px repeat(7, 1fr);">';
+  html += '<div></div>' + d.dates.map(function(s) {
+    var p = s.split('-'), dt = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])), w = dt.getUTCDay();
+    return '<div class="gh' + (w === 0 ? ' sun' : w === 6 ? ' sat' : '') + '"><b>' + (+p[1]) + '/' + (+p[2]) + '</b>' + W[w] + '</div>';
+  }).join('');
+  var total = d.people.length || 1;
+  for (var m = d.h0 * 60; m < d.h1 * 60; m += step) {
+    var top = m % 60 === 0;
+    html += '<div class="gt' + (top ? ' hr' : '') + '">' + (top ? (m / 60) + '시' : '') + '</div>';
+    for (var i = 0; i < d.dates.length; i++) {
+      var key = i + '-' + m;
+      var ids = d.slots[key] || [];
+      var a = ids.length ? 0.15 + 0.85 * ids.length / total : 0;
+      html += '<div class="gc' + (top ? ' hr' : '') + (asSel === key ? ' sel' : '') + '" onclick="asPickCell(\'' + key + '\')"' +
+        (ids.length ? ' style="background: rgba(79,78,48,' + a.toFixed(2) + '); border-color: transparent;' + (a > 0.55 ? ' color:#fff;' : '') + '"' : '') +
+        '>' + (ids.length || '') + '</div>';
+    }
+  }
+  document.getElementById('asGrid').innerHTML = html + '</div>';
+  asRenderSide();
+}
+
+function asPickCell(key) { asSel = asSel === key ? '' : key; renderAssign(); }
+
+function asRenderSide() {
+  var d = asData;
+  // 1) 고른 칸: 팀별로 누가 되는지
+  var pick = document.getElementById('asPick');
+  if (!asSel) {
+    pick.innerHTML = '<div class="empty inner"><b>칸을 눌러보세요</b>그 시간에 되는 사람이 팀별로 나와요</div>';
+  } else {
+    var di = +asSel.split('-')[0], min = +asSel.split('-')[1];
+    var ids = d.slots[asSel] || [];
+    var byTeam = {};
+    (d.teams || []).concat(['기타']).forEach(function(t) { byTeam[t] = []; });
+    ids.forEach(function(id) { var t = asTeamOf(id); (byTeam[t] = byTeam[t] || []).push(asNameOf(id)); });
+    var p = d.dates[di].split('-');
+    var label = (+p[1]) + '/' + (+p[2]) + ' ' + pad(Math.floor(min / 60)) + ':' + pad(min % 60) + '~' + pad(Math.floor((min + d.unit) / 60)) + ':' + pad((min + d.unit) % 60);
+    var html = '<div class="as-slot">' + label + ' · 가능 ' + ids.length + '명</div>';
+    Object.keys(byTeam).forEach(function(t) {
+      if (!byTeam[t].length) return;
+      html += '<div class="as-team"><b>' + escapeHtml(t) + ' ' + byTeam[t].length + '명</b><div class="as-names">' +
+        byTeam[t].map(function(n) { return '<span class="as-name">' + escapeHtml(n) + '</span>'; }).join('') + '</div></div>';
+    });
+    if (!ids.length) html += '<div class="as-team"><b>되는 사람이 없어요</b></div>';
+    var memos = d.people.filter(function(x) { return x.memo && ids.indexOf(x.id) !== -1; });
+    if (memos.length) html += '<div class="memo-list"><h3>📝 특이사항</h3>' + memos.map(function(x) {
+      return '<div><b>' + escapeHtml(x.name) + '</b>' + escapeHtml(x.memo) + '</div>';
+    }).join('') + '</div>';
+    pick.innerHTML = html;
+  }
+
+  // 2) 성우+엔지니어가 함께 되는 시간 순위
+  var teams = d.teams || [];
+  var rows = [];
+  d.dates.forEach(function(ds, di) {
+    for (var m = d.h0 * 60; m < d.h1 * 60; m += d.unit) {
+      var key = di + '-' + m, ids = d.slots[key] || [];
+      if (!ids.length) continue;
+      var cnt = {};
+      ids.forEach(function(id) { var t = asTeamOf(id); cnt[t] = (cnt[t] || 0) + 1; });
+      var allTeams = teams.every(function(t) { return cnt[t]; });
+      rows.push({ key: key, di: di, m: m, n: ids.length, all: allTeams, cnt: cnt });
+    }
+  });
+  rows.sort(function(a, b) { return (b.all - a.all) || (b.n - a.n) || a.di - b.di || a.m - b.m; });
+  var best = document.getElementById('asBest');
+  best.innerHTML = rows.length
+    ? '<h3>많이 되는 시간</h3><ul class="as-best">' + rows.slice(0, 8).map(function(r) {
+        var p = d.dates[r.di].split('-');
+        return '<li onclick="asPickCell(\'' + r.key + '\')"><span>' + (+p[1]) + '/' + (+p[2]) + ' ' + pad(Math.floor(r.m / 60)) + ':' + pad(r.m % 60) + '</span>' +
+          '<small>' + teams.map(function(t) { return t.replace('팀', '') + ' ' + (r.cnt[t] || 0); }).join(' · ') + (r.all ? ' ✨' : '') + '</small></li>';
+      }).join('') + '</ul>'
+    : '';
+
+  // 3) 아직 안 낸 사람
+  var miss = d.people.filter(function(x) { return !x.answered; });
+  document.getElementById('asMiss').innerHTML = miss.length
+    ? '<h3>아직 입력 전 ' + miss.length + '명</h3><div class="as-names">' + miss.map(function(x) {
+        return '<span class="as-name off">' + escapeHtml(x.name) + '</span>';
+      }).join('') + '</div>'
+    : '<h3>모두 입력했어요 🎉</h3>';
 }
 
 // ===== 프로필 (인적사항 수정) =====

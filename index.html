@@ -12,9 +12,23 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260924b">
+  <link rel="stylesheet" href="style.css?v=20260924pc">
 </head>
 <body>
+  <!-- ===== PC 왼쪽 메뉴 (넓은 화면에서만 보여요) ===== -->
+  <aside class="pc-nav" id="pcNav">
+    <div class="pc-brand"><div class="logo">방</div><div><b>방송예술과</b><small id="pcWho">게스트</small></div></div>
+    <nav class="pc-menu">
+      <button class="pc-item active" data-go="home" onclick="goTab('home')">🏠 홈</button>
+      <button class="pc-item" data-go="notice" onclick="goTab('notice')">📢 공지</button>
+      <button class="pc-item" data-go="attend" onclick="goTab('attend')">📋 출결</button>
+      <button class="pc-item" data-go="task" onclick="goTab('task')">📝 과제</button>
+      <button class="pc-item" data-go="assign" id="pcAssignBtn" onclick="goTab('assign')" style="display:none;">🎙 녹음자 배치</button>
+      <button class="pc-item" data-go="profile" onclick="openMenuPage('profile')">👤 프로필</button>
+    </nav>
+    <button class="pc-weekly" onclick="openWeekly('next')">🎙 주간 녹음가능 입력</button>
+  </aside>
+
   <div class="app">
 
     <!-- ===== 상단 헤더 ===== -->
@@ -52,12 +66,17 @@
           <div class="stat"><div class="stat-label">프로젝트</div><div class="stat-value" id="dStatProj">–</div></div>
         </div>
 
-        <div class="section-head"><h2>사명자 일정</h2><span class="section-count">오늘부터 2주</span></div>
-        <div class="card table-card" id="scheduleArea"><div class="skeleton row-skel"></div></div>
+        <div class="blk">
+          <div class="section-head"><h2>사명자 일정</h2><span class="section-count">오늘부터 2주</span></div>
+          <div class="card table-card" id="scheduleArea"><div class="skeleton row-skel"></div></div>
+        </div>
 
+        <div class="blk">
         <div class="section-head"><h2>우리는 지금</h2><span class="section-count">하나님나라 건설 중이예요!</span><span class="live-dot" id="taskLiveDot"></span></div>
         <div id="taskNowArea"><div class="skeleton row-skel"></div></div>
+        </div>
 
+        <div class="blk">
         <div class="section-head"><h2>우리는 준비 중</h2><span class="section-count">많은 기도가 필요해요. <b id="taskUpCount"></b></span></div>
         <div class="filter-chips" id="teamFilter">
           <button class="fchip active" data-team="">전체</button>
@@ -66,12 +85,17 @@
           <button class="fchip" data-team="엔지니어팀">엔지니어팀</button>
         </div>
         <div id="taskUpArea"><div class="skeleton row-skel"></div></div>
+        </div>
 
-        <div class="section-head"><h2>진행 중인 프로젝트</h2><span class="section-count" id="projCount"></span></div>
-        <div id="projectArea"><div class="skeleton row-skel"></div></div>
+        <div class="blk">
+          <div class="section-head"><h2>진행 중인 프로젝트</h2><span class="section-count" id="projCount"></span></div>
+          <div id="projectArea"><div class="skeleton row-skel"></div></div>
+        </div>
 
-        <div class="section-head"><h2>12지파 방송예술과 인원현황</h2><span class="section-count" id="tribeTotal"></span></div>
-        <div class="card tribe-card" id="tribeArea"><div class="skeleton row-skel"></div></div>
+        <div class="blk">
+          <div class="section-head"><h2>12지파 방송예술과 인원현황</h2><span class="section-count" id="tribeTotal"></span></div>
+          <div class="card tribe-card" id="tribeArea"><div class="skeleton row-skel"></div></div>
+        </div>
       </div>
 
       <div id="debug" class="debug"></div>
@@ -314,6 +338,32 @@
       <div class="empty"><b>회계 시트 준비 중이에요</b>구글시트가 만들어지면 여기에 연결할게요</div>
     </section>
 
+    <!-- ===== 녹음자 배치 (PC · 팀장 이상) ===== -->
+    <section class="page" id="page-assign">
+      <h1 class="page-title">녹음자 배치</h1>
+      <p class="page-desc">모아진 가능시간을 놓고 성우·엔지니어를 맞춰봐요</p>
+
+      <div class="as-top">
+        <div class="subtabs as-weeks">
+          <button class="subtab as-week active" data-as="next" onclick="loadAssign('next')">다음 주</button>
+          <button class="subtab as-week" data-as="this" onclick="loadAssign('this')">이번 주</button>
+        </div>
+        <div class="as-meta" id="asMeta"></div>
+      </div>
+
+      <div class="as-wrap">
+        <div class="as-grid-col">
+          <div class="grid-wrap" id="asGrid"><div class="skeleton row-skel"></div></div>
+          <div class="as-legend"><span class="sw s1"></span>적음<span class="sw s2"></span><span class="sw s3"></span>많음 · 칸을 누르면 오른쪽에 명단이 나와요</div>
+        </div>
+        <div class="as-side">
+          <div class="card" id="asPick"><div class="empty inner"><b>칸을 눌러보세요</b>그 시간에 되는 사람이 팀별로 나와요</div></div>
+          <div class="card" id="asBest"></div>
+          <div class="card" id="asMiss"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== 하단 탭 ===== -->
     <nav class="tabbar">
       <button class="tab active" data-tab="home" onclick="goTab('home')">
@@ -473,6 +523,6 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260924b"></script>
+  <script src="app.js?v=20260924pc"></script>
 </body>
 </html>
