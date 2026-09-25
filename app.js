@@ -201,7 +201,7 @@ function toggleNoticeForm() {
   var open = !f.classList.contains('open');
   f.classList.toggle('open', open);
   document.getElementById('noticeChev').classList.toggle('up', open);
-  if (open && document.getElementById('noticeTypeSelect').options.length === 0) loadMeetingTypes();
+  if (open && !nfData) loadMeetingTypes();
 }
 
 // ===== 날짜 처리 =====
@@ -532,6 +532,7 @@ function showLoggedOut() {
   document.querySelectorAll('#sub-info input[data-f]').forEach(function(i) { i.value = ''; });
   myPhoto = ''; setAvatarPhoto('');
   pollPicked = {}; pollTeam = ''; roster = null;
+  nfData = null; nfTeam = '';
   document.getElementById('pollBanner').innerHTML = '';
   document.getElementById('weeklyBanner').innerHTML = '';
   fixedList = null;
@@ -1719,19 +1720,138 @@ document.getElementById('teamFilter').addEventListener('click', function(e) {
   renderManager();
 });
 
+// ===== 모임 공지 폼 (팀 · 모임유형 · 고정모임 자동 입력) =====
+var nfData = null;   // { teams:[], types:[{id,name,team}], fixed:[{team,typeId,typeName,day,start,end,place}] }
+var nfTeam = '';
+
 function loadMeetingTypes() {
-  callApi('getMeetingTypesForNotice').then(function(types) {
-    var sel = document.getElementById('noticeTypeSelect');
-    sel.innerHTML = '';
-    types.forEach(function(t) {
-      var opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = t.name;
-      sel.appendChild(opt);
-    });
-  }).catch(function(err) {
-    setMsg('adminMsg', '오류: ' + err.message, true);
+  cachedRead('getMeetingForm', null, function(d) {
+    nfData = d || { teams: [], types: [], fixed: [] };
+    renderNoticeForm();
+  }, function(err, hadCache) {
+    if (!hadCache) setMsg('adminMsg', '오류: ' + err.message, true);
   });
+}
+
+function renderNoticeForm() {
+  var teams = nfData.teams || [];
+  if (teams.indexOf(nfTeam) === -1) nfTeam = teams[0] || '';
+  document.getElementById('nfTeamWrap').style.display = teams.length > 1 ? 'block' : 'none';
+  document.getElementById('nfTeams').innerHTML = teams.map(function(t) {
+    return '<button type="button" class="tchip' + (t === nfTeam ? ' active' : '') + '" data-team="' + escapeHtml(t) + '">' + escapeHtml(t) + '</button>';
+  }).join('');
+  renderNoticeTypes();
+}
+
+// 선택한 팀에서 쓸 수 있는 모임유형 (모임유형 시트의 '팀'이 비었거나 '전체'면 모든 팀에 보임)
+function nfTypesFor(team) {
+  return (nfData.types || []).filter(function(t) {
+    return !t.team || t.team === '전체' || !team || t.team.indexOf(team) !== -1;
+  });
+}
+
+// 이 팀 + 이 모임유형의 고정모임 (팀이 딱 맞는 것 우선, 없으면 팀이 비었거나 '전체'인 것)
+function nfFixedOf(typeId) {
+  if (!nfData || !typeId) return null;
+  var list = (nfData.fixed || []).filter(function(f) { return f.typeId === typeId; });
+  return list.filter(function(f) { return f.team === nfTeam; })[0] ||
+         list.filter(function(f) { return !f.team || f.team === '전체'; })[0] || null;
+}
+
+function renderNoticeTypes() {
+  var sel = document.getElementById('noticeTypeSelect');
+  var prev = sel.value;
+  var list = nfTypesFor(nfTeam);
+  sel.innerHTML = '<option value="">모임유형을 선택하세요</option>' + list.map(function(t) {
+    return '<option value="' + escapeHtml(t.id) + '">' + escapeHtml(t.name) + (nfFixedOf(t.id) ? ' 📌' : '') + '</option>';
+  }).join('');
+  if (prev && list.some(function(t) { return t.id === prev; })) sel.value = prev;
+  else { sel.value = ''; showPresetInfo(null); }
+  updateFixedCheck();
+}
+
+document.getElementById('nfTeams').addEventListener('click', function(e) {
+  var b = e.target.closest('.tchip');
+  if (!b) return;
+  nfTeam = b.getAttribute('data-team');
+  document.querySelectorAll('#nfTeams .tchip').forEach(function(x) { x.classList.toggle('active', x === b); });
+  renderNoticeTypes();
+  if (document.getElementById('noticeTypeSelect').value) applyFixedPreset();
+});
+
+// 모임유형을 고르면: 고정모임이 있으면 다음 해당 요일·시간·장소를 자동으로 채움
+function applyFixedPreset() {
+  var f = nfFixedOf(document.getElementById('noticeTypeSelect').value);
+  showPresetInfo(f);
+  updateFixedCheck();
+  if (!f) return;
+  var dt = nextDateFor(f.day, f.start);
+  if (dt) document.getElementById('noticeDatetime').value = dt;
+  document.getElementById('noticeEnd').value = f.end || '';
+  if (f.place) setNoticePlace(f.place);
+  try { if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); } catch (e) {}
+}
+
+// 가장 가까운 그 요일 (오늘이 그 요일이고 아직 시작 전이면 오늘) → "2026-09-26T13:00"
+function nextDateFor(day, start) {
+  var hm = /^(\d{1,2}):(\d{2})$/.exec(start || '');
+  if (!hm) return '';
+  var now = new Date();
+  var d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Number(hm[1]), Number(hm[2]));
+  var idx = WEEKDAYS.indexOf(day);
+  if (idx !== -1) {
+    var add = (idx - d.getDay() + 7) % 7;
+    if (add === 0 && d.getTime() <= now.getTime()) add = 7;
+    d.setDate(d.getDate() + add);
+  } else if (d.getTime() <= now.getTime()) {
+    d.setDate(d.getDate() + 1);
+  }
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+// 장소 목록에 없는 장소면 목록에 추가해서 선택
+function setNoticePlace(place) {
+  var sel = document.getElementById('noticePlace');
+  var has = Array.prototype.some.call(sel.options, function(o) { return o.value === place; });
+  if (!has) {
+    var opt = document.createElement('option');
+    opt.value = place; opt.textContent = place;
+    sel.appendChild(opt);
+  }
+  sel.value = place;
+}
+
+function showPresetInfo(f) {
+  var el = document.getElementById('nfPreset');
+  if (!f) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  var when = (f.day ? '매주 ' + f.day + ' ' : '') + (f.start || '') + (f.end ? '~' + f.end : '');
+  el.innerHTML = '<b>📌 고정모임 설정을 불러왔어요</b><small>' + escapeHtml(when) + (f.place ? ' · ' + escapeHtml(f.place) : '') +
+    ' — 이번만 다르면 아래에서 바꾸면 돼요</small>';
+  el.style.display = 'block';
+}
+
+function updateFixedCheck() {
+  var typeId = document.getElementById('noticeTypeSelect').value;
+  var row = document.getElementById('nfFixedRow');
+  document.getElementById('nfSaveFixed').checked = false;
+  row.style.display = typeId ? 'flex' : 'none';
+  if (!typeId) return;
+  document.getElementById('nfFixedLabel').textContent = nfFixedOf(typeId)
+    ? '📌 고정모임 설정을 지금 입력한 값으로 바꾸기'
+    : '📌 이 설정을 고정모임으로 저장 (다음부터 자동 입력)';
+}
+
+// 방금 저장한 고정모임을 폰에 바로 반영 (서버 다시 안 불러도 다음 공지에 바로 적용)
+function rememberFixedLocally(typeId, datetime, end, place) {
+  if (!nfData) return;
+  var t = (nfData.types || []).filter(function(x) { return x.id === typeId; })[0];
+  var team = nfTeam || (t && t.team) || '전체';
+  var d = new Date(datetime);
+  var f = { team: team, typeId: typeId, typeName: t ? t.name : '', day: WEEKDAYS[d.getDay()],
+            start: pad(d.getHours()) + ':' + pad(d.getMinutes()), end: end || '', place: place };
+  nfData.fixed = (nfData.fixed || []).filter(function(x) { return !(x.typeId === typeId && x.team === team); });
+  nfData.fixed.push(f);
+  safeRemoveLocal('c_getMeetingForm');
 }
 
 function setMsg(id, text, isErr) {
@@ -1792,19 +1912,28 @@ function submitNotice() {
   var typeId = document.getElementById('noticeTypeSelect').value;
   var datetime = document.getElementById('noticeDatetime').value;
   var place = document.getElementById('noticePlace').value;
+  var end = document.getElementById('noticeEnd').value;
+  var saveFixed = document.getElementById('nfSaveFixed').checked;
 
-  if (!typeId || !datetime || !place) { setMsg('adminMsg', '모든 정보를 입력해주세요!', true); return; }
+  if (!typeId || !datetime || !place) { setMsg('adminMsg', '모임유형·시작·장소를 입력해주세요!', true); return; }
+  if (end && end <= datetime.slice(11, 16)) { setMsg('adminMsg', '끝나는 시간이 시작 시간보다 늦어야 해요!', true); return; }
 
   var btn = document.getElementById('noticeSubmitBtn');
   btn.disabled = true;
   setMsg('adminMsg', '저장 중...');
 
-  postApi('createMeeting', { typeId: typeId, datetime: datetime, place: place }).then(function() {
-    setMsg('adminMsg', '저장 완료!');
+  postApi('createMeeting', { typeId: typeId, datetime: datetime, end: end, place: place, team: nfTeam, saveFixed: saveFixed }).then(function(r) {
+    if (saveFixed) rememberFixedLocally(typeId, datetime, end, place);
+    setMsg('adminMsg', saveFixed && r && r.fixedSaved ? '저장 완료! 고정모임 설정도 저장했어요 📌' : '저장 완료!');
     haptic('success');
     btn.disabled = false;
     document.getElementById('noticeDatetime').value = '';
+    document.getElementById('noticeEnd').value = '';
     document.getElementById('noticePlace').value = '';
+    if (nfData) renderNoticeTypes();
+    document.getElementById('noticeTypeSelect').value = '';
+    showPresetInfo(null);
+    updateFixedCheck();
     loadMeetings();
     setTimeout(function() { setMsg('adminMsg', ''); toggleNoticeForm(); }, 1200);
   }).catch(function(err) {
