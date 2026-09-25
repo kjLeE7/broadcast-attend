@@ -150,7 +150,7 @@ button { font-family: inherit; cursor: pointer; }
 .field-label { display: block; font-size: 13px; font-weight: 700; margin: 18px 0 8px; }
 .field-label .hint { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 4px; }
 
-select, textarea, input[type="datetime-local"] {
+select, textarea, input[type="datetime-local"], #noticeEnd {
   width: 100%; padding: 13px 14px; font-size: 15px; font-family: inherit;
   border-radius: 14px; border: 1.5px solid var(--line); background: var(--card-soft); color: var(--text);
   -webkit-appearance: none; appearance: none; transition: border-color .15s, box-shadow .15s;
@@ -721,3 +721,12 @@ body.locked .app, body.locked .tabbar, body.locked .pc-nav, body.locked .fab-wra
   .pc-weekly { margin-top: 0; }
   .gate-card { max-width: 420px; padding: 36px 32px 30px; }
 }
+
+/* ===== 모임 공지: 팀 선택 칩 + 고정모임 안내 ===== */
+.tchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tchip { border: 1.5px solid var(--line); background: var(--card); color: var(--muted); font-size: 13px; font-weight: 700; padding: 7px 14px; border-radius: 99px; cursor: pointer; }
+.tchip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.nf-preset { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 13px; line-height: 1.45; }
+.nf-preset b { display: block; font-weight: 800; }
+.nf-preset small { display: block; margin-top: 2px; font-size: 12px; opacity: .85; }
+#noticeEnd { min-height: 49px; }

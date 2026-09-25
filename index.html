@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260924g">
+  <link rel="stylesheet" href="style.css?v=20260925a">
 </head>
 <body class="locked">
   <!-- ===== 로그인 화면 (로그인 전에는 이 화면만 보여요) ===== -->
@@ -162,11 +162,20 @@
           <i class="chev" id="noticeChev"></i>
         </button>
         <div id="noticeForm" class="collapse">
-          <label class="field-label" for="noticeTypeSelect">모임유형</label>
-          <div class="select-wrap"><select id="noticeTypeSelect"></select></div>
+          <div id="nfTeamWrap" style="display:none;">
+            <label class="field-label">어느 팀 모임인가요?</label>
+            <div class="tchips" id="nfTeams"></div>
+          </div>
 
-          <label class="field-label" for="noticeDatetime">일시</label>
+          <label class="field-label" for="noticeTypeSelect">모임유형 <span class="hint">📌 = 고정모임 설정 있음</span></label>
+          <div class="select-wrap"><select id="noticeTypeSelect" onchange="applyFixedPreset()"></select></div>
+          <div id="nfPreset" class="nf-preset" style="display:none;"></div>
+
+          <label class="field-label" for="noticeDatetime">시작</label>
           <input type="datetime-local" id="noticeDatetime">
+
+          <label class="field-label" for="noticeEnd">끝나는 시간 <span class="hint">선택</span></label>
+          <input type="time" id="noticeEnd">
 
           <label class="field-label" for="noticePlace">장소</label>
           <div class="select-wrap">
@@ -181,6 +190,8 @@
               <option value="과천성전(10층)">과천성전(10층)</option>
             </select>
           </div>
+
+          <label class="check-row" id="nfFixedRow" style="display:none;"><input type="checkbox" id="nfSaveFixed"><span id="nfFixedLabel">📌 이 설정을 고정모임으로 저장</span></label>
 
           <button class="btn-primary" id="noticeSubmitBtn" onclick="submitNotice()">공지 저장</button>
           <div id="adminMsg" class="msg"></div>
@@ -536,6 +547,6 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260924g"></script>
+  <script src="app.js?v=20260925a"></script>
 </body>
 </html>
