@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 파일을 고친 뒤 텔레그램에서 옛날 화면이 보이면 아래 v= 숫자를 바꿔주세요 (맨 아래 app.js도 같이) -->
-  <link rel="stylesheet" href="style.css?v=20260925a">
+  <link rel="stylesheet" href="style.css?v=20261001a">
 </head>
 <body class="locked">
   <!-- ===== 로그인 화면 (로그인 전에는 이 화면만 보여요) ===== -->
@@ -69,8 +69,18 @@
 
     <!-- ===== 홈 ===== -->
     <section class="page active" id="page-home">
-      <h1 class="page-title home-title" id="homeTitle">방송예술을 한 눈에</h1>
-      <p class="page-desc" id="todayText"></p>
+      <div class="home-head">
+        <div>
+          <h1 class="page-title home-title" id="homeTitle">방송예술을 한 눈에</h1>
+          <p class="page-desc" id="todayText"></p>
+        </div>
+        <!-- 숫자 요약 (얇은 알약) -->
+        <div class="pills" id="homePills">
+          <span class="pill" id="pillNow"><i class="dot"></i>지금 <b>–</b></span>
+          <span class="pill"><i class="dot"></i>준비 중 <b id="dStatUp">–</b></span>
+          <span class="pill"><i class="dot"></i>프로젝트 <b id="dStatProj">–</b></span>
+        </div>
+      </div>
 
       <!-- 주간 녹음가능시간 미제출 알림 -->
       <div id="weeklyBanner"></div>
@@ -79,38 +89,41 @@
 
       <!-- 과 대시보드 (모두 같은 화면) -->
       <div id="managerArea">
-        <div class="stats">
-          <div class="stat accent"><div class="stat-label">우리는 지금</div><div class="stat-value" id="dStatNow">–</div></div>
-          <div class="stat"><div class="stat-label">우리는 준비 중</div><div class="stat-value" id="dStatUp">–</div></div>
-          <div class="stat"><div class="stat-label">프로젝트</div><div class="stat-value" id="dStatProj">–</div></div>
+        <!-- 사명자 일정: 이번 주·다음 주 캘린더 (PC) / 목록 (모바일 기본) -->
+        <div class="blk">
+          <div class="section-head"><h2>사명자 일정</h2><span class="section-count" id="schedSub">이번 주 · 다음 주</span>
+            <div class="seg" id="schedSeg"><button type="button" data-v="cal">2주</button><button type="button" data-v="list">목록</button></div>
+          </div>
+          <div id="scheduleArea"><div class="skeleton row-skel"></div></div>
         </div>
 
-        <div class="blk">
-          <div class="section-head"><h2>사명자 일정</h2><span class="section-count">오늘부터 2주</span></div>
-          <div class="card table-card" id="scheduleArea"><div class="skeleton row-skel"></div></div>
+        <!-- 우리는 지금 | 우리는 준비 중 (PC에서 반반) -->
+        <div class="two">
+          <div class="blk">
+            <div class="section-head"><h2>우리는 지금</h2><span class="section-count">하나님나라 건설 중이예요!</span><span class="live-dot" id="taskLiveDot"></span></div>
+            <div id="taskNowArea"><div class="skeleton row-skel"></div></div>
+          </div>
+          <div class="blk">
+            <div class="section-head"><h2>우리는 준비 중</h2><span class="section-count">많은 기도가 필요해요. <b id="taskUpCount"></b></span></div>
+            <div class="filter-chips" id="teamFilter">
+              <button class="fchip active" data-team="">전체</button>
+              <button class="fchip" data-team="성우팀">성우팀</button>
+              <button class="fchip" data-team="아나운서팀">아나운서팀</button>
+              <button class="fchip" data-team="엔지니어팀">엔지니어팀</button>
+            </div>
+            <div id="taskUpArea"><div class="skeleton row-skel"></div></div>
+          </div>
         </div>
 
+        <!-- 진행 중인 프로젝트: 한 줄 목록 / 작은 타일 -->
         <div class="blk">
-        <div class="section-head"><h2>우리는 지금</h2><span class="section-count">하나님나라 건설 중이예요!</span><span class="live-dot" id="taskLiveDot"></span></div>
-        <div id="taskNowArea"><div class="skeleton row-skel"></div></div>
-        </div>
-
-        <div class="blk">
-        <div class="section-head"><h2>우리는 준비 중</h2><span class="section-count">많은 기도가 필요해요. <b id="taskUpCount"></b></span></div>
-        <div class="filter-chips" id="teamFilter">
-          <button class="fchip active" data-team="">전체</button>
-          <button class="fchip" data-team="성우팀">성우팀</button>
-          <button class="fchip" data-team="아나운서팀">아나운서팀</button>
-          <button class="fchip" data-team="엔지니어팀">엔지니어팀</button>
-        </div>
-        <div id="taskUpArea"><div class="skeleton row-skel"></div></div>
-        </div>
-
-        <div class="blk">
-          <div class="section-head"><h2>진행 중인 프로젝트</h2><span class="section-count" id="projCount"></span></div>
+          <div class="section-head"><h2>진행 중인 프로젝트</h2><span class="section-count" id="projCount"></span>
+            <div class="seg" id="projSeg"><button type="button" data-v="list">한 줄 목록</button><button type="button" data-v="grid">작은 타일</button></div>
+          </div>
           <div id="projectArea"><div class="skeleton row-skel"></div></div>
         </div>
 
+        <!-- 12지파 인원현황: 남한 지도 -->
         <div class="blk">
           <div class="section-head"><h2>12지파 방송예술과 인원현황</h2><span class="section-count" id="tribeTotal"></span></div>
           <div class="card tribe-card" id="tribeArea"><div class="skeleton row-skel"></div></div>
@@ -547,6 +560,7 @@
     <div class="drawer-foot">방송예술과 미니앱</div>
   </aside>
 
-  <script src="app.js?v=20260925a"></script>
+  <script src="krmap.js?v=20261001a"></script>
+  <script src="app.js?v=20261001a"></script>
 </body>
 </html>
