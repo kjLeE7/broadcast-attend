@@ -604,19 +604,58 @@ function hideAdminUI() {
   document.getElementById('annAdminCard').style.display = 'none';
 }
 
-// ===== 12지파 인원현황 =====
+// ===== 12지파 인원현황 (남한 지도) =====
 function loadTribes() {
   return cachedRead('getTribes', null, function(d) {
-    var el = document.getElementById('tribeArea');
     document.getElementById('tribeTotal').textContent = d.filled ? '총 ' + d.total + '명' : '';
-    el.innerHTML = '<div class="tribe-grid">' + d.list.map(function(t) {
-      return '<div class="tribe' + (t.count ? '' : ' zero') + '"><span>' + escapeHtml(t.name) + '</span><b>' +
-        (t.count === null ? '–' : t.count + '<small>명</small>') + '</b></div>';
-    }).join('') + '</div>' +
-      (d.filled ? '' : '<div class="tribe-hint">\'지파현황\' 시트에 인원을 적으면 여기에 보여요</div>');
+    document.getElementById('tribeArea').innerHTML = tribeMapHtml(d);
   }, function(err, hadCache) {
     if (!hadCache) document.getElementById('tribeArea').innerHTML = '<div class="empty inner"><b>인원현황을 불러오지 못했어요</b>잠시 후 다시 열어주세요</div>';
   });
+}
+
+// 지도(krmap.js 의 KR_MAP·TRIBES) + 오른쪽 목록. 인원수는 '지파현황' 시트(getTribes) 값을 지파 이름으로 맞춰 씀
+function tribeMapHtml(d) {
+  if (typeof KR_MAP === 'undefined' || typeof TRIBES === 'undefined') return '<div class="empty inner"><b>지도 파일(krmap.js)을 못 읽었어요</b></div>';
+  var count = {};
+  (d.list || []).forEach(function(t) { count[String(t.name).trim()] = t.count; });
+  var byRegion = {};
+  TRIBES.forEach(function(t) { (t.region || []).forEach(function(r) { byRegion[r] = t; }); });
+  function cntText(t) { var c = count[t.name]; return c === null || c === undefined ? '–' : c + '명'; }
+
+  var svg = [];
+  Object.keys(KR_MAP).forEach(function(r) {
+    var t = byRegion[r];
+    svg.push('<path class="rg" fill="' + (t ? t.color : '#D9CFBF') + '" d="' + KR_MAP[r] + '"><title>' +
+      escapeHtml(r + (t ? ' · ' + t.name + ' ' + cntText(t) : '')) + '</title></path>');
+  });
+  TRIBES.forEach(function(t) {
+    if (t.pin) svg.push('<circle class="pin" cx="' + t.pin.x + '" cy="' + t.pin.y + '" r="6" fill="' + t.color + '"><title>' + escapeHtml(t.name + ' ' + cntText(t)) + '</title></circle>');
+  });
+  TRIBES.forEach(function(t) {
+    var l = t.label; if (!l) return;
+    var left = l.side === 'L';
+    svg.push('<line class="ld" x1="' + (left ? -4 : 400) + '" y1="' + l.y + '" x2="' + l.px + '" y2="' + l.py + '"/>' +
+      '<circle cx="' + l.px + '" cy="' + l.py + '" r="2.6" class="lp"/>' +
+      '<text class="lbl" x="' + (left ? -8 : 404) + '" y="' + (l.y + 4) + '" text-anchor="' + (left ? 'end' : 'start') + '">' +
+      escapeHtml(t.name) + ' <tspan class="c">' + cntText(t) + '</tspan></text>');
+  });
+
+  var list = TRIBES.slice().sort(function(a, b) { return (count[b.name] || 0) - (count[a.name] || 0); }).map(function(t) {
+    var c = count[t.name];
+    return '<div class="trow' + (c ? '' : ' zero') + '"><i style="background:' + t.color + '"></i><span>' + escapeHtml(t.name) +
+      '<small>' + escapeHtml(t.area || '') + '</small></span><b>' + (c === null || c === undefined ? '–' : c + '<small>명</small>') + '</b></div>';
+  }).join('');
+  // 시트에는 있는데 TRIBES 에 없는 이름이 있으면 목록 끝에 회색으로
+  (d.list || []).forEach(function(t) {
+    if (TRIBES.some(function(x) { return x.name === String(t.name).trim(); })) return;
+    list += '<div class="trow zero"><i style="background:#D9CFBF"></i><span>' + escapeHtml(t.name) + '<small>krmap.js 에 없는 지파</small></span><b>' + (t.count === null ? '–' : t.count + '<small>명</small>') + '</b></div>';
+  });
+
+  return '<div class="tribe-wrap">' +
+    '<svg class="map" viewBox="-118 0 620 540" role="img" aria-label="12지파 지경 지도">' + svg.join('') + '</svg>' +
+    '<div class="tlist">' + list + '</div></div>' +
+    (d.filled ? '' : '<div class="tribe-hint">\'지파현황\' 시트에 인원을 적으면 여기에 보여요</div>');
 }
 
 // ===== 공지사항 (과장·부과장·팀장 작성) =====
@@ -1632,34 +1671,30 @@ function mdw(ms) { var d = new Date(ms); return (d.getMonth() + 1) + '/' + d.get
 function hmMs(ms) { return hm(new Date(ms)); }
 function sameDay(a, b) { return new Date(a).toDateString() === new Date(b).toDateString(); }
 
+// 보기 방식 (이 폰에 기억): 사명자 일정 = PC는 캘린더, 모바일은 목록 / 프로젝트 = 한 줄 목록
+var schedView = safeGetLocal('schedView') || (window.innerWidth >= 1000 ? 'cal' : 'list');
+var projView = safeGetLocal('projView') || 'list';
+function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach(function(b) { b.classList.toggle('on', b.getAttribute('data-v') === v); }); }
+document.getElementById('schedSeg').addEventListener('click', function(e) {
+  var b = e.target.closest('button'); if (!b) return;
+  schedView = b.getAttribute('data-v'); safeSetLocal('schedView', schedView); renderSchedule();
+});
+document.getElementById('projSeg').addEventListener('click', function(e) {
+  var b = e.target.closest('button'); if (!b) return;
+  projView = b.getAttribute('data-v'); safeSetLocal('projView', projView); renderProjects();
+});
+
 function renderManager() {
   var d = dashData;
   if (!d) return;
-  document.getElementById('dStatNow').innerHTML = d.tasksNow.length + '<small>건</small>';
+  var pillNow = document.getElementById('pillNow');
+  pillNow.querySelector('b').innerHTML = d.tasksNow.length + '<small>건</small>';
+  pillNow.classList.toggle('now', d.tasksNow.length > 0);
   document.getElementById('dStatUp').innerHTML = d.tasksUpcoming.length + '<small>건</small>';
   document.getElementById('dStatProj').innerHTML = d.projects.length + '<small>개</small>';
   document.getElementById('taskLiveDot').classList.toggle('on', d.tasksNow.length > 0);
 
-  // 0. 사명자 일정 (표)
-  var sa = document.getElementById('scheduleArea');
-  if (!d.schedules.length) {
-    sa.innerHTML = '<div class="empty"><b>2주 안에 등록된 일정이 없어요</b>\'사명자일정\' 시트에 입력하면 여기에 보여요</div>';
-  } else {
-    var today = Date.now(), prevDay = null;
-    sa.innerHTML = '<table class="sched"><thead><tr><th>날짜·시간</th><th>일정</th><th>주관자</th><th>참여자</th></tr></thead><tbody>' +
-      d.schedules.map(function(r) {
-        var showDate = prevDay === null || !sameDay(prevDay, r.start);
-        prevDay = r.start;
-        return '<tr class="' + (sameDay(r.start, today) ? 'today' : '') + '">' +
-          '<td class="c-date">' + (showDate ? mdw(r.start) : '') +
-            '<span class="c-time">' + hmMs(r.start) + (r.end ? '~' + hmMs(r.end) : '') + '</span></td>' +
-          '<td class="c-what"><b>' + escapeHtml(r.title) + '</b><span>' +
-            escapeHtml([r.category, r.place].filter(Boolean).join(' · ')) + '</span></td>' +
-          '<td class="c-who"><b>' + escapeHtml(r.name) + '</b><span>' + escapeHtml(r.role) + '</span></td>' +
-          '<td class="c-part">' + (r.participants ? escapeHtml(r.participants) : '–') + '</td>' +
-        '</tr>';
-      }).join('') + '</tbody></table>';
-  }
+  renderSchedule();
 
   // 1. 진행 중 업무
   document.getElementById('taskNowArea').innerHTML = d.tasksNow.length
@@ -1673,11 +1708,113 @@ function renderManager() {
     ? ups.map(function(t) { return taskCard(t, false); }).join('')
     : '<div class="empty"><b>예정된 업무가 없어요</b>' + (teamFilter ? teamFilter + ' 업무가 없어요' : '\'업무\' 시트에 입력하면 여기에 보여요') + '</div>';
 
-  // 3. 진행 중 프로젝트
+  renderProjects();
+}
+
+// ----- 0. 사명자 일정: 2주 캘린더 / 목록 -----
+var SCHED_HOLIDAYS = { '10-03': '개천절', '10-09': '한글날', '12-25': '성탄절', '01-01': '신정', '03-01': '삼일절', '05-05': '어린이날', '06-06': '현충일', '08-15': '광복절' };
+function schedKind(cat) {
+  var c = String(cat || '');
+  if (/회의/.test(c)) return 'meet';
+  if (/수업|스터디|교육|연습/.test(c)) return 'class';
+  if (/녹음/.test(c)) return 'rec';
+  if (/촬영|편집/.test(c)) return 'shoot';
+  return 'etc';
+}
+function renderSchedule() {
+  var d = dashData; if (!d) return;
+  setSeg('schedSeg', schedView);
+  var sa = document.getElementById('scheduleArea');
+  document.getElementById('schedSub').textContent = schedView === 'cal' ? '이번 주 · 다음 주' : '오늘부터 2주';
+  if (schedView === 'cal') { sa.innerHTML = scheduleCalendarHtml(d.schedules); return; }
+  if (!d.schedules.length) {
+    sa.innerHTML = '<div class="empty"><b>2주 안에 등록된 일정이 없어요</b>\'사명자일정\' 시트에 입력하면 여기에 보여요</div>';
+    return;
+  }
+  var today = Date.now(), prevDay = null;
+  sa.innerHTML = '<div class="card table-card"><table class="sched"><thead><tr><th>날짜·시간</th><th>일정</th><th>주관자</th><th>참여자</th></tr></thead><tbody>' +
+    d.schedules.map(function(r) {
+      var showDate = prevDay === null || !sameDay(prevDay, r.start);
+      prevDay = r.start;
+      return '<tr class="' + (sameDay(r.start, today) ? 'today' : '') + '">' +
+        '<td class="c-date">' + (showDate ? mdw(r.start) : '') +
+          '<span class="c-time">' + hmMs(r.start) + (r.end ? '~' + hmMs(r.end) : '') + '</span></td>' +
+        '<td class="c-what"><b>' + escapeHtml(r.title) + '</b><span>' +
+          escapeHtml([r.category, r.place].filter(Boolean).join(' · ')) + '</span></td>' +
+        '<td class="c-who"><b>' + escapeHtml(r.name) + '</b><span>' + escapeHtml(r.role) + '</span></td>' +
+        '<td class="c-part">' + (r.participants ? escapeHtml(r.participants) : '–') + '</td>' +
+      '</tr>';
+    }).join('') + '</tbody></table></div>';
+}
+function scheduleCalendarHtml(rows) {
+  var now = new Date(), today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var start = new Date(today0); start.setDate(start.getDate() - start.getDay()); // 이번 주 일요일
+  var byDay = {};
+  (rows || []).forEach(function(r) { var k = new Date(r.start).toDateString(); (byDay[k] = byDay[k] || []).push(r); });
+  var cells = '';
+  for (var i = 0; i < 14; i++) {
+    var d = new Date(start); d.setDate(start.getDate() + i);
+    var key = d.toDateString(), isToday = key === today0.toDateString();
+    var hol = SCHED_HOLIDAYS[pad(d.getMonth() + 1) + '-' + pad(d.getDate())];
+    var evs = (byDay[key] || []).sort(function(a, b) { return a.start - b.start; });
+    cells += '<div class="day' + (d < today0 ? ' past' : '') + (isToday ? ' today' : '') + (hol ? ' holiday' : '') + '">' +
+      '<div class="dnum"><span class="n">' + ((i === 0 || d.getDate() === 1) ? (d.getMonth() + 1) + '/' : '') + d.getDate() + '</span>' +
+      (isToday ? '<small>오늘</small>' : hol ? '<small class="hol">' + hol + '</small>' : '') + '</div>' +
+      evs.map(function(r) {
+        return '<button type="button" class="ev ' + schedKind(r.category) + '" data-k="' + escapeHtml(key) + '" data-s="' + r.start + '">' +
+          '<span class="t">' + hmMs(r.start) + (r.end ? '~' + hmMs(r.end) : '') + '</span><span class="n">' + escapeHtml(r.title) + '</span></button>';
+      }).join('') + '</div>';
+  }
+  return '<div class="cal">' +
+    '<div class="cal-head"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>' +
+    '<div class="cal-body">' + cells + '</div>' +
+    '<div class="cal-foot"><span class="lg"><i class="meet"></i>회의</span><span class="lg"><i class="class"></i>수업</span>' +
+    '<span class="lg"><i class="rec"></i>녹음</span><span class="lg"><i class="shoot"></i>촬영</span>' +
+    '<div class="detail" id="schedDetail"><span>일정을 누르면 여기에 자세히 보여요</span></div></div></div>';
+}
+document.getElementById('scheduleArea').addEventListener('click', function(e) {
+  var b = e.target.closest('.ev'); if (!b || !dashData) return;
+  var r = dashData.schedules.filter(function(x) { return String(x.start) === b.getAttribute('data-s') && new Date(x.start).toDateString() === b.getAttribute('data-k'); })[0];
+  if (!r) return;
+  document.querySelectorAll('#scheduleArea .ev.sel').forEach(function(x) { x.classList.remove('sel'); });
+  b.classList.add('sel');
+  document.getElementById('schedDetail').innerHTML = '<b>' + escapeHtml(r.title) + '</b>' +
+    '<span>' + mdw(r.start) + ' ' + hmMs(r.start) + (r.end ? '~' + hmMs(r.end) : '') + '</span>' +
+    (r.place ? '<span>' + escapeHtml(r.place) + '</span>' : '') +
+    '<span>주관 <b>' + escapeHtml(r.name || '') + '</b>' + (r.role ? ' ' + escapeHtml(r.role) : '') + '</span>' +
+    (r.participants ? '<span>참여 ' + escapeHtml(r.participants) + '</span>' : '');
+});
+
+// ----- 3. 진행 중 프로젝트: 한 줄 목록 / 작은 타일 -----
+function renderProjects() {
+  var d = dashData; if (!d) return;
+  setSeg('projSeg', projView);
   document.getElementById('projCount').textContent = d.projects.length + '개';
-  document.getElementById('projectArea').innerHTML = d.projects.length
-    ? d.projects.map(projectCard).join('')
-    : '<div class="empty"><b>진행 중인 프로젝트가 없어요</b></div>';
+  var pa = document.getElementById('projectArea');
+  if (!d.projects.length) { pa.innerHTML = '<div class="empty"><b>진행 중인 프로젝트가 없어요</b></div>'; return; }
+  pa.innerHTML = projView === 'grid'
+    ? '<div class="pgrid">' + d.projects.map(projectTile).join('') + '</div>'
+    : '<div class="plist">' + d.projects.map(projectRow).join('') + '</div>';
+}
+function projDue(p) {
+  return p.due ? '<span class="due">' + ddayText(new Date(p.due)) + ' · ' + mdw(p.due) + '</span>' : escapeHtml(p.status || '');
+}
+function projectRow(p) {
+  return '<div class="prow">' +
+    '<span class="chip dark">' + escapeHtml(p.channel || '프로젝트') + '</span>' +
+    '<div class="pt">' + escapeHtml(p.title) + (p.desc ? '<small>' + escapeHtml(p.desc) + '</small>' : '') + '</div>' +
+    '<div class="pp"><b>담당</b>' + escapeHtml(p.owner || '미정') + (p.mc ? ' &nbsp;<b>MC</b>' + escapeHtml(p.mc) : '') + '</div>' +
+    '<div class="bar">' + (p.progress !== null && p.progress !== undefined ? '<i style="width:' + Math.min(100, p.progress) + '%"></i>' : '') + '</div>' +
+    '<div class="pd">' + projDue(p) + '</div>' +
+  '</div>';
+}
+function projectTile(p) {
+  return '<div class="ptile">' +
+    '<div class="top"><span class="chip dark">' + escapeHtml(p.channel || '프로젝트') + '</span><span class="pd">' + projDue(p) + '</span></div>' +
+    '<div class="tt">' + escapeHtml(p.title) + '</div>' +
+    '<div class="pp"><b>담당</b>' + escapeHtml(p.owner || '미정') + (p.mc ? '<br><b>MC</b>' + escapeHtml(p.mc) : '') + '</div>' +
+    (p.progress !== null && p.progress !== undefined ? '<div class="bar"><i style="width:' + Math.min(100, p.progress) + '%"></i></div>' : '') +
+  '</div>';
 }
 
 function taskCard(t, live) {
@@ -1696,21 +1833,6 @@ function taskCard(t, live) {
   '</div>';
 }
 
-function projectCard(p) {
-  return '<div class="pcard">' +
-    '<div class="p-top">' +
-      '<span class="chip dark">' + escapeHtml(p.channel || '프로젝트') + '</span>' +
-      (p.due ? '<span class="p-due">마감 ' + mdw(p.due) + ' · ' + ddayText(new Date(p.due)) + '</span>' : '<span class="p-due">' + escapeHtml(p.status) + '</span>') +
-    '</div>' +
-    '<div class="p-title">' + escapeHtml(p.title) + '</div>' +
-    (p.desc ? '<div class="p-desc">' + escapeHtml(p.desc) + '</div>' : '') +
-    '<div class="p-people">' +
-      '<span>담당<b>' + escapeHtml(p.owner || '미정') + '</b></span>' +
-      (p.mc ? '<span>MC<b>' + escapeHtml(p.mc) + '</b></span>' : '') +
-    '</div>' +
-    (p.progress !== null && p.progress !== undefined ? '<div class="p-bar"><div style="width:' + Math.min(100, p.progress) + '%"></div></div>' : '') +
-  '</div>';
-}
 
 document.getElementById('teamFilter').addEventListener('click', function(e) {
   var b = e.target.closest('.fchip');
