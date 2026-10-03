@@ -280,7 +280,7 @@ function renderBoard() {
 
   var html = '', lastGroup = '§';
   S.members.forEach(function (m) {
-    var g = m.group || '조 없음';
+    var g = m.group || '조 배정 없음';
     if (g !== lastGroup) { html += '<div class="b-group-sep">' + esc(g) + '</div>'; lastGroup = g; }
     var r = byPerson[m.id];
     var cur = (r && r.status) || '';

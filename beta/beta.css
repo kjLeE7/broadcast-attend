@@ -55,7 +55,7 @@
 .b-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .b-side small { font-size: 11px; color: var(--muted); font-weight: 600; }
 .b-past { opacity: .72; }
-.b-cancel b { text-decoration: line-through; }
+.b-cancel .b-info b { text-decoration: line-through; }
 
 /* 상태 칩 */
 .st { font-size: 11.5px; font-weight: 800; padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
