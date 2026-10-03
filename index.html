@@ -577,17 +577,7 @@
       if (!json.ok) throw new Error(json.error);
       return json.data;
     }
-
-    // 테스트: 화면 위쪽에 결과 박스 표시 (박스 누르면 닫힘)
-    const testBox = document.createElement("pre");
-    testBox.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;max-height:60vh;overflow:auto;margin:0;padding:12px;background:#111;color:#0f0;font-size:12px;white-space:pre-wrap;";
-    testBox.textContent = "테스트 시작...";
-    testBox.onclick = () => testBox.remove();
-    document.body.appendChild(testBox);
-
-    api("me")
-      .then((me) => { testBox.textContent = "성공!\n" + JSON.stringify(me, null, 2); })
-      .catch((e) => { testBox.textContent = "실패: " + e.message; });
+    
   </script>
 </body>
 </html>
