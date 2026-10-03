@@ -823,6 +823,100 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     return { ok: true };
   },
 
+  // ----- 홈 대시보드 (과 전체가 같은 화면) -----
+  // { team_id } → 이 팀이 속한 과 기준: 2주 사명자 일정(+모임 회차), 지금/준비 중 업무, 프로젝트, 12지파 인원, 내 주간 녹음가능 제출 여부
+  async "dashboard.load"(ctx) {
+    const { team_id } = ctx.payload;
+    await requireRank(ctx, team_id, RANK.MEMBER);
+    const DAY = 86400000, DEFAULT_DURATION = 3 * 3600000;   // 끝 시간이 없으면 시작 후 3시간을 '진행 중'으로 봄
+    const team = must(await ctx.db.from("org_units").select("id, parent_id").eq("id", team_id).maybeSingle());
+    const sectionId = team?.parent_id ?? team_id;
+    const kids: any[] = must(await ctx.db.from("org_units").select("id, name")
+      .eq("parent_id", sectionId).eq("unit_type", "팀").is("ended_on", null)) ?? [];
+    const teamIds = kids.map((k) => k.id);
+    const unitIds = [sectionId, ...teamIds];
+    const unitName = new Map<string, string>(kids.map((k) => [k.id, k.name]));
+
+    // 한국 시간 기준 날짜
+    const kst = new Date(Date.now() + 9 * 3600000);
+    const todayK = kst.toISOString().slice(0, 10);
+    const dow = kst.getUTCDay();
+    const sunday = addDaysStr(todayK, -dow);                 // 이번 주 일요일
+    const until = addDaysStr(sunday, 14);
+    const kstMs = (d: string, t = "00:00:00") => Date.parse(`${d}T${t}+09:00`);
+    const thisMon = addDaysStr(todayK, -((dow + 6) % 7)), nextMon = addDaysStr(thisMon, 7);
+    const now = Date.now();
+
+    const [sched, sess, duty, proj, tribes, stats, subs] = await Promise.all([
+      ctx.db.from("staff_schedules").select("*").in("unit_id", unitIds)
+        .gte("starts_at", new Date(kstMs(sunday)).toISOString()).lt("starts_at", new Date(kstMs(until)).toISOString()),
+      teamIds.length ? ctx.db.from("meeting_sessions")
+        .select("id, team_id, title, session_date, start_time, end_time, location, status, created_by, meeting_types(name)")
+        .in("team_id", teamIds).gte("session_date", sunday).lt("session_date", until).neq("status", "취소")
+        : Promise.resolve({ data: [], error: null }),
+      ctx.db.from("duties").select("*").in("unit_id", unitIds)
+        .or(`starts_at.is.null,starts_at.gte.${new Date(now - DAY).toISOString()}`).order("starts_at", { ascending: true }).limit(100),
+      ctx.db.from("projects").select("*").in("unit_id", unitIds).neq("status", "완료").order("due_on", { ascending: true }),
+      ctx.db.from("org_units").select("id, name").eq("unit_type", "지파"),
+      ctx.db.from("tribe_stats").select("tribe_id, headcount"),
+      ctx.db.from("weekly_submissions").select("week_start").eq("person_id", ctx.me.id).in("week_start", [thisMon, nextMon]),
+    ]);
+    const S = must(sched as any) ?? [], M = must(sess as any) ?? [], Du = must(duty as any) ?? [], P = must(proj as any) ?? [];
+    const names = await nameMap(ctx, [
+      ...S.map((r: any) => r.organizer_id), ...M.map((r: any) => r.created_by),
+      ...Du.map((r: any) => r.owner_id), ...P.flatMap((r: any) => [r.owner_id, r.mc_id]),
+    ]);
+    const unitLabel = (id: string) => unitName.get(id) ?? "방송예술과";
+
+    // 사명자 일정 = 직접 등록한 일정 + 각 팀 모임 회차
+    const schedules = [
+      ...S.map((r: any) => ({
+        start: Date.parse(r.starts_at), end: r.ends_at ? Date.parse(r.ends_at) : null,
+        title: r.title, category: r.category ?? "", place: r.place ?? "",
+        name: names.get(r.organizer_id) ?? "", role: r.organizer_role ?? unitLabel(r.unit_id), participants: r.participants ?? "",
+      })),
+      ...M.map((r: any) => ({
+        start: kstMs(r.session_date, r.start_time ?? "00:00:00"), end: r.end_time ? kstMs(r.session_date, r.end_time) : null,
+        title: r.title || r.meeting_types?.name || "모임", category: r.meeting_types?.name ?? "모임", place: r.location ?? "",
+        name: names.get(r.created_by) ?? "", role: unitLabel(r.team_id), participants: unitLabel(r.team_id),
+      })),
+    ].sort((a, b) => a.start - b.start);
+
+    // 업무: 진행 중 / 예정
+    const tasks = Du.map((r: any) => ({
+      type: r.duty_type, team: unitLabel(r.unit_id), title: r.title, owner: names.get(r.owner_id) ?? "",
+      place: r.place ?? "", dept: r.request_dept ?? "",
+      start: r.starts_at ? Date.parse(r.starts_at) : null, end: r.ends_at ? Date.parse(r.ends_at) : null,
+    }));
+    const isNow = (t: any) => t.start !== null && t.start <= now && now < (t.end ?? t.start + DEFAULT_DURATION);
+    const tasksNow = tasks.filter(isNow);
+    const tasksUpcoming = tasks.filter((t: any) => !isNow(t) && (t.start === null || t.start > now))
+      .sort((a: any, b: any) => (a.start ?? Infinity) - (b.start ?? Infinity));
+
+    const projects = P.map((r: any) => ({
+      channel: r.channel ?? "", title: r.title, desc: r.description ?? "",
+      owner: names.get(r.owner_id) ?? "", mc: names.get(r.mc_id) ?? "",
+      progress: r.progress, due: r.due_on ? kstMs(r.due_on) : null, status: r.status,
+    }));
+
+    const countOf = new Map<string, number | null>((must(stats as any) ?? []).map((s: any) => [s.tribe_id, s.headcount]));
+    const tribeList = (must(tribes as any) ?? []).map((t: any) => ({ name: String(t.name).replace(/지파$/, ""), count: countOf.get(t.id) ?? null }));
+    const filled = tribeList.some((t: any) => t.count !== null);
+    const total = tribeList.reduce((n: number, t: any) => n + (t.count ?? 0), 0);
+
+    const done = new Set((must(subs as any) ?? []).map((s: any) => s.week_start));
+    return {
+      schedules, tasksNow, tasksUpcoming, projects,
+      teams: kids.map((k) => k.name),
+      tribes: { list: tribeList, total, filled },
+      weekly: {
+        this: { week_start: thisMon, submitted: done.has(thisMon) },
+        next: { week_start: nextMon, submitted: done.has(nextMon), due: kstMs(addDaysStr(nextMon, -1), "22:00:00") },
+        isSunday: dow === 0,
+      },
+    };
+  },
+
   // 최초 PIN 설정: { pin } → PIN이 아직 없을 때만
   async "pin.setInitial"(ctx) {
     const p = must(await ctx.db.from("people").select("pin_hash").eq("id", ctx.me.id).single());
