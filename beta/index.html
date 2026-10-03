@@ -10,8 +10,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
-  <link rel="stylesheet" href="../style.css?v=20261003f">
-  <link rel="stylesheet" href="beta.css?v=20261003f">
+  <link rel="stylesheet" href="../style.css?v=20261003g">
+  <link rel="stylesheet" href="beta.css?v=20261003g">
 </head>
 <body>
   <div class="app">
@@ -49,6 +49,33 @@
       <h1 class="page-title">Attendance</h1>
       <p class="page-desc">모임을 눌러 출결을 남겨주세요</p>
 
+      <!-- 오늘·내일 체크인 (기상·출발·도착) -->
+      <div id="ciArea"></div>
+
+      <!-- 체크인 만들기 (교관 이상) -->
+      <div class="card b-create" id="ciCreateCard" style="display:none;">
+        <button class="b-toggle" type="button" onclick="toggleBox('ciForm','ciChev')">
+          <span><b>+ 체크인 만들기</b><small>기상·출발·도착 시간을 받아요</small></span>
+          <span class="b-chev" id="ciChev">›</span>
+        </button>
+        <div id="ciForm" class="b-pad" style="display:none;">
+          <label class="field-label" for="ciTitle">제목</label>
+          <input type="text" id="ciTitle" class="b-input" maxlength="60" placeholder="예) 수련회 이동">
+          <label class="field-label" for="ciDate">날짜</label>
+          <input type="date" id="ciDate" class="b-input">
+          <label class="field-label">받을 항목</label>
+          <div class="item-checks" id="ciItems">
+            <label><input type="checkbox" value="기상" checked><span>☀️ 기상</span></label>
+            <label><input type="checkbox" value="출발" checked><span>🚗 출발</span></label>
+            <label><input type="checkbox" value="도착" checked><span>📍 도착</span></label>
+          </div>
+          <label class="field-label" for="ciTarget">대상</label>
+          <div class="select-wrap"><select id="ciTarget" class="b-target"></select></div>
+          <button class="btn-primary" id="ciBtn" onclick="createCheckin()">체크인 만들기</button>
+          <div class="msg" id="ciMsg"></div>
+        </div>
+      </div>
+
       <!-- 모임 회차 만들기 (교관 이상) -->
       <div class="card b-create" id="createCard" style="display:none;">
         <button class="b-toggle" type="button" onclick="toggleCreate()">
@@ -78,6 +105,12 @@
 
       <div class="section-head b-gap"><h2>지난 모임</h2><span class="section-count">최근 2주</span></div>
       <div id="pastList"></div>
+
+      <!-- 체크인 현황 (조장 이상) -->
+      <div id="ciBoardWrap" style="display:none;">
+        <div class="section-head b-gap"><h2>체크인 현황</h2><span class="section-count">최근 1주 ~ 예정</span></div>
+        <div id="ciBoard"></div>
+      </div>
     </section>
 
     <!-- ===== 출결: 모임 하나 ===== -->
@@ -106,6 +139,96 @@
       </div>
     </section>
     </div>
+
+    <!-- ===== 공지 ===== -->
+    <section id="noticeView" style="display:none;">
+      <h1 class="page-title">Notice</h1>
+      <p class="page-desc">우리 팀 공지와 방송예술과 전체 공지예요</p>
+
+      <div class="card b-create" id="annCreateCard" style="display:none;">
+        <button class="b-toggle" type="button" onclick="toggleBox('annForm','annChev')">
+          <span><b>+ 공지 쓰기</b><small>교관 이상만 보이는 메뉴예요</small></span>
+          <span class="b-chev" id="annChev">›</span>
+        </button>
+        <div id="annForm" class="b-pad" style="display:none;">
+          <div id="annScopeWrap" style="display:none;">
+            <label class="field-label" for="annScope">범위</label>
+            <div class="select-wrap"><select id="annScope" onchange="onAnnScope()">
+              <option value="team">우리 팀</option>
+              <option value="section">방송예술과 전체</option>
+            </select></div>
+          </div>
+          <div id="annTargetWrap">
+            <label class="field-label" for="annTarget">대상</label>
+            <div class="select-wrap"><select id="annTarget" class="b-target"></select></div>
+          </div>
+          <label class="field-label" for="annTitle">제목</label>
+          <input type="text" id="annTitle" class="b-input" maxlength="100" placeholder="예) 10월 정규수업 안내">
+          <label class="field-label" for="annBody">내용</label>
+          <textarea id="annBody" rows="5" maxlength="3000" placeholder="공유할 내용을 적어주세요"></textarea>
+          <label class="check-row"><input type="checkbox" id="annPinned"><span>📌 맨 위에 고정</span></label>
+          <button class="btn-primary" id="annBtn" onclick="createNotice()">공지 올리기</button>
+          <div class="msg" id="annMsg"></div>
+        </div>
+      </div>
+
+      <div id="annList"></div>
+    </section>
+
+    <!-- ===== 과제 ===== -->
+    <section id="taskView" style="display:none;">
+      <div id="taskList">
+        <h1 class="page-title">Assignments</h1>
+        <p class="page-desc">과제를 눌러 제출해주세요</p>
+
+        <div class="card b-create" id="hwCreateCard" style="display:none;">
+          <button class="b-toggle" type="button" onclick="toggleBox('hwForm','hwChev')">
+            <span><b>+ 과제 내기</b><small>교관 이상만 보이는 메뉴예요</small></span>
+            <span class="b-chev" id="hwChev">›</span>
+          </button>
+          <div id="hwForm" class="b-pad" style="display:none;">
+            <label class="field-label" for="hwCat">분류 <span class="hint">예) 공통과제 · 주간과제A · 주간과제B</span></label>
+            <input type="text" id="hwCat" class="b-input" maxlength="20" list="hwCats" placeholder="공통과제">
+            <datalist id="hwCats"><option value="공통과제"><option value="주간과제A"><option value="주간과제B"></datalist>
+            <label class="field-label" for="hwTitle">제목</label>
+            <input type="text" id="hwTitle" class="b-input" maxlength="100" placeholder="예) 시편 23편 낭독 녹음">
+            <label class="field-label" for="hwDesc">설명</label>
+            <textarea id="hwDesc" rows="4" maxlength="3000" placeholder="과제 내용과 제출 방법"></textarea>
+            <label class="field-label" for="hwDue">마감</label>
+            <input type="datetime-local" id="hwDue">
+            <label class="field-label" for="hwTarget">대상</label>
+            <div class="select-wrap"><select id="hwTarget" class="b-target"></select></div>
+            <label class="check-row"><input type="checkbox" id="hwFeedback" checked><span>피드백 주는 과제</span></label>
+            <button class="btn-primary" id="hwBtn" onclick="createTask()">과제 내기</button>
+            <div class="msg" id="hwMsg"></div>
+          </div>
+        </div>
+
+        <div class="section-head"><h2>진행 중</h2><span class="section-count" id="hwOpenCount"></span></div>
+        <div id="hwOpen"></div>
+        <div class="section-head b-gap"><h2>지난 과제</h2><span class="section-count">최근 30일</span></div>
+        <div id="hwPast"></div>
+      </div>
+
+      <div id="taskDetail" style="display:none;">
+        <button class="back" onclick="closeTask()">‹ 과제 목록</button>
+        <div id="tdHead"></div>
+        <div class="card" id="tdMine">
+          <div class="b-card-title">내 제출</div>
+          <label class="field-label" for="tdContent">내용</label>
+          <textarea id="tdContent" rows="5" maxlength="5000" placeholder="과제 내용을 적거나 붙여넣어 주세요"></textarea>
+          <label class="field-label" for="tdLink">링크 <span class="hint">녹음 파일·드라이브 주소 등 (선택)</span></label>
+          <input type="text" id="tdLink" class="b-input" maxlength="500" placeholder="https://">
+          <button class="btn-primary" id="tdBtn" onclick="submitTask()">제출</button>
+          <div class="msg" id="tdMsg"></div>
+          <div id="tdFeedback"></div>
+        </div>
+        <div id="tdBoardWrap" style="display:none;">
+          <div class="section-head b-gap"><h2>제출 현황</h2><span class="section-count" id="tdBoardCount"></span></div>
+          <div class="card b-board" id="tdBoard"></div>
+        </div>
+      </div>
+    </section>
 
     <!-- ===== 주간 녹음가능 ===== -->
     <section id="weeklyView" style="display:none;">
@@ -164,7 +287,7 @@
       </div>
     </section>
 
-    <p class="b-foot" id="foot">베타 · 출결과 녹음가능을 먼저 옮겨왔어요</p>
+    <p class="b-foot" id="foot">베타 · 출결·체크인·공지·과제·녹음가능</p>
   </div>
 
   <!-- 하단 탭 -->
@@ -173,12 +296,20 @@
       <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
       <span>출결</span>
     </button>
+    <button class="tab" data-tab="notice" onclick="goTab('notice')">
+      <svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg>
+      <span>공지</span>
+    </button>
+    <button class="tab" data-tab="task" onclick="goTab('task')">
+      <svg viewBox="0 0 24 24"><path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2"/><path d="M9 12h6M9 16h4"/></svg>
+      <span>과제</span>
+    </button>
     <button class="tab" data-tab="weekly" onclick="goTab('weekly')">
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
       <span>녹음가능</span>
     </button>
   </nav>
 
-  <script src="beta.js?v=20261003f"></script>
+  <script src="beta.js?v=20261003g"></script>
 </body>
 </html>

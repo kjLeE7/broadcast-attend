@@ -82,8 +82,7 @@ function showState(title, desc) {
   $('loginBox').style.display = 'none';
   $('stateBox').style.display = 'block';
   $('stateBox').innerHTML = '<b>' + esc(title) + '</b>' + esc(desc || '');
-  $('listView').style.display = 'none';
-  $('detailView').style.display = 'none';
+  ['listView', 'detailView', 'noticeView', 'taskView', 'weeklyView'].forEach(function (id) { $(id).style.display = 'none'; });
 }
 
 // ---------------------------------------------------------------------
@@ -125,7 +124,7 @@ function loginQuery(u) {
   return q.toString();
 }
 function showLogin(msg) {
-  ['stateBox', 'listView', 'detailView', 'weeklyView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['stateBox', 'listView', 'detailView', 'weeklyView', 'noticeView', 'taskView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
   $('tabbar').classList.add('b-off');
   document.body.classList.remove('b-nav');
   $('who').textContent = '게스트';
@@ -172,17 +171,28 @@ function renderTeamTabs() {
 function selectTeam(id) {
   S.team = S.me.teams.filter(function (t) { return t.id === id; })[0];
   S.members = null; S.types = []; S.att = {}; S.sessions = [];
+  N.list = null; A.list = null; A.current = null; C.list = [];
   document.querySelectorAll('#teamTabs .subtab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-team') === id); });
-  showState('불러오는 중...', S.team.name + ' 모임을 가져오고 있어요');
-  loadTeam().then(showList).catch(function (err) { showState('불러오지 못했어요', err.message); });
+  showState('불러오는 중...', S.team.name + ' 정보를 가져오고 있어요');
+  loadTeam().then(function () {
+    $(VIEWS[curTab]).style.display = '';
+    if (curTab === 'attend') showList(); else { $('stateBox').style.display = 'none'; refreshTab(); }
+  }).catch(function (err) { showState('불러오지 못했어요', err.message); });
 }
 
 function loadTeam() {
-  var jobs = [api('sessions.list', { team_id: S.team.id, from: addDays(-14), to: addDays(60) })];
-  if (S.team.rank >= RANK.INSTRUCTOR) jobs.push(api('meeting_types.list', { team_id: S.team.id }));
+  var jobs = [
+    api('sessions.list', { team_id: S.team.id, from: addDays(-14), to: addDays(60) }),
+    api('checkins.list', { team_id: S.team.id }),
+    api('team.groups', { team_id: S.team.id }),
+    S.team.rank >= RANK.INSTRUCTOR ? api('meeting_types.list', { team_id: S.team.id }) : Promise.resolve([])
+  ];
   return Promise.all(jobs).then(function (r) {
     S.sessions = r[0] || [];
-    S.types = r[1] || [];
+    C.list = r[1] || [];
+    S.groups = r[2] || [];
+    S.types = r[3] || [];
+    fillTargets();
     // 모임마다 출결 (팀원은 본인 것만, 조장 이상은 전체가 돌아옴)
     return Promise.all(S.sessions.map(function (s) {
       return api('attendance.list', { session_id: s.id }).then(function (rows) { S.att[s.id] = rows || []; });
@@ -200,8 +210,10 @@ function showList() {
   $('listView').style.display = 'block';
   $('attendWrap').classList.remove('split');
   $('createCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
+  $('ciCreateCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
   if (S.team.rank >= RANK.INSTRUCTOR) fillTypeSelect();
   renderList();
+  renderCheckins();
   window.scrollTo(0, 0);
 }
 
@@ -397,25 +409,26 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'attend';
+var VIEWS = { attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   curTab = t;
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === t); });
-  var weekly = t === 'weekly';
-  $('weeklyView').style.display = weekly ? 'block' : 'none';
-  $('teamTabs').style.display = !weekly && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
-  if (weekly) {
-    $('listView').style.display = 'none';
-    $('detailView').style.display = 'none';
-    $('stateBox').style.display = 'none';
-    S.current = null;
-    try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
-    if (!W.data) openWeekly('next');
-  } else {
-    showList();
-  }
+  Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
+  $('teamTabs').style.display = t !== 'weekly' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('stateBox').style.display = 'none';
+  S.current = null;
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+  refreshTab();
   window.scrollTo(0, 0);
+}
+// 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
+function refreshTab() {
+  if (curTab === 'attend') showList();
+  else if (curTab === 'notice') loadNotices();
+  else if (curTab === 'task') loadTasks();
+  else if (curTab === 'weekly' && !W.data) openWeekly('next');
 }
 
 // =====================================================================
@@ -753,9 +766,404 @@ function saveFx() {
   }).catch(function (err) { btn.disabled = false; setMsg('fxMsg', err.message, true); });
 }
 
-// 텔레그램 뒤로가기 버튼: 모임 상세에서 누르면 목록으로
+// =====================================================================
+// 공통: 대상(조) 고르기, 접었다 펴기, 날짜·시간 표시
+// =====================================================================
+var N = { list: null, open: null };                  // 공지
+var A = { list: null, current: null, subs: null, openSub: null };   // 과제
+var C = { list: [], open: null };                     // 체크인
+S.groups = [];
+
+function toggleBox(formId, chevId) {
+  var f = $(formId), open = f.style.display === 'none';
+  f.style.display = open ? 'block' : 'none';
+  $(chevId).classList.toggle('open', open);
+  if (open && formId === 'ciForm' && !$('ciDate').value) $('ciDate').value = todayStr();
+}
+function fillTargets() {
+  var h = '<option value="">팀 전체</option>' + S.groups.map(function (g) {
+    return '<option value="' + esc(g.id) + '">' + esc(g.name) + '만</option>';
+  }).join('');
+  document.querySelectorAll('.b-target').forEach(function (sel) { sel.innerHTML = h; });
+}
+function groupName(id) { var g = S.groups.filter(function (x) { return x.id === id; })[0]; return g ? g.name : ''; }
+function hmOf(iso) { var d = new Date(iso); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+function mdOf(iso) { var d = new Date(iso); return (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')'; }
+function dtLabel(iso) { return mdOf(iso) + ' ' + hmOf(iso); }
+function loadMembers() {
+  return S.members ? Promise.resolve(S.members)
+    : api('team.members', { team_id: S.team.id }).then(function (m) { S.members = m; return m; });
+}
+// 대상이 특정 조면 그 조 사람만
+function targetMembers(targetId) {
+  var mem = S.members || [];
+  if (!targetId) return mem;
+  var gname = groupName(targetId);
+  return mem.filter(function (m) { return m.group === gname; });
+}
+function byId(list, id) { return list.filter(function (x) { return x.id === id; })[0]; }
+
+// =====================================================================
+// 체크인 (기상·출발·도착) — 출결 탭 위쪽
+// =====================================================================
+var CI_EMOJI = { '기상': '☀️', '출발': '🚗', '도착': '📍' };
+
+function renderCheckins() {
+  if (!S.team) return;
+  var today = todayStr(), tmr = addDays(1);
+  var mine = C.list.filter(function (c) { return c.check_date === today || c.check_date === tmr; })
+    .sort(function (a, b) { return a.check_date < b.check_date ? -1 : 1; });
+  $('ciArea').innerHTML = mine.map(ciCard).join('');
+  var lead = S.team.rank >= RANK.GROUP_LEADER;
+  $('ciBoardWrap').style.display = lead && C.list.length ? 'block' : 'none';
+  if (!lead || !C.list.length) return;
+  if (S.members) { $('ciBoard').innerHTML = C.list.map(ciBoardCard).join(''); return; }
+  $('ciBoard').innerHTML = '<div class="empty inner"><b>불러오는 중...</b></div>';
+  loadMembers().then(renderCheckins).catch(function (err) { $('ciBoard').innerHTML = '<div class="empty inner">' + esc(err.message) + '</div>'; });
+}
+
+function ciCard(c) {
+  var isToday = c.check_date === todayStr();
+  return '<div class="ci-card"><div class="ci-head"><span class="hero-chip"><i></i>' +
+      (isToday ? '오늘의 체크인' : '내일 체크인 · ' + shortD(c.check_date)) + '</span><b>' + esc(c.title) + '</b></div>' +
+    '<div class="ci-btns">' + c.items.map(function (it) {
+      var m = c.mine[it];
+      return '<button class="ci-btn' + (m ? ' done' : '') + '" onclick="tapCheckin(\'' + esc(c.id) + '\',\'' + it + '\')">' +
+        '<span class="ci-emoji">' + CI_EMOJI[it] + '</span><span class="ci-label">' + it + '</span>' +
+        '<span class="ci-time">' + (m ? hmOf(m.at) + (m.note ? ' → ' + esc(m.note) : '') : '누르면 기록') + '</span></button>';
+    }).join('') + '</div>' +
+    '<div class="ci-eta" id="eta-' + esc(c.id) + '" style="display:none;"><label>도착 예정 시간 <small>(모르면 비워두세요)</small></label>' +
+      '<div class="ci-eta-row"><input type="time" id="etaIn-' + esc(c.id) + '"><button onclick="sendCheckin(\'' + esc(c.id) + '\',\'출발\')">출발했어요</button></div></div>' +
+    '<div class="msg" id="ciMsg-' + esc(c.id) + '"></div>' +
+    '<div class="ci-tip">잘못 눌렀으면 기록된 칸을 한 번 더 눌러 지울 수 있어요</div></div>';
+}
+
+function tapCheckin(id, item) {
+  var c = byId(C.list, id); if (!c) return;
+  if (c.mine[item]) {
+    if (confirm(item + ' 기록(' + hmOf(c.mine[item].at) + ')을 지울까요?')) unCheckin(id, item);
+    return;
+  }
+  if (item === '출발') { var b = $('eta-' + id); b.style.display = b.style.display === 'none' ? 'block' : 'none'; return; }
+  sendCheckin(id, item);
+}
+
+function sendCheckin(id, item) {
+  var note = '';
+  if (item === '출발') { var inp = $('etaIn-' + id); note = inp && inp.value ? inp.value + ' 도착 예정' : ''; }
+  setMsg('ciMsg-' + id, '기록 중...');
+  api('checkins.report', { checkin_id: id, item: item, note: note }).then(function (r) {
+    var c = byId(C.list, id);
+    c.mine[item] = { at: r.reported_at, note: r.note };
+    if (c.reports) {
+      c.reports = c.reports.filter(function (x) { return !(x.person_id === r.person_id && x.item === item); });
+      c.reports.push(Object.assign({ name: S.me.profile.name }, r));
+    }
+    haptic('success');
+    renderCheckins();
+    setMsg('ciMsg-' + id, CI_EMOJI[item] + ' ' + item + ' ' + hmOf(r.reported_at) + ' 기록했어요!');
+  }).catch(function (err) { setMsg('ciMsg-' + id, err.message, true); haptic('error'); });
+}
+
+function unCheckin(id, item) {
+  api('checkins.unreport', { checkin_id: id, item: item }).then(function () {
+    var c = byId(C.list, id);
+    delete c.mine[item];
+    if (c.reports) c.reports = c.reports.filter(function (x) { return !(x.person_id === S.me.profile.id && x.item === item); });
+    renderCheckins();
+  }).catch(function (err) { alertMsg(err.message); });
+}
+
+function toggleCiBoard(id) { C.open = C.open === id ? null : id; renderCheckins(); }
+
+function ciBoardCard(c) {
+  var target = targetMembers(c.target_unit_id);
+  var reps = c.reports || [];
+  var counts = c.items.map(function (it) {
+    var n = reps.filter(function (r) { return r.item === it; }).length;
+    return '<span class="chip">' + CI_EMOJI[it] + ' ' + it + ' ' + n + '/' + target.length + '</span>';
+  }).join('');
+  var open = C.open === c.id;
+  var html = '<div class="card ci-board"><div class="ci-board-head" onclick="toggleCiBoard(\'' + esc(c.id) + '\')"><div>' +
+    '<div class="ci-board-title">' + esc(c.title) + '</div><div class="b-sub">' + shortD(c.check_date) +
+    (c.target_unit_id ? ' · ' + esc(groupName(c.target_unit_id)) + '만' : '') + '</div></div>' +
+    '<span class="b-chev' + (open ? ' open' : '') + '">›</span></div><div class="b-chips">' + counts + '</div>';
+  if (open) {
+    html += '<div class="table-scroll"><table class="sched ci-table"><thead><tr><th>이름</th>' +
+      c.items.map(function (it) { return '<th>' + CI_EMOJI[it] + it + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      target.map(function (m) {
+        return '<tr><td class="c-who"><b>' + esc(m.name) + '</b><span>' + esc(m.group || m.position || '') + '</span></td>' +
+          c.items.map(function (it) {
+            var r = reps.filter(function (x) { return x.person_id === m.id && x.item === it; })[0];
+            return '<td class="' + (r ? 'ci-ok' : 'ci-miss') + '">' + (r ? hmOf(r.reported_at) + (r.note ? '<small>' + esc(r.note) + '</small>' : '') : '–') + '</td>';
+          }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>' +
+      (S.team.rank >= RANK.INSTRUCTOR ? '<button class="ghost-btn b-danger" onclick="deleteCheckin(\'' + esc(c.id) + '\')">이 체크인 지우기</button>' : '');
+  }
+  return html + '</div>';
+}
+
+function createCheckin() {
+  var items = [].slice.call(document.querySelectorAll('#ciItems input:checked')).map(function (x) { return x.value; });
+  var p = { team_id: S.team.id, title: $('ciTitle').value.trim(), check_date: $('ciDate').value, items: items, target_unit_id: $('ciTarget').value || null };
+  if (!p.title) { setMsg('ciMsg', '제목을 적어주세요!', true); return; }
+  if (!p.check_date) { setMsg('ciMsg', '날짜를 골라주세요!', true); return; }
+  if (!items.length) { setMsg('ciMsg', '받을 항목을 하나 이상 골라주세요!', true); return; }
+  var btn = $('ciBtn'); btn.disabled = true; setMsg('ciMsg', '만드는 중...');
+  api('checkins.create', p).then(function (c) {
+    c.mine = {}; c.reports = S.team.rank >= RANK.GROUP_LEADER ? [] : null;
+    C.list.unshift(c);
+    C.list.sort(function (a, b) { return a.check_date < b.check_date ? 1 : -1; });
+    $('ciTitle').value = '';
+    btn.disabled = false; haptic('success');
+    setMsg('ciMsg', '만들었어요! 대상자에게 체크인 버튼이 보여요.');
+    renderCheckins();
+    setTimeout(function () { setMsg('ciMsg', ''); toggleBox('ciForm', 'ciChev'); }, 1200);
+  }).catch(function (err) { setMsg('ciMsg', err.message, true); btn.disabled = false; });
+}
+
+function deleteCheckin(id) {
+  if (!confirm('이 체크인과 기록을 모두 지울까요?')) return;
+  api('checkins.delete', { id: id }).then(function () {
+    C.list = C.list.filter(function (c) { return c.id !== id; });
+    renderCheckins();
+  }).catch(function (err) { alertMsg(err.message); });
+}
+
+// =====================================================================
+// 공지
+// =====================================================================
+function loadNotices() {
+  if (!S.team) return;
+  $('annCreateCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
+  $('annScopeWrap').style.display = S.team.rank >= RANK.TEAM_LEADER ? 'block' : 'none';
+  if (N.list) { renderNotices(); return; }
+  $('annList').innerHTML = '<div class="empty"><b>불러오는 중...</b></div>';
+  api('notices.list', { team_id: S.team.id }).then(function (l) { N.list = l; renderNotices(); })
+    .catch(function (err) { $('annList').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function onAnnScope() { $('annTargetWrap').style.display = $('annScope').value === 'team' ? 'block' : 'none'; }
+function toggleNotice(id) { N.open = N.open === id ? null : id; renderNotices(); }
+
+function renderNotices() {
+  if (!N.list.length) { $('annList').innerHTML = '<div class="empty"><b>아직 공지가 없어요</b>공지가 올라오면 여기에 보여요</div>'; return; }
+  $('annList').innerHTML = N.list.map(function (n) {
+    var open = N.open === n.id;
+    var canDel = n.mine || (n.scope === 'team' && S.team.rank >= RANK.INSTRUCTOR);
+    var long = n.body && (n.body.length > 90 || n.body.split('\n').length > 3);
+    return '<div class="ann' + (n.is_pinned ? ' pinned' : '') + '" onclick="toggleNotice(\'' + esc(n.id) + '\')">' +
+      '<div class="ann-top">' + (n.is_pinned ? '<span class="chip dark">📌 고정</span>' : '') +
+        '<span class="chip">' + (n.scope === 'section' ? '방송예술과 전체' : esc(S.team.name)) + '</span>' +
+        (n.target_unit_id ? '<span class="chip">' + esc(groupName(n.target_unit_id)) + '만</span>' : '') +
+        '<span class="ann-date">' + mdOf(n.published_at) + '</span></div>' +
+      '<div class="ann-title">' + esc(n.title) + '</div>' +
+      (n.body ? '<div class="ann-body' + (open ? '' : ' clamp') + '">' + esc(n.body) + '</div>' : '') +
+      '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' +
+        (long && !open ? '<span class="ann-more">더보기</span>' : '') +
+        (canDel ? '<button class="ann-hide" onclick="event.stopPropagation();deleteNotice(\'' + esc(n.id) + '\')">삭제</button>' : '') +
+      '</div></div>';
+  }).join('');
+}
+
+function createNotice() {
+  var scope = S.team.rank >= RANK.TEAM_LEADER ? $('annScope').value : 'team';
+  var p = { team_id: S.team.id, scope: scope, title: $('annTitle').value.trim(), body: $('annBody').value.trim(),
+    is_pinned: $('annPinned').checked, target_unit_id: scope === 'team' ? ($('annTarget').value || null) : null };
+  if (!p.title) { setMsg('annMsg', '제목을 적어주세요!', true); return; }
+  var btn = $('annBtn'); btn.disabled = true; setMsg('annMsg', '올리는 중...');
+  api('notices.create', p).then(function (n) {
+    N.list = null;   // 고정·순서 반영해서 새로 받기
+    ['annTitle', 'annBody'].forEach(function (id) { $(id).value = ''; });
+    $('annPinned').checked = false;
+    btn.disabled = false; haptic('success');
+    setMsg('annMsg', '공지를 올렸어요!');
+    loadNotices();
+    setTimeout(function () { setMsg('annMsg', ''); toggleBox('annForm', 'annChev'); }, 1000);
+  }).catch(function (err) { setMsg('annMsg', err.message, true); btn.disabled = false; });
+}
+
+function deleteNotice(id) {
+  if (!confirm('이 공지를 지울까요?')) return;
+  api('notices.delete', { id: id }).then(function () {
+    N.list = N.list.filter(function (n) { return n.id !== id; });
+    renderNotices();
+  }).catch(function (err) { alertMsg(err.message); });
+}
+
+// =====================================================================
+// 과제
+// =====================================================================
+function loadTasks() {
+  if (!S.team) return;
+  $('hwCreateCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
+  if (A.current) { openTask(A.current.id); return; }
+  $('taskDetail').style.display = 'none';
+  $('taskList').style.display = 'block';
+  if (A.list) { renderTasks(); return; }
+  $('hwOpen').innerHTML = '<div class="empty"><b>불러오는 중...</b></div>';
+  $('hwPast').innerHTML = '';
+  api('assignments.list', { team_id: S.team.id }).then(function (l) { A.list = l; renderTasks(); })
+    .catch(function (err) { $('hwOpen').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+
+function taskState(a) {
+  if (a.my) return a.my.feedback ? { t: '피드백 도착', c: 'st-지각' } : { t: '제출 완료', c: 'st-참석' };
+  if (a.due_at && new Date(a.due_at).getTime() < Date.now()) return { t: '마감 지남', c: 'st-불참' };
+  return { t: '미제출', c: 'st-none' };
+}
+function isOpenTask(a) { return !a.due_at || new Date(a.due_at).getTime() >= Date.now(); }
+
+function taskCard(a) {
+  var st = taskState(a);
+  return '<button class="b-session b-task" onclick="openTask(\'' + esc(a.id) + '\')"><div class="b-info">' +
+      (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
+      '<b>' + esc(a.title) + '</b><span>' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') +
+      (a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + '</span></div>' +
+    '<div class="b-side"><span class="st ' + st.c + '">' + st.t + '</span>' +
+      (a.submitted_count != null ? '<small>제출 ' + a.submitted_count + '명</small>' : '') + '</div></button>';
+}
+
+function renderTasks() {
+  var open = A.list.filter(isOpenTask).sort(function (a, b) {
+    return (a.due_at || '9999') < (b.due_at || '9999') ? -1 : 1;
+  });
+  var past = A.list.filter(function (a) { return !isOpenTask(a); });
+  $('hwOpenCount').textContent = open.length ? open.length + '개' : '';
+  $('hwOpen').innerHTML = open.length ? open.map(taskCard).join('')
+    : '<div class="empty"><b>지금 진행 중인 과제가 없어요</b>과제가 나오면 여기에 보여요</div>';
+  $('hwPast').innerHTML = past.length ? past.map(taskCard).join('') : '<div class="empty"><b>최근 지난 과제가 없어요</b></div>';
+}
+
+function createTask() {
+  var due = $('hwDue').value;
+  var p = { team_id: S.team.id, category: $('hwCat').value.trim() || null, title: $('hwTitle').value.trim(),
+    description: $('hwDesc').value.trim() || null, due_at: due ? new Date(due).toISOString() : null,
+    needs_feedback: $('hwFeedback').checked, target_unit_id: $('hwTarget').value || null };
+  if (!p.title) { setMsg('hwMsg', '과제 제목을 적어주세요!', true); return; }
+  var btn = $('hwBtn'); btn.disabled = true; setMsg('hwMsg', '올리는 중...');
+  api('assignments.create', p).then(function (a) {
+    a.my = null; a.submitted_count = S.team.rank >= RANK.GROUP_LEADER ? 0 : null;
+    A.list.unshift(a);
+    ['hwTitle', 'hwDesc', 'hwDue'].forEach(function (id) { $(id).value = ''; });
+    btn.disabled = false; haptic('success');
+    setMsg('hwMsg', '과제를 냈어요!');
+    renderTasks();
+    setTimeout(function () { setMsg('hwMsg', ''); toggleBox('hwForm', 'hwChev'); }, 1000);
+  }).catch(function (err) { setMsg('hwMsg', err.message, true); btn.disabled = false; });
+}
+
+function openTask(id) {
+  var a = byId(A.list || [], id); if (!a) return;
+  if (!A.current || A.current.id !== id) { A.subs = null; A.openSub = null; }
+  A.current = a;
+  $('taskList').style.display = 'none';
+  $('taskDetail').style.display = 'block';
+  var st = taskState(a);
+  $('tdHead').innerHTML = '<div class="b-dhead">' + (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
+    '<h1>' + esc(a.title) + '</h1><p>' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') +
+    (a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + ' · <span class="st ' + st.c + '">' + st.t + '</span></p>' +
+    (a.description ? '<div class="card b-desc">' + esc(a.description) + '</div>' : '') + '</div>';
+  $('tdContent').value = (a.my && a.my.content) || '';
+  $('tdLink').value = (a.my && a.my.file_url) || '';
+  $('tdBtn').textContent = a.my ? '다시 제출' : '제출';
+  setMsg('tdMsg', a.my ? dtLabel(a.my.submitted_at) + '에 제출했어요. 고쳐서 다시 낼 수 있어요.' : '');
+  $('tdFeedback').innerHTML = a.my && a.my.feedback ? '<div class="b-feedback"><b>💬 피드백</b>' + esc(a.my.feedback) + '</div>' : '';
+  var lead = S.team.rank >= RANK.GROUP_LEADER;
+  $('tdBoardWrap').style.display = lead ? 'block' : 'none';
+  if (lead) loadTaskBoard();
+  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+  window.scrollTo(0, 0);
+}
+
+function closeTask() {
+  A.current = null; A.subs = null;
+  $('taskDetail').style.display = 'none';
+  $('taskList').style.display = 'block';
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+  if (A.list) renderTasks();
+}
+
+function submitTask() {
+  var a = A.current; if (!a) return;
+  var content = $('tdContent').value.trim(), link = $('tdLink').value.trim();
+  if (!content && !link) { setMsg('tdMsg', '내용이나 링크를 넣어주세요!', true); return; }
+  var btn = $('tdBtn'); btn.disabled = true; setMsg('tdMsg', '제출 중...');
+  api('submissions.saveMine', { assignment_id: a.id, content: content, file_url: link }).then(function (r) {
+    var first = !a.my;
+    a.my = r;
+    if (first && a.submitted_count != null) a.submitted_count++;
+    btn.disabled = false; haptic('success');
+    $('tdBtn').textContent = '다시 제출';
+    setMsg('tdMsg', '제출했어요! 수고하셨어요 🙌');
+    if (A.subs) { A.subs = A.subs.filter(function (x) { return x.person_id !== r.person_id; }); A.subs.push(Object.assign({ name: S.me.profile.name }, r)); renderTaskBoard(); }
+  }).catch(function (err) { setMsg('tdMsg', err.message, true); btn.disabled = false; haptic('error'); });
+}
+
+// ----- 제출 현황·피드백 (조장 이상) -----
+function loadTaskBoard() {
+  $('tdBoard').innerHTML = '<div class="b-group-sep">불러오는 중...</div>';
+  var id = A.current.id;
+  Promise.all([loadMembers(), api('submissions.list', { assignment_id: id })]).then(function (r) {
+    if (!A.current || A.current.id !== id) return;
+    A.subs = r[1] || [];
+    renderTaskBoard();
+  }).catch(function (err) { $('tdBoard').innerHTML = '<div class="b-group-sep">' + esc(err.message) + '</div>'; });
+}
+
+function toggleSub(personId) { A.openSub = A.openSub === personId ? null : personId; renderTaskBoard(); }
+
+function renderTaskBoard() {
+  var a = A.current; if (!a || !A.subs) return;
+  var target = targetMembers(a.target_unit_id);
+  var byPerson = {};
+  A.subs.forEach(function (x) { byPerson[x.person_id] = x; });
+  $('tdBoardCount').textContent = '제출 ' + target.filter(function (m) { return byPerson[m.id]; }).length + ' / ' + target.length + '명';
+  $('tdBoard').innerHTML = target.map(function (m) {
+    var sub = byPerson[m.id], open = A.openSub === m.id && sub;
+    var chipHtml = sub ? (sub.feedback ? '<span class="st st-지각">피드백 완료</span>' : '<span class="st st-참석">제출</span>') : '<span class="st st-none">미제출</span>';
+    var html = '<div class="b-prow b-sub-row"' + (sub ? ' onclick="toggleSub(\'' + esc(m.id) + '\')"' : '') + '>' +
+      '<div class="nm"><b>' + esc(m.name) + '</b><span>' + esc(m.group || m.position || '') + '</span></div>' + chipHtml;
+    if (open) {
+      html += '<div class="rs b-subbody" onclick="event.stopPropagation()">' +
+        '<div class="b-subtime">' + dtLabel(sub.submitted_at) + ' 제출</div>' +
+        (sub.content ? '<div class="b-subtext">' + esc(sub.content) + '</div>' : '') +
+        (sub.file_url ? '<a class="b-sublink" href="' + esc(sub.file_url) + '" target="_blank" rel="noopener">🔗 ' + esc(sub.file_url) + '</a>' : '') +
+        (a.needs_feedback ? '<label class="field-label">피드백' + (sub.feedback_name ? ' <span class="hint">' + esc(sub.feedback_name) + '</span>' : '') + '</label>' +
+          '<textarea id="fb-' + esc(sub.id) + '" rows="3" maxlength="2000" placeholder="잘한 점, 고칠 점을 적어주세요">' + esc(sub.feedback || '') + '</textarea>' +
+          '<button class="btn-primary b-small" onclick="saveFeedback(\'' + esc(sub.id) + '\')">피드백 저장</button>' +
+          '<div class="msg" id="fbMsg-' + esc(sub.id) + '"></div>' : '') +
+      '</div>';
+    }
+    return html + '</div>';
+  }).join('') + (S.team.rank >= RANK.INSTRUCTOR ? '<div class="b-pad b-top"><button class="ghost-btn b-danger" onclick="deleteTask()">이 과제 지우기</button></div>' : '');
+}
+
+function saveFeedback(subId) {
+  var text = $('fb-' + subId).value.trim();
+  setMsg('fbMsg-' + subId, '저장 중...');
+  api('submissions.feedback', { id: subId, feedback: text }).then(function (r) {
+    A.subs.forEach(function (x) { if (x.id === subId) { x.feedback = r.feedback; x.feedback_at = r.feedback_at; x.feedback_name = r.feedback ? S.me.profile.name : null; } });
+    haptic('success');
+    renderTaskBoard();
+    setMsg('fbMsg-' + subId, r.feedback ? '피드백을 저장했어요!' : '피드백을 지웠어요.');
+  }).catch(function (err) { setMsg('fbMsg-' + subId, err.message, true); });
+}
+
+function deleteTask() {
+  var a = A.current; if (!a) return;
+  if (!confirm('이 과제와 제출 내용을 모두 지울까요?')) return;
+  api('assignments.delete', { id: a.id }).then(function () {
+    A.list = A.list.filter(function (x) { return x.id !== a.id; });
+    closeTask();
+  }).catch(function (err) { alertMsg(err.message); });
+}
+
+// 텔레그램 뒤로가기 버튼: 모임·과제 상세에서 누르면 목록으로
 if (tg && tg.BackButton) {
-  tg.BackButton.onClick(function () { if (S.current) showList(); });
+  tg.BackButton.onClick(function () {
+    if (curTab === 'task' && A.current) closeTask();
+    else if (S.current) showList();
+  });
   var _open = openSession, _list = showList;
   openSession = function (id) { _open(id); try { tg.BackButton.show(); } catch (e) {} };
   showList = function () { _list(); try { tg.BackButton.hide(); } catch (e) {} };

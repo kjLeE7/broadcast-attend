@@ -151,3 +151,31 @@ button.avatar { cursor: pointer; font-family: inherit; }
   #wkResult > #wkCellInfo { background: var(--card); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); margin: 0 0 10px; }
   #fxCard { max-width: 640px; }
 }
+
+/* ===== 공지·과제·체크인 ===== */
+.b-tabbar { grid-template-columns: repeat(4, 1fr); max-width: 452px; }
+.b-pad { padding: 0 20px 20px; }
+.b-top { padding-top: 14px; }
+.b-sub { font-size: 12px; color: var(--muted); margin-top: 3px; font-weight: 600; }
+.b-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.b-danger { color: var(--bad); border-color: #EBC9C0; }
+.b-small { padding: 11px; font-size: 14px; margin-top: 10px; }
+#ciArea:empty { display: none; }
+
+/* 과제 카드·상세 */
+.b-task .b-info b { white-space: normal; line-height: 1.35; }
+.b-cat { display: inline-block; margin-bottom: 5px; }
+.b-desc { margin-top: 14px; padding: 16px 18px; font-size: 14px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+.b-feedback { margin-top: 16px; background: var(--accent-soft); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.b-feedback b { display: block; font-size: 13px; color: var(--accent); margin-bottom: 4px; }
+.b-sub-row { cursor: pointer; }
+.b-subbody { cursor: default; background: var(--card-soft); border-radius: 12px; padding: 12px; margin-top: 6px; color: var(--text); }
+.b-subtime { font-size: 11.5px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+.b-subtext { font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.b-sublink { display: block; margin-top: 8px; font-size: 13px; color: var(--accent); font-weight: 700; word-break: break-all; }
+.b-subbody .field-label { margin-top: 12px; }
+
+@media (min-width: 1000px) {
+  .b-tabbar { grid-template-columns: none; }
+  #noticeView, #taskView { max-width: 760px; }
+}
