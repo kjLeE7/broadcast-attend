@@ -562,5 +562,25 @@
 
   <script src="krmap.js?v=20261001a"></script>
   <script src="app.js?v=20261001a"></script>
+
+  async function api(action, payload = {}) {
+  const res = await fetch("https://bundxpidywrcrwhhgclv.supabase.co/functions/v1/api", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-telegram-init-data": Telegram.WebApp.initData,
+    },
+    body: JSON.stringify({ action, payload }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error);
+  return json.data;
+}
+
+// 테스트: 미니앱 열리면 내 정보를 불러와서 팝업으로 보여줌
+api("me")
+  .then((me) => alert("성공!\n" + JSON.stringify(me, null, 2)))
+  .catch((e) => alert("실패: " + e.message));
+  
 </body>
 </html>
