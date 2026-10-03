@@ -446,3 +446,20 @@ body, body * { font-family: var(--font-body) !important; }
 }
 .pf-rate { font-style: normal; }
 #pfEdit .card + .card { margin-top: 12px; }
+
+/* ===== 홈: 파트마다 확실히 나누기 =====
+   1) 파트 사이 가는 줄 + 넉넉한 여백  2) 제목을 크게 + 왼쪽 색 막대  3) PC 반반 칸 사이 세로줄 */
+#managerArea > .blk, #managerArea > .two { margin: 0; padding: 30px 0 34px; border-top: 1px solid var(--line); }
+#managerArea > :first-child { border-top: none; padding-top: 10px; }
+#managerArea .section-head { margin-bottom: 16px; }
+#managerArea .section-head h2 { display: flex; align-items: center; gap: 9px; font-size: 18.5px; font-weight: 700; letter-spacing: -0.01em; }
+#managerArea .section-head h2::before { content: ''; flex: none; width: 4px; height: 17px; border-radius: 2px; background: var(--accent); }
+#managerArea .section-head .section-count { font-size: 13px; }
+#managerArea .two > .blk + .blk { margin-top: 34px; }   /* 폰: 위아래로 쌓일 때 간격 */
+@media (min-width: 1000px) {
+  #managerArea .section-head h2 { font-size: 21px; }
+  #managerArea .section-head h2::before { height: 19px; }
+  #managerArea .two { gap: 0; }
+  #managerArea .two > .blk { padding: 0 32px 0 0; }
+  #managerArea .two > .blk + .blk { margin-top: 0; padding: 0 0 0 32px; border-left: 1px solid var(--line); }
+}
