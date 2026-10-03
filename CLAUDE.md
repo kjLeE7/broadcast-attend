@@ -28,6 +28,8 @@
 - 글꼴: 베타 전체(동네지도 포함)가 **고운바탕**(Gowun Batang, OFL). `beta/fonts/`에 woff로 넣고 `beta/fonts.css`에서 불러요.
   자주 쓰는 완성형 2,350자+영문·기호는 기본 파일(약 40만 바이트), 나머지 드문 글자는 `-ext` 파일(그 글자가 화면에 있을 때만 내려받음).
   `beta.css` 끝의 `body, body * { font-family: … !important }`가 style.css의 글꼴 지정을 전부 덮어써요. (woff2 변환은 brotli가 프록시에 막혀 woff로 함)
+- **PC 화면 배치 원칙**: 평소엔 화면 전체를 씀(카드는 여러 줄 격자). 모임·과제처럼 눌러서 상세가 필요하면 왼쪽 목록 | 오른쪽 상세로 반반,
+  상세는 오른쪽에서 스르륵 들어옴(✕ 버튼이나 Esc로 닫으면 다시 전체). 출결 `#attendWrap.split`, 과제 `#taskView.split`. 새 화면도 이 방식으로.
 - 캐시 때문에 `beta/index.html`의 `?v=20261003h` 같은 버전 문자열을 고칠 때마다 올려요.
 - 봇: `@BangYeah_bot`. 같은 봇에 BotFather `/newapp`으로 베타 미니앱을 따로 등록해요.
   PC 브라우저 로그인(텔레그램 로그인 위젯)은 BotFather `/setdomain` → `kjlee7.github.io`가 돼 있어야 해요.
@@ -67,6 +69,10 @@
 `notices.list/create/update/delete`, `assignments.list/create/update/delete`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
 `dashboard.load`, `dashboard.scene`, `pin.setInitial`, `pin.verify`
+
+### 등록 안 된 사람
+- 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
+  새 사람은 그 화면을 캡처해 보내고, `people`(name, telegram_user_id) + `position_history`(팀 직책) + 필요하면 `group_assignments`(조)를 넣으면 들어올 수 있음.
 
 ### 모임·출결 흐름 (2026-10-03 완성)
 1. **모임 만들기**: 조장 이상. 대상(팀 전체 또는 조)을 고르고, 만들면 봇이 대상자에게 개인 메시지로 알림
