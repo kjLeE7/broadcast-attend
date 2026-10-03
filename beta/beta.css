@@ -360,3 +360,75 @@ body, body * {
   .b-attend.split #dHead h1, #taskView.split #tdHead h1, #taskView.split #tdHead .b-cat { margin-right: 44px; }
 }
 @keyframes b-slidein { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+
+/* ===== 프로필 (나의 기록) ===== */
+.pf-card { padding: 20px 20px 16px; }
+.pf-top { display: flex; align-items: center; gap: 16px; }
+.pf-avatar { flex: none; width: 64px; height: 64px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 21px; font-weight: 700; }
+.pf-who { flex: 1; min-width: 0; }
+.pf-who > b { display: block; font-size: 21px; font-weight: 700; }
+.pf-who .b-chips { margin-top: 6px; }
+.pf-belong { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
+.pf-edit-btn { flex: none; align-self: flex-start; border: 1.5px solid var(--line); background: var(--card); color: var(--text); border-radius: 99px; padding: 8px 14px; font-size: 13.5px; font-weight: 700; }
+.pf-edit-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pf-rows { margin-top: 16px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; }
+.pf-row { padding: 11px 2px 0; display: flex; flex-direction: column; gap: 2px; }
+.pf-row span { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+.pf-row b { font-size: 14.5px; font-weight: 400; word-break: break-all; }
+.pf-row b small { color: var(--muted); font-size: 12px; margin-left: 4px; }
+.pf-row b em { font-style: normal; color: var(--muted); opacity: .7; font-size: 13px; }
+.pf-nudge { margin: 14px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 13px; line-height: 1.5; }
+.pf-logout { margin-top: 14px; border: none; background: none; color: var(--muted); font-size: 12.5px; text-decoration: underline; padding: 0; }
+
+.pf-readonly { padding: 12px 14px; border-radius: 14px; background: var(--card-soft); color: var(--muted); font-size: 15px; }
+.pf-hint { margin: 6px 2px 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.pf-seg { display: flex; gap: 8px; }
+.pf-seg button { flex: 1; padding: 12px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--card-soft); color: var(--muted); font-size: 15px; font-weight: 700; }
+.pf-seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+#pfEdit .btn-primary { margin-top: 16px; }
+#pfEdit .b-card-title { margin-bottom: 2px; }
+
+.pf-tiles { margin-bottom: 4px; }
+.pf-sec { margin-top: 22px; }
+.pf-sec .section-head { margin-top: 0; }
+.pf-types { padding: 6px 16px; }
+.pf-type { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.pf-type:last-child { border-bottom: none; }
+.pf-type-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.pf-type-top b { font-size: 15.5px; }
+.pf-type-top span { font-size: 12.5px; color: var(--muted); }
+.pf-bar { display: flex; height: 8px; border-radius: 99px; overflow: hidden; background: var(--card-soft); margin: 8px 0; }
+.pf-bar i { display: block; height: 100%; }
+.pf-bar i.ok { background: var(--ok); } .pf-bar i.warn { background: var(--warn); } .pf-bar i.bad { background: var(--bad); }
+.pf-type-n { display: flex; gap: 5px; flex-wrap: wrap; }
+.pf-list { padding: 4px 16px; }
+.pf-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.pf-item:last-child { border-bottom: none; }
+.pf-ic { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--card-soft); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.pf-date { flex: none; min-width: 58px; font-size: 12.5px; color: var(--muted); font-weight: 700; }
+.pf-it { flex: 1; min-width: 0; }
+.pf-it b { display: block; font-size: 14.5px; font-weight: 700; }
+.pf-it b small { font-size: 11px; color: var(--warn); margin-left: 4px; }
+.pf-it span { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* 아래 탭 6칸(폰) */
+.b-tabbar { grid-template-columns: repeat(6, 1fr); max-width: 520px; }
+
+@media (min-width: 1000px) {
+  .pf-rows { grid-template-columns: repeat(4, 1fr); }
+  .pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 0 20px; align-items: start; }
+  .pf-grid .pf-wide { grid-column: 1 / -1; }
+  /* 고치기를 열면 왼쪽 한 줄 | 오른쪽 패널 */
+  #profileView.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+  #profileView.split .pf-grid { grid-template-columns: minmax(0, 1fr); }
+  #profileView.split .pf-rows { grid-template-columns: 1fr 1fr; }
+  #profileView.split #pfEdit { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 2px 4px 8px; position: sticky; animation: b-slidein .26s ease both; }
+  #profileView.split #pfEdit .back { display: none; }
+  #profileView.split .b-close {
+    display: flex; align-items: center; justify-content: center; position: absolute; top: 4px; right: 6px; z-index: 2;
+    width: 36px; height: 36px; border: none; border-radius: 99px; background: var(--card); color: var(--muted); font-size: 15px; box-shadow: var(--shadow); cursor: pointer;
+  }
+  #profileView.split #pfEdit .b-dhead h1 { margin-right: 44px; }
+}
+.pf-rate { font-style: normal; }
+#pfEdit .card + .card { margin-top: 12px; }

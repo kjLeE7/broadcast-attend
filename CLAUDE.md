@@ -68,11 +68,20 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete`, `assignments.list/create/update/delete`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`dashboard.load`, `dashboard.scene`, `pin.setInitial`, `pin.verify`
+`dashboard.load`, `dashboard.scene`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
   새 사람은 그 화면을 캡처해 보내고, `people`(name, telegram_user_id) + `position_history`(팀 직책) + 필요하면 `group_assignments`(조)를 넣으면 들어올 수 있음.
+
+### 프로필 '나의 기록' (2026-10-04, 탭 맨 끝 + 오른쪽 위 동그라미)
+- `profile.get`: 내 people 정보 + 구역장(people_private) + 직책 + 문화부 밖 사명 + 지파·교회 목록.
+- `profile.update`: 본인이 고칠 수 있는 것 = 성별·생년월일·연락처·지파·교회·회 소속·구역장 성함/연락처. **이름·텔레그램 번호·직책은 못 고침**(팀장 이상 관리).
+  교회는 고른 지파의 `churches`만. `churches` 표는 아직 비어 있음 → 지파별 교회 목록을 받아 채워야 함.
+- `profile.report { month }`: 그달 내 모임 출결(모임 유형별: 정규수업·스터디·운영회의), 실무 녹음(`recording_participants`, 제목·코드만), 그 밖의 실무(`duties` owner = 나, 녹음 세션과 이어진 녹음 업무는 뺌), 과제 제출.
+  출석률은 마감된 모임만. 녹음·실무·과제 부분은 하나가 실패해도 나머지는 보이게 `errors`에 이름만 남김(함수 로그 확인).
+- PC에서 '정보 고치기'를 누르면 오른쪽 패널(`#profileView.split`). 오른쪽 위 동그라미는 이제 프로필로 감, 로그아웃은 프로필 카드 아래.
+- 화면 제목은 한국어: 함께한 자리(출결) · 한 달의 발자취(리포트) · 전하는 말(공지) · 갈고닦는 시간(과제) · 목소리 시간표(녹음가능) · 나의 기록(프로필).
 
 ### 모임·출결 흐름 (2026-10-03 완성)
 1. **모임 만들기**: 조장 이상. 대상(팀 전체 또는 조)을 고르고, 만들면 봇이 대상자에게 개인 메시지로 알림
@@ -157,7 +166,8 @@
 
 - [ ] 사용자: BotFather `/newapp`(베타), `/setdomain`, 시범 인원에게 베타 링크 공유 → 의견 모으기
 - [ ] 모임: 월간 리포트 자동 발송(매달 1일 팀장에게 봇으로), 모임 전날 미체크자 알림, 모임 고치기 화면
-- [ ] 베타로 아직 안 옮긴 기능: 시간취합(투표), 녹음자 배치, 프로필
+- [ ] 베타로 아직 안 옮긴 기능: 시간취합(투표), 녹음자 배치
+- [ ] `churches` 표 채우기(지파별 본부교회·지교회), 팀장 이상이 다른 사람의 '나의 기록' 보기
 - [ ] 녹음 요청·세션·캐스팅 화면
 - [ ] 관리자 페이지 (PIN 초기화, 설정값 수정, 비활성화)
 - [ ] 동네지도: 모임 만들 때 장소를 `places` 목록에서 고르게 (지금은 글자 맞추기), 고정일정에 종류(직장/학교/기타) 칸, 캐릭터 꾸미기(본인이 고르기)

@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004c">
+  <link rel="stylesheet" href="beta.css?v=20261004d">
 </head>
 <body>
   <div class="app">
@@ -25,7 +25,7 @@
           <div class="brand-sub" id="who">불러오는 중...</div>
         </div>
       </div>
-      <button class="avatar" id="avatar" onclick="onAvatar()" aria-label="내 정보">?</button>
+      <button class="avatar" id="avatar" onclick="onAvatar()" aria-label="나의 기록" title="나의 기록">?</button>
     </header>
 
     <!-- 여러 팀 소속일 때만 보이는 팀 선택 -->
@@ -120,8 +120,8 @@
 
     <!-- ===== 출결: 모임 목록 ===== -->
     <section id="listView" style="display:none;">
-      <h1 class="page-title">Attendance</h1>
-      <p class="page-desc">모임을 눌러 출결을 체크해주세요</p>
+      <h1 class="page-title">함께한 자리</h1>
+      <p class="page-desc">모임을 눌러 오늘의 자리를 남겨주세요</p>
       <div class="b-attseg"><button class="wkchip active" onclick="showList()">모임</button><button class="wkchip" onclick="showReport()">월간 리포트</button></div>
 
       <!-- 사유 입력·사전 체크가 필요한 모임 -->
@@ -214,7 +214,7 @@
 
     <!-- ===== 출결: 월간 리포트 ===== -->
     <section id="reportView" style="display:none;">
-      <h1 class="page-title">Report</h1>
+      <h1 class="page-title">한 달의 발자취</h1>
       <p class="page-desc" id="rpDesc">한 달 동안의 출결을 사람마다 모아봐요</p>
       <div class="b-attseg"><button class="wkchip" onclick="showList()">모임</button><button class="wkchip active" onclick="showReport()">월간 리포트</button></div>
       <div class="b-month">
@@ -228,7 +228,7 @@
 
     <!-- ===== 공지 ===== -->
     <section id="noticeView" style="display:none;">
-      <h1 class="page-title">Notice</h1>
+      <h1 class="page-title">전하는 말</h1>
       <p class="page-desc">우리 팀 공지와 방송예술과 전체 공지예요</p>
 
       <div class="card b-create" id="annCreateCard" style="display:none;">
@@ -264,7 +264,7 @@
     <!-- ===== 과제 ===== -->
     <section id="taskView" style="display:none;">
       <div id="taskList">
-        <h1 class="page-title">Assignments</h1>
+        <h1 class="page-title">갈고닦는 시간</h1>
         <p class="page-desc">과제를 눌러 제출해주세요</p>
 
         <div class="card b-create" id="hwCreateCard" style="display:none;">
@@ -317,9 +317,76 @@
       </div>
     </section>
 
+    <!-- ===== 프로필: 내 정보 + 한 달 활동 ===== -->
+    <section id="profileView" style="display:none;">
+      <div id="pfMain">
+        <h1 class="page-title">나의 기록</h1>
+        <p class="page-desc">내 정보와 한 달 동안 걸어온 길을 모아봐요</p>
+
+        <div class="card pf-card" id="pfCard"><div class="b-wait">불러오는 중...</div></div>
+
+        <div class="section-head b-gap"><h2>한 달 활동</h2><span class="section-count" id="pfMonthNote"></span></div>
+        <div class="b-month">
+          <button type="button" onclick="pfMoveMonth(-1)">‹</button>
+          <b id="pfMonth"></b>
+          <button type="button" id="pfNext" onclick="pfMoveMonth(1)">›</button>
+        </div>
+        <div id="pfReport"></div>
+      </div>
+
+      <!-- 내 정보 고치기 (PC: 오른쪽 패널 / 폰: 화면 전환) -->
+      <div id="pfEdit" style="display:none;">
+        <button class="back" onclick="closePfEdit()">‹ 나의 기록</button>
+        <button class="b-close" type="button" onclick="closePfEdit()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+        <div class="b-dhead"><h1>내 정보 고치기</h1><p>바꾼 내용은 저장을 눌러야 남아요</p></div>
+        <div class="card b-pad b-top">
+          <label class="field-label">이름</label>
+          <div class="pf-readonly" id="pfName"></div>
+          <p class="pf-hint">이름은 팀장님이 관리해요. 바꿔야 하면 말씀해주세요.</p>
+
+          <label class="field-label">성별</label>
+          <div class="pf-seg" id="pfGender">
+            <button type="button" data-v="남" onclick="pfPick('pfGender', this)">남</button>
+            <button type="button" data-v="여" onclick="pfPick('pfGender', this)">여</button>
+          </div>
+
+          <label class="field-label" for="pfBirth">생년월일</label>
+          <input type="date" id="pfBirth" class="b-input">
+
+          <label class="field-label" for="pfPhone">연락처</label>
+          <input type="tel" id="pfPhone" class="b-input" maxlength="20" placeholder="010-0000-0000">
+
+          <label class="field-label" for="pfTribe">지파</label>
+          <div class="select-wrap"><select id="pfTribe" onchange="pfFillChurches()"></select></div>
+
+          <label class="field-label" for="pfChurch">교회</label>
+          <div class="select-wrap"><select id="pfChurch"></select></div>
+          <p class="pf-hint" id="pfChurchHint" style="display:none;">이 지파의 교회 목록이 아직 없어요. 곧 채워 둘게요.</p>
+
+          <label class="field-label" for="pfAssoc">회 소속</label>
+          <div class="select-wrap"><select id="pfAssoc">
+            <option value="">고르지 않음</option>
+            <option>청년회</option><option>부녀회</option><option>장년회</option><option>자문회</option>
+          </select></div>
+        </div>
+
+        <div class="card b-pad b-top">
+          <div class="b-card-title">구역장</div>
+          <p class="pf-hint">급한 일이 있을 때만 쓰는 비상 연락처예요. 나와 팀장 이상만 볼 수 있어요.</p>
+          <label class="field-label" for="pfDlName">성함</label>
+          <input type="text" id="pfDlName" class="b-input" maxlength="20">
+          <label class="field-label" for="pfDlPhone">연락처</label>
+          <input type="tel" id="pfDlPhone" class="b-input" maxlength="20" placeholder="010-0000-0000">
+        </div>
+
+        <button class="btn-primary" id="pfSaveBtn" onclick="savePf()">저장</button>
+        <div class="msg" id="pfMsg"></div>
+      </div>
+    </section>
+
     <!-- ===== 주간 녹음가능 ===== -->
     <section id="weeklyView" style="display:none;">
-      <h1 class="page-title">Recording</h1>
+      <h1 class="page-title">목소리 시간표</h1>
       <p class="page-desc">녹음 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
 
       <div class="subtabs">
@@ -408,10 +475,14 @@
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
       <span>녹음가능</span>
     </button>
+    <button class="tab" data-tab="profile" title="나의 기록" onclick="goTab('profile')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+      <span>프로필</span>
+    </button>
   </nav>
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004b"></script>
-  <script src="beta.js?v=20261004c"></script>
+  <script src="beta.js?v=20261004d"></script>
 </body>
 </html>

@@ -486,6 +486,187 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     };
   },
 
+  // ===== 프로필 (본인만) =====
+  // 내 정보 + 고를 수 있는 목록(지파·교회): {}
+  async "profile.get"(ctx) {
+    const { positions, unitById } = await myTeams(ctx);
+    const person = must(await ctx.db.from("people")
+      .select("id,name,gender,birth_date,phone,tribe_id,church_id,association").eq("id", ctx.me.id).single());
+    const priv = must(await ctx.db.from("people_private")
+      .select("district_leader_name,district_leader_phone").eq("person_id", ctx.me.id).maybeSingle());
+    const tribes: any[] = must(await ctx.db.from("org_units").select("id,name,unit_type")
+      .in("unit_type", ["총회", "지파"]).is("ended_on", null)) ?? [];
+    const order = ["총회", "요한", "베드로", "바돌로매", "마태", "서울야고보", "부산야고보", "안드레", "빌립", "시몬", "맛디아", "다대오", "도마"];
+    const rankOf = (n: string) => { const i = order.findIndex((o) => n.startsWith(o)); return i < 0 ? 99 : i; };
+    tribes.sort((a, b) => rankOf(a.name) - rankOf(b.name));
+    const churches: any[] = must(await ctx.db.from("churches").select("id,name,tribe_id,church_type").order("name")) ?? [];
+    const external: any[] = must(await ctx.db.from("external_roles").select("role_name,affiliation")
+      .eq("person_id", ctx.me.id).is("ended_on", null)) ?? [];
+    return {
+      person: { ...person, district_leader_name: priv?.district_leader_name ?? null, district_leader_phone: priv?.district_leader_phone ?? null },
+      positions: positions.map((p) => ({ unit: unitById.get(p.org_unit_id)?.name, position: p.positions?.name, rank: p.positions?.rank })),
+      external,
+      tribes: tribes.map((t) => ({ id: t.id, name: t.name })),
+      churches,
+    };
+  },
+
+  // 내 정보 고치기: { gender, birth_date, phone, tribe_id, church_id, association, district_leader_name, district_leader_phone }
+  // 이름·텔레그램 번호·직책은 여기서 못 바꿈 (팀장 이상이 관리)
+  async "profile.update"(ctx) {
+    const p = ctx.payload ?? {};
+    const txt = (v: any, max: number) => {
+      if (v === undefined) return undefined;
+      const t = String(v ?? "").trim();
+      if (t.length > max) throw new HttpError(400, `${max}자까지 적을 수 있어요`);
+      return t || null;
+    };
+    const up: Record<string, unknown> = {};
+    if (p.gender !== undefined) {
+      if (p.gender && !["남", "여"].includes(p.gender)) throw new HttpError(400, "성별을 다시 골라주세요");
+      up.gender = p.gender || null;
+    }
+    if (p.birth_date !== undefined) {
+      if (p.birth_date && !/^\d{4}-\d\d-\d\d$/.test(p.birth_date)) throw new HttpError(400, "생년월일을 다시 확인해주세요");
+      up.birth_date = p.birth_date || null;
+    }
+    if (p.phone !== undefined) {
+      const ph = txt(p.phone, 20);
+      if (ph && !/^[0-9+\- ]{7,20}$/.test(ph)) throw new HttpError(400, "연락처는 숫자와 - 만 적어주세요");
+      up.phone = ph;
+    }
+    if (p.association !== undefined) {
+      if (p.association && !["청년회", "부녀회", "장년회", "자문회"].includes(p.association)) throw new HttpError(400, "회 소속을 다시 골라주세요");
+      up.association = p.association || null;
+    }
+    if (p.tribe_id !== undefined) {
+      if (p.tribe_id) {
+        const t = must(await ctx.db.from("org_units").select("id,unit_type").eq("id", p.tribe_id).maybeSingle());
+        if (!t || !["총회", "지파"].includes(t.unit_type)) throw new HttpError(400, "지파를 다시 골라주세요");
+      }
+      up.tribe_id = p.tribe_id || null;
+    }
+    if (p.church_id !== undefined) {
+      if (p.church_id) {
+        const c = must(await ctx.db.from("churches").select("id,tribe_id").eq("id", p.church_id).maybeSingle());
+        const tribe = up.tribe_id !== undefined ? up.tribe_id
+          : must(await ctx.db.from("people").select("tribe_id").eq("id", ctx.me.id).single()).tribe_id;
+        if (!c || (tribe && c.tribe_id !== tribe)) throw new HttpError(400, "교회를 다시 골라주세요");
+      }
+      up.church_id = p.church_id || null;
+    }
+    if (Object.keys(up).length) {
+      up.updated_at = new Date().toISOString();
+      must(await ctx.db.from("people").update(up).eq("id", ctx.me.id));
+    }
+    // 구역장 정보는 따로 보관 (본인과 팀장 이상만 봄)
+    const dn = txt(p.district_leader_name, 20), dp = txt(p.district_leader_phone, 20);
+    if (dp && !/^[0-9+\- ]{7,20}$/.test(dp)) throw new HttpError(400, "구역장 연락처는 숫자와 - 만 적어주세요");
+    if (dn !== undefined || dp !== undefined) {
+      const row: Record<string, unknown> = { person_id: ctx.me.id, updated_at: new Date().toISOString() };
+      if (dn !== undefined) row.district_leader_name = dn;
+      if (dp !== undefined) row.district_leader_phone = dp;
+      must(await ctx.db.from("people_private").upsert(row, { onConflict: "person_id" }));
+    }
+    return await actions["profile.get"](ctx);
+  },
+
+  // 내 한 달 활동: { month: "YYYY-MM" }
+  // 모임(정규수업·스터디·회의…) 출결 / 실무 녹음 / 그 밖의 실무(사회·촬영…) / 과제 제출
+  async "profile.report"(ctx) {
+    const { month } = ctx.payload;
+    if (typeof month !== "string" || !/^\d{4}-\d\d$/.test(month)) throw new HttpError(400, "달을 YYYY-MM으로 넣어주세요");
+    const [y, m] = month.split("-").map(Number);
+    const from = `${month}-01`;
+    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+    const fromTs = `${from}T00:00:00+09:00`, nextTs = `${next}T00:00:00+09:00`;
+
+    // 1) 모임: 내가 속한 팀의 그달 모임 → 끝난 건 자동 마감 → 내 출결 줄
+    const { teams } = await myTeams(ctx);
+    let sessions: any[] = teams.length ? must(await ctx.db.from("meeting_sessions").select(SESSION_COLS)
+      .in("team_id", teams.map((t) => t.id)).gte("session_date", from).lt("session_date", next).neq("status", "취소")
+      .order("session_date").order("start_time")) ?? [] : [];
+    sessions = await autoClose(ctx, sessions);
+    const sById = new Map(sessions.map((x) => [x.id, x]));
+    const att: any[] = sessions.length ? must(await ctx.db.from("attendance")
+      .select("session_id,status,planned_status,reason,arrived_at")
+      .eq("person_id", ctx.me.id).in("session_id", sessions.map((x) => x.id))) ?? [] : [];
+    const byType = new Map<string, any>();
+    const meetList: any[] = [];
+    for (const r of att) {
+      const x = sById.get(r.session_id); if (!x) continue;
+      const type = x.meeting_types?.name ?? "기타 모임";
+      const t = byType.get(type) ?? { type, total: 0, 참석: 0, 지각: 0, 조퇴: 0, 불참: 0, upcoming: 0 };
+      if (x.closed_at && r.status) { t.total++; if (r.status in t) t[r.status]++; }
+      else t.upcoming++;
+      byType.set(type, t);
+      const start = sessionStart(x);
+      meetList.push({
+        date: x.session_date, time: x.start_time ? String(x.start_time).slice(0, 5) : null, title: sessionName(x), type,
+        status: x.closed_at ? r.status : null, planned_status: r.planned_status, reason: r.reason,
+        late_min: r.status === "지각" && r.arrived_at && start !== null ? Math.max(0, Math.ceil((Date.parse(r.arrived_at) - start) / 60000)) : null,
+      });
+    }
+    const types = [...byType.values()].sort((a, b) => b.total + b.upcoming - (a.total + a.upcoming));
+    const sum = (k: string) => types.reduce((n, t) => n + t[k], 0);
+    const closedTotal = sum("total"), came = sum("참석") + sum("지각") + sum("조퇴");
+    const pct = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : null);
+
+    // 한 부분이 실패해도 나머지는 보여주도록 (실패한 부분은 errors에 이름을 남김, 자세한 건 함수 로그)
+    const errors: string[] = [];
+    const safe = async <T,>(name: string, fn: () => Promise<T>, empty: T): Promise<T> => {
+      try { return await fn(); } catch (e) { console.error("profile.report", name, e); errors.push(name); return empty; }
+    };
+
+    // 2) 실무 녹음: 내가 녹음자·엔지니어·감독자로 들어간 녹음 (제목·코드만, 대본은 NAS)
+    const parts: any[] = await safe("녹음", async () => must(await ctx.db.from("recording_participants")
+      .select("role, castings(role_name), recording_sessions!inner(id, scheduled_start, scheduled_end, location, status, retake_of, recording_requests(title, request_code, request_dept))")
+      .eq("person_id", ctx.me.id)
+      .gte("recording_sessions.scheduled_start", fromTs).lt("recording_sessions.scheduled_start", nextTs)) ?? [], [] as any[]);
+    const recs = parts.map((r) => ({
+      start: r.recording_sessions.scheduled_start, end: r.recording_sessions.scheduled_end,
+      location: r.recording_sessions.location, status: r.recording_sessions.status, retake: !!r.recording_sessions.retake_of,
+      title: r.recording_sessions.recording_requests?.title ?? null, code: r.recording_sessions.recording_requests?.request_code ?? null,
+      dept: r.recording_sessions.recording_requests?.request_dept ?? null,
+      role: r.role, cast: r.castings?.role_name ?? null,
+    })).sort((a, b) => (a.start < b.start ? -1 : 1));
+    const recAll = await safe("녹음 누적", async () => {
+      const r = await ctx.db.from("recording_participants")
+        .select("id, recording_sessions!inner(status)", { count: "exact", head: true })
+        .eq("person_id", ctx.me.id).eq("recording_sessions.status", "완료");
+      if (r.error) throw r.error;
+      return r.count ?? 0;
+    }, 0);
+
+    // 3) 그 밖의 실무: 내가 맡은 업무(사회·촬영·음향편집·기타). 녹음 세션과 이어진 녹음 업무는 2)와 겹치니 뺌
+    const duties: any[] = await safe("실무", async () => must(await ctx.db.from("duties").select("duty_type,title,place,request_dept,starts_at,ends_at,recording_session_id")
+      .eq("owner_id", ctx.me.id).gte("starts_at", fromTs).lt("starts_at", nextTs).order("starts_at")) ?? [], [] as any[]);
+    const dutyList = duties.filter((d) => !(d.duty_type === "녹음" && d.recording_session_id))
+      .map((d) => ({ type: d.duty_type, title: d.title, place: d.place, dept: d.request_dept, start: d.starts_at, end: d.ends_at }));
+    const dutyCount: Record<string, number> = {};
+    for (const d of dutyList) dutyCount[d.type] = (dutyCount[d.type] ?? 0) + 1;
+
+    // 4) 과제: 그달에 낸 과제
+    const subs: any[] = await safe("과제", async () => must(await ctx.db.from("assignment_submissions")
+      .select("submitted_at, feedback, assignments(title, category)")
+      .eq("person_id", ctx.me.id).gte("submitted_at", fromTs).lt("submitted_at", nextTs).order("submitted_at")) ?? [], [] as any[]);
+
+    return {
+      month,
+      meetings: {
+        closed: closedTotal, came, 참석: sum("참석"), 지각: sum("지각"), 조퇴: sum("조퇴"), 불참: sum("불참"), upcoming: sum("upcoming"),
+        rate: pct(came, closedTotal), on_time: pct(sum("참석"), closedTotal),
+        by_type: types, list: meetList.sort((a, b) => (a.date + (a.time ?? "") < b.date + (b.time ?? "") ? -1 : 1)),
+      },
+      recordings: { list: recs, done: recs.filter((r) => r.status === "완료").length, all_time: recAll },
+      duties: { list: dutyList, by_type: dutyCount },
+      assignments: {
+        list: subs.map((x) => ({ at: x.submitted_at, title: x.assignments?.title ?? "", category: x.assignments?.category ?? null, feedback: !!x.feedback })),
+      },
+      errors,
+    };
+  },
+
   // 팀 모임 유형 목록: { team_id }
   async "meeting_types.list"(ctx) {
     const { team_id } = ctx.payload;

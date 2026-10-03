@@ -95,7 +95,7 @@ function showState(title, desc) {
   $('loginBox').style.display = 'none';
   $('stateBox').style.display = 'block';
   $('stateBox').innerHTML = '<b>' + esc(title) + '</b>' + esc(desc || '');
-  ['homeView', 'listView', 'detailView', 'reportView', 'noticeView', 'taskView', 'weeklyView'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['homeView', 'listView', 'detailView', 'reportView', 'noticeView', 'taskView', 'weeklyView', 'profileView'].forEach(function (id) { $(id).style.display = 'none'; });
 }
 
 // ---------------------------------------------------------------------
@@ -155,7 +155,7 @@ function loginQuery(u) {
   return q.toString();
 }
 function showLogin(msg) {
-  ['stateBox', 'homeView', 'listView', 'detailView', 'reportView', 'weeklyView', 'noticeView', 'taskView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['stateBox', 'homeView', 'listView', 'detailView', 'reportView', 'weeklyView', 'noticeView', 'taskView', 'profileView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
   $('tabbar').classList.add('b-off');
   document.body.classList.remove('b-nav');
   $('who').textContent = '게스트';
@@ -183,7 +183,12 @@ window.onTgAuth = function (user) {
   $('loginBox').style.display = 'none';
   boot();
 };
+// 오른쪽 위 동그라미: 들어와 있으면 '나의 기록'으로, 아직 못 들어왔으면(PC) 로그아웃
 function onAvatar() {
+  if (S.me && S.me.teams && S.me.teams.length) { goTab('profile'); return; }
+  logout();
+}
+function logout() {
   if (initData || !loginRaw) return;  // 미니앱에선 로그아웃 없음
   if (!confirm('로그아웃할까요? 다음에 다시 텔레그램으로 로그인해야 해요.')) return;
   forgetLogin();
@@ -834,7 +839,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', profile: 'profileView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
@@ -849,7 +854,7 @@ function setTabUI(t) {
   curTab = t;
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === t); });
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && t !== 'town' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && t !== 'town' && t !== 'profile' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
@@ -860,6 +865,7 @@ function refreshTab() {
   else if (curTab === 'notice') loadNotices();
   else if (curTab === 'task') loadTasks();
   else if (curTab === 'weekly' && !W.data) openWeekly('next');
+  else if (curTab === 'profile') loadProfile();
 }
 
 // =====================================================================
@@ -1630,6 +1636,7 @@ document.addEventListener('keydown', function (e) {
   if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
   if (curTab === 'attend' && $('attendWrap').classList.contains('split')) showList();
   else if (curTab === 'task' && $('taskView').classList.contains('split')) closeTask();
+  else if (curTab === 'profile' && $('profileView').classList.contains('split')) closePfEdit();
 });
 
 // ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
@@ -1660,7 +1667,7 @@ var townTeam = null;
 function setupTownTab() {
   if (isPhone()) return;
   $('townTab').style.display = '';
-  $('tabbar').style.gridTemplateColumns = 'repeat(6, 1fr)';   // 좁은 PC 창의 아래 탭 6칸
+  $('tabbar').style.gridTemplateColumns = 'repeat(7, 1fr)';   // 좁은 PC 창의 아래 탭 7칸
 }
 function startTown() {
   if (!window.Town || isPhone() || !S.team) return;
@@ -1943,6 +1950,7 @@ document.addEventListener('visibilitychange', function () {
 if (tg && tg.BackButton) {
   tg.BackButton.onClick(function () {
     if (curTab === 'task' && A.current) closeTask();
+    else if (curTab === 'profile' && $('pfEdit').style.display === 'block') closePfEdit();
     else if (S.current) showList();
   });
   var _open = openSession, _list = showList;
@@ -1951,3 +1959,214 @@ if (tg && tg.BackButton) {
 }
 
 boot();
+
+
+// =====================================================================
+// 프로필 (나의 기록): 내 정보 보기·고치기 + 한 달 활동
+// 서버: profile.get / profile.update / profile.report (모두 본인 것만)
+// =====================================================================
+var P = { info: null, month: null, report: null, loading: false };
+var DUTY_ICON = { '녹음': '🎙', '사회': '🎤', '촬영': '🎥', '음향편집': '🎚', '기타': '✳️' };
+var REC_ROLE = { '녹음자': '목소리', '엔지니어': '엔지니어', '감독자': '디렉팅' };
+
+function loadProfile() {
+  if (!P.month) P.month = curMonth();
+  closePfEdit();   // 탭을 다시 열면 고치기 화면은 닫고 시작
+  if (P.info) renderPfCard();
+  else api('profile.get').then(function (d) { P.info = d; renderPfCard(); })
+    .catch(function (err) { $('pfCard').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+  loadPfReport();
+}
+
+function pfAge(b) {
+  if (!b) return '';
+  var d = parseDate(b), n = new Date(), a = n.getFullYear() - d.getFullYear();
+  if (n.getMonth() < d.getMonth() || (n.getMonth() === d.getMonth() && n.getDate() < d.getDate())) a--;
+  return a >= 0 ? '만 ' + a + '세' : '';
+}
+function pfFindName(list, id) { var x = (list || []).filter(function (v) { return v.id === id; })[0]; return x ? x.name : ''; }
+
+function renderPfCard() {
+  var d = P.info, p = d.person;
+  var tribe = pfFindName(d.tribes, p.tribe_id), church = pfFindName(d.churches, p.church_id);
+  var belong = [tribe, church, p.association].filter(Boolean).join(' · ');
+  var rows = [
+    ['성별', p.gender || ''], ['생년월일', p.birth_date ? p.birth_date.replace(/-/g, '.') + ' <small>' + pfAge(p.birth_date) + '</small>' : ''],
+    ['연락처', esc(p.phone || '')], ['구역장', esc([p.district_leader_name, p.district_leader_phone].filter(Boolean).join(' · '))]
+  ];
+  var empty = rows.filter(function (r) { return !r[1]; }).length + (belong ? 0 : 1);
+  $('pfCard').innerHTML =
+    '<div class="pf-top">' +
+      '<div class="pf-avatar">' + esc(String(p.name).slice(-2)) + '</div>' +
+      '<div class="pf-who"><b>' + esc(p.name) + '</b>' +
+        '<div class="b-chips">' + d.positions.map(function (x) { return '<span class="chip dark">' + esc(x.unit + ' ' + x.position) + '</span>'; }).join('') +
+          d.external.map(function (x) { return '<span class="chip">' + esc((x.affiliation ? x.affiliation + ' ' : '') + x.role_name) + '</span>'; }).join('') + '</div>' +
+        '<span class="pf-belong">' + (belong ? esc(belong) : '소속 교회를 아직 적지 않았어요') + '</span></div>' +
+      '<button type="button" class="pf-edit-btn" onclick="openPfEdit()">정보 고치기</button>' +
+    '</div>' +
+    '<div class="pf-rows">' + rows.map(function (r) {
+      return '<div class="pf-row"><span>' + r[0] + '</span><b>' + (r[1] || '<em>비어 있어요</em>') + '</b></div>';
+    }).join('') + '</div>' +
+    (empty ? '<p class="pf-nudge">비어 있는 칸이 ' + empty + '개 있어요. 채워두면 팀장님이 연락하기 쉬워져요.</p>' : '') +
+    (!initData && loginRaw ? '<button type="button" class="pf-logout" onclick="logout()">이 브라우저에서 로그아웃</button>' : '');
+}
+
+// ----- 내 정보 고치기 (PC: 오른쪽 패널, 폰: 화면 전환) -----
+function openPfEdit() {
+  if (!P.info) return;
+  var p = P.info.person, wide = isWide();
+  $('pfName').textContent = p.name;
+  setPfSeg('pfGender', p.gender || '');
+  $('pfBirth').value = p.birth_date || '';
+  $('pfPhone').value = p.phone || '';
+  $('pfTribe').innerHTML = '<option value="">고르지 않음</option>' + P.info.tribes.map(function (t) {
+    return '<option value="' + esc(t.id) + '"' + (t.id === p.tribe_id ? ' selected' : '') + '>' + esc(t.name) + '</option>';
+  }).join('');
+  pfFillChurches(p.church_id);
+  $('pfAssoc').value = p.association || '';
+  $('pfDlName').value = p.district_leader_name || '';
+  $('pfDlPhone').value = p.district_leader_phone || '';
+  setMsg('pfMsg', '');
+  $('pfMain').style.display = wide ? 'block' : 'none';
+  $('profileView').classList.toggle('split', wide);
+  $('pfEdit').style.display = 'block';
+  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+  if (!wide) window.scrollTo(0, 0);
+}
+function closePfEdit() {
+  $('profileView').classList.remove('split');
+  $('pfEdit').style.display = 'none';
+  $('pfMain').style.display = 'block';
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+}
+function setPfSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); }); }
+function pfPick(id, btn) {
+  var v = btn.getAttribute('data-v'), on = btn.classList.contains('on');
+  setPfSeg(id, on ? '' : v);   // 한 번 더 누르면 해제
+}
+function pfSegVal(id) { var b = document.querySelector('#' + id + ' button.on'); return b ? b.getAttribute('data-v') : ''; }
+function pfFillChurches(keep) {
+  var tribe = $('pfTribe').value;
+  var list = P.info.churches.filter(function (c) { return c.tribe_id === tribe; });
+  var cur = typeof keep === 'string' ? keep : $('pfChurch').value;
+  $('pfChurch').innerHTML = '<option value="">' + (list.length ? '고르지 않음' : '—') + '</option>' + list.map(function (c) {
+    return '<option value="' + esc(c.id) + '"' + (c.id === cur ? ' selected' : '') + '>' + esc(c.name) + (c.church_type === '본부교회' ? ' (본부)' : '') + '</option>';
+  }).join('');
+  $('pfChurch').disabled = !list.length;
+  $('pfChurchHint').style.display = tribe && !list.length ? 'block' : 'none';
+}
+function savePf() {
+  var payload = {
+    gender: pfSegVal('pfGender'), birth_date: $('pfBirth').value, phone: $('pfPhone').value.trim(),
+    tribe_id: $('pfTribe').value, church_id: $('pfChurch').value, association: $('pfAssoc').value,
+    district_leader_name: $('pfDlName').value.trim(), district_leader_phone: $('pfDlPhone').value.trim()
+  };
+  var btn = $('pfSaveBtn'); btn.disabled = true; setMsg('pfMsg', '저장하는 중...');
+  api('profile.update', payload).then(function (d) {
+    P.info = d; btn.disabled = false; haptic('success');
+    setMsg('pfMsg', '저장했어요!');
+    renderPfCard();
+    setTimeout(function () { if ($('pfMsg').textContent === '저장했어요!') closePfEdit(); }, 900);
+  }).catch(function (err) { btn.disabled = false; setMsg('pfMsg', err.message, true); });
+}
+
+// ----- 한 달 활동 -----
+function pfMoveMonth(n) {
+  var p = P.month.split('-'), d = new Date(+p[0], +p[1] - 1 + n, 1);
+  var m = d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+  if (m > curMonth()) return;
+  P.month = m; loadPfReport();
+}
+function loadPfReport() {
+  $('pfMonth').textContent = monthLabel(P.month);
+  $('pfNext').disabled = P.month >= curMonth();
+  $('pfMonthNote').textContent = '';
+  var month = P.month;
+  $('pfReport').innerHTML = '<div class="empty"><b>모으는 중...</b></div>';
+  api('profile.report', { month: month }).then(function (r) {
+    if (month !== P.month) return;   // 그사이 다른 달로 넘김
+    P.report = r; renderPfReport();
+  }).catch(function (err) { $('pfReport').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+
+function pfDay(iso) { return mdOf(iso) + ' ' + hmOf(iso); }
+function pfBar(t) {
+  var n = t.total || 1;
+  var seg = function (k, cls) { return t[k] ? '<i class="' + cls + '" style="width:' + (t[k] / n * 100) + '%"></i>' : ''; };
+  return '<div class="pf-bar">' + (t.total ? seg('참석', 'ok') + seg('지각', 'warn') + seg('조퇴', 'warn') + seg('불참', 'bad') : '') + '</div>';
+}
+function pfSection(title, count, body, cls) {
+  return '<div class="pf-sec ' + (cls || '') + '"><div class="section-head"><h2>' + title + '</h2>' +
+    (count ? '<span class="section-count">' + count + '</span>' : '') + '</div>' + body + '</div>';
+}
+
+function renderPfReport() {
+  var r = P.report, mt = r.meetings, rec = r.recordings, du = r.duties, hw = r.assignments;
+  var dutyN = du.list.length;
+  $('pfMonthNote').textContent = mt.upcoming ? '아직 끝나지 않은 모임 ' + mt.upcoming + '개는 출석률에서 빠져요' : '';
+
+  // 한눈에: 출석률 · 실무 녹음 · 그 밖의 실무 · 과제
+  var h = '<div class="b-tiles pf-tiles">' +
+    tile('모임 출석률', mt.closed ? '<em class="pf-rate ' + rateCls(mt.rate) + '">' + pctText(mt.rate) + '</em>' : '–') +
+    tile('실무 녹음', rec.list.length + '<small>건</small>') +
+    tile('그 밖의 실무', dutyN + '<small>건</small>') +
+    tile('과제 제출', hw.list.length + '<small>건</small>') +
+    '</div>';
+  if (r.errors && r.errors.length) h += '<p class="b-note b-need-line">' + esc(r.errors.join('·')) + ' 기록을 불러오지 못했어요. 잠시 뒤 다시 열어주세요.</p>';
+
+  var cols = '';
+
+  // 모임 종류별 (정규수업·스터디·운영회의…)
+  var tb = mt.by_type.length ? '<div class="card pf-types">' + mt.by_type.map(function (t) {
+    var came = t.참석 + t.지각 + t.조퇴;
+    return '<div class="pf-type"><div class="pf-type-top"><b>' + esc(t.type) + '</b>' +
+      '<span>' + (t.total ? came + ' / ' + t.total + '회 함께함' : '') + (t.upcoming ? (t.total ? ' · ' : '') + '예정 ' + t.upcoming : '') + '</span></div>' +
+      pfBar(t) +
+      '<div class="pf-type-n">' + ['참석', '지각', '조퇴', '불참'].filter(function (k) { return t[k]; }).map(function (k) {
+        return '<span class="st st-' + k + '">' + k + ' ' + t[k] + '</span>';
+      }).join('') + '</div></div>';
+  }).join('') + '</div>'
+    : '<div class="empty"><b>이달엔 모임 기록이 없어요</b>정규수업·스터디에 함께하면 여기에 쌓여요</div>';
+  cols += pfSection('수업·스터디·회의', mt.closed ? '출석 ' + mt.came + '/' + mt.closed + (mt.on_time != null ? ' · 정시 ' + pctText(mt.on_time) : '') : '', tb);
+
+  // 실무 녹음
+  var rb = rec.list.length ? '<div class="card pf-list">' + rec.list.map(function (x) {
+    var name = [x.code ? '[' + x.code + ']' : '', x.title || '제목 없음'].filter(Boolean).join(' ');
+    var stCls = x.status === '완료' ? 'st-참석' : x.status === '취소' ? 'st-취소' : x.status === '재녹음필요' ? 'st-지각' : 'st-none';
+    return '<div class="pf-item"><span class="pf-ic">🎙</span><div class="pf-it"><b>' + esc(name) + (x.retake ? ' <small>재녹음</small>' : '') + '</b>' +
+      '<span>' + pfDay(x.start) + (x.location ? ' · ' + esc(x.location) : '') + ' · ' + esc(REC_ROLE[x.role] || x.role) + (x.cast ? ' · ' + esc(x.cast) + ' 역' : '') + '</span></div>' +
+      '<span class="st ' + stCls + '">' + esc(x.status) + '</span></div>';
+  }).join('') + '</div>'
+    : '<div class="empty"><b>이달엔 실무 녹음이 없어요</b>녹음에 배정되면 여기에 남아요</div>';
+  cols += pfSection('실무 녹음', '지금까지 완료 ' + rec.all_time + '건', rb);
+
+  // 그 밖의 실무 (사회·촬영·음향편집…)
+  var db = dutyN ? '<div class="card pf-list">' + du.list.map(function (x) {
+    return '<div class="pf-item"><span class="pf-ic">' + (DUTY_ICON[x.type] || '✳️') + '</span><div class="pf-it"><b>' + esc(x.title) + '</b>' +
+      '<span>' + (x.start ? pfDay(x.start) : '날짜 미정') + (x.place ? ' · ' + esc(x.place) : '') + (x.dept ? ' · ' + esc(x.dept) : '') + '</span></div>' +
+      '<span class="chip">' + esc(x.type) + '</span></div>';
+  }).join('') + '</div>'
+    : '<div class="empty"><b>이달엔 맡은 실무가 없어요</b>사회·촬영·음향편집 등을 맡으면 여기에 남아요</div>';
+  cols += pfSection('그 밖의 실무', Object.keys(du.by_type).map(function (k) { return k + ' ' + du.by_type[k]; }).join(' · '), db);
+
+  // 과제
+  var hb = hw.list.length ? '<div class="card pf-list">' + hw.list.map(function (x) {
+    return '<div class="pf-item"><span class="pf-ic">📝</span><div class="pf-it"><b>' + esc(x.title) + '</b>' +
+      '<span>' + pfDay(x.at) + ' 제출' + (x.category ? ' · ' + esc(x.category) : '') + '</span></div>' +
+      (x.feedback ? '<span class="st st-지각">피드백</span>' : '') + '</div>';
+  }).join('') + '</div>'
+    : '<div class="empty"><b>이달에 낸 과제가 없어요</b></div>';
+  cols += pfSection('과제', '', hb);
+
+  // 모임 하나하나
+  if (mt.list.length) {
+    cols += pfSection('모임 기록', mt.list.length + '번', '<div class="card pf-list">' + mt.list.map(function (x) {
+      var st = x.status ? '<span class="st st-' + esc(x.status) + '">' + esc(x.status) + (x.late_min ? ' ' + x.late_min + '분' : '') + '</span>'
+        : x.planned_status ? planChip(x.planned_status, true) : '<span class="st st-none">예정</span>';
+      return '<div class="pf-item"><span class="pf-date">' + shortD(x.date) + '</span><div class="pf-it"><b>' + esc(x.title) + '</b>' +
+        '<span>' + esc(x.type) + (x.time ? ' · ' + x.time : '') + (x.reason ? ' · ' + esc(x.reason) : '') + '</span></div>' + st + '</div>';
+    }).join('') + '</div>', 'pf-wide');
+  }
+
+  $('pfReport').innerHTML = h + '<div class="pf-grid">' + cols + '</div>';
+}
