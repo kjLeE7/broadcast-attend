@@ -38,9 +38,11 @@ const CORS = {
 
 class HttpError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  extra?: Record<string, unknown>;   // 오류와 함께 앱에 보낼 추가 정보 (예: 등록 안 된 사람의 텔레그램 번호)
+  constructor(status: number, message: string, extra?: Record<string, unknown>) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 
@@ -1452,7 +1454,10 @@ Deno.serve(async (req) => {
       .select("id, name, is_active")
       .eq("telegram_user_id", tgUser.id)
       .maybeSingle());
-    if (!me) throw new HttpError(403, "등록되지 않은 사용자입니다. 관리자에게 문의하세요");
+    // 등록 안 된 사람: 본인 텔레그램 번호를 돌려줘서 화면에 띄움 (본인 번호라 비밀 아님) → 캡처해서 팀장에게 보내면 등록
+    if (!me) throw new HttpError(403, "등록되지 않은 사용자입니다. 관리자에게 문의하세요", {
+      code: "not_registered", tg_id: tgUser.id, tg_name: (tgUser as { first_name?: string }).first_name ?? null,
+    });
     if (!me.is_active) throw new HttpError(403, "비활성화된 계정입니다. 관리자에게 문의하세요");
 
     // 수정 이력에 '누가'를 남기기 위해 요청 헤더에 행위자 id를 실어 보냄
@@ -1469,6 +1474,6 @@ Deno.serve(async (req) => {
   } catch (e: any) {
     const status = e instanceof HttpError ? e.status : 500;
     if (status === 500) console.error(e);
-    return json({ ok: false, error: status === 500 ? "서버 오류가 발생했습니다" : e.message }, status);
+    return json({ ok: false, error: status === 500 ? "서버 오류가 발생했습니다" : e.message, ...(e instanceof HttpError ? e.extra ?? {} : {}) }, status);
   }
 });

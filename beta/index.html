@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004b">
+  <link rel="stylesheet" href="beta.css?v=20261004c">
 </head>
 <body>
   <div class="app">
@@ -130,6 +130,7 @@
       <!-- 오늘·내일 체크인 (기상·출발·도착) -->
       <div id="ciArea"></div>
 
+      <div class="b-creates">
       <!-- 체크인 만들기 (교관 이상) -->
       <div class="card b-create" id="ciCreateCard" style="display:none;">
         <button class="b-toggle" type="button" onclick="toggleBox('ciForm','ciChev')">
@@ -181,6 +182,8 @@
         </div>
       </div>
 
+      </div>
+
       <div class="section-head"><h2>다가오는 모임</h2><span class="section-count" id="upCount"></span></div>
       <div id="upList"></div>
 
@@ -197,6 +200,7 @@
     <!-- ===== 출결: 모임 하나 ===== -->
     <section id="detailView" style="display:none;">
       <button class="back" onclick="showList()">‹ 모임 목록</button>
+      <button class="b-close" type="button" onclick="showList()" aria-label="닫기" title="닫기 (Esc)">✕</button>
       <div id="dHead"></div>
 
       <div class="card" id="myCard"></div>
@@ -294,6 +298,7 @@
 
       <div id="taskDetail" style="display:none;">
         <button class="back" onclick="closeTask()">‹ 과제 목록</button>
+        <button class="b-close" type="button" onclick="closeTask()" aria-label="닫기" title="닫기 (Esc)">✕</button>
         <div id="tdHead"></div>
         <div class="card" id="tdMine">
           <div class="b-card-title">내 제출</div>
@@ -407,6 +412,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004b"></script>
-  <script src="beta.js?v=20261004b"></script>
+  <script src="beta.js?v=20261004c"></script>
 </body>
 </html>

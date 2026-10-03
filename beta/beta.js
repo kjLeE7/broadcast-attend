@@ -42,6 +42,7 @@ function api(action, payload) {
       if (j.ok) return j.data;
       var e = new Error(j.error || '알 수 없는 오류');
       e.status = res.status;
+      e.code = j.code; e.tg_id = j.tg_id; e.tg_name = j.tg_name;
       // 브라우저 로그인이 만료·위조면 로그인 화면으로
       if (res.status === 401 && !initData && loginRaw) { forgetLogin(); showLogin(e.message); }
       throw e;
@@ -71,6 +72,25 @@ function chip(status) {
   if (!status) return '<span class="st st-none">미제출</span>';
   return '<span class="st st-' + esc(status) + '">' + esc(status) + '</span>';
 }
+// 등록 안 된 사람: 텔레그램 번호를 크게 보여주고, 캡처해서 팀장에게 보내게 함
+function showNotRegistered(id, name) {
+  showState('', '');
+  $('who').textContent = '등록 전';
+  $('stateBox').innerHTML =
+    '<b>아직 등록되지 않았어요</b>' +
+    '<span class="b-nr-desc">이 화면을 캡처해서 팀장님께 보내주세요.<br>등록되면 바로 들어올 수 있어요.</span>' +
+    '<div class="b-nr-box"><small>' + (name ? esc(name) + '님의 ' : '내 ') + '텔레그램 번호</small>' +
+      '<strong id="nrId">' + esc(id) + '</strong>' +
+      '<button type="button" class="b-nr-copy" onclick="copyNrId(this)">번호 복사</button></div>' +
+    (initData ? '' : '<span class="b-nr-desc">다른 텔레그램 계정이면 오른쪽 위 동그라미를 눌러 로그아웃해요.</span>');
+}
+function copyNrId(btn) {
+  var t = $('nrId').textContent;
+  var done = function () { btn.textContent = '복사했어요'; setTimeout(function () { btn.textContent = '번호 복사'; }, 1500); };
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(done, function () { prompt('아래 번호를 복사해주세요', t); });
+  else prompt('아래 번호를 복사해주세요', t);
+}
+
 function showState(title, desc) {
   $('loginBox').style.display = 'none';
   $('stateBox').style.display = 'block';
@@ -118,6 +138,7 @@ function boot() {
     else { if (curTab === 'home') $('teamTabs').style.display = 'none'; selectTeam(me.teams[0].id); }
   }).catch(function (err) {
     if (err.status === 401 && !initData) return;   // 로그인 화면으로 이미 넘어감
+    if (err.code === 'not_registered' && err.tg_id) { showNotRegistered(err.tg_id, err.tg_name); return; }
     showState('들어갈 수 없어요', err.message + (initData ? '' : ' (다른 텔레그램 계정이면 오른쪽 위 동그라미를 눌러 로그아웃)'));
   });
 }
@@ -1409,6 +1430,7 @@ function loadTasks() {
   if (A.current) { openTask(A.current.id); return; }
   $('taskDetail').style.display = 'none';
   $('taskList').style.display = 'block';
+  $('taskView').classList.remove('split');
   if (A.list) { renderTasks(); return; }
   $('hwOpen').innerHTML = '<div class="empty"><b>불러오는 중...</b></div>';
   $('hwPast').innerHTML = '';
@@ -1425,7 +1447,8 @@ function isOpenTask(a) { return !a.due_at || new Date(a.due_at).getTime() >= Dat
 
 function taskCard(a) {
   var st = taskState(a);
-  return '<button class="b-session b-task" onclick="openTask(\'' + esc(a.id) + '\')"><div class="b-info">' +
+  var sel = A.current && A.current.id === a.id;
+  return '<button class="b-session b-task' + (sel ? ' b-sel' : '') + '" onclick="openTask(\'' + esc(a.id) + '\')"><div class="b-info">' +
       (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
       '<b>' + esc(a.title) + '</b><span>' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') +
       (a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + '</span></div>' +
@@ -1466,7 +1489,10 @@ function openTask(id) {
   var a = byId(A.list || [], id); if (!a) return;
   if (!A.current || A.current.id !== id) { A.subs = null; A.openSub = null; }
   A.current = a;
-  $('taskList').style.display = 'none';
+  var wide = isWide();   // 넓은 화면: 목록은 두고 오른쪽에 상세
+  $('taskList').style.display = wide ? 'block' : 'none';
+  $('taskView').classList.toggle('split', wide);
+  if (wide && A.list) renderTasks();
   $('taskDetail').style.display = 'block';
   var st = taskState(a);
   $('tdHead').innerHTML = '<div class="b-dhead">' + (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
@@ -1482,11 +1508,12 @@ function openTask(id) {
   $('tdBoardWrap').style.display = lead ? 'block' : 'none';
   if (lead) loadTaskBoard();
   try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
-  window.scrollTo(0, 0);
+  if (!wide) window.scrollTo(0, 0);
 }
 
 function closeTask() {
   A.current = null; A.subs = null;
+  $('taskView').classList.remove('split');
   $('taskDetail').style.display = 'none';
   $('taskList').style.display = 'block';
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
@@ -1595,6 +1622,15 @@ function ddayText(start) {
   return 'D-' + diff;
 }
 function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); }); }
+
+// ----- PC: Esc로 오른쪽 상세 닫기 -----
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape' || !isWide()) return;
+  var t = e.target && e.target.tagName;
+  if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
+  if (curTab === 'attend' && $('attendWrap').classList.contains('split')) showList();
+  else if (curTab === 'task' && $('taskView').classList.contains('split')) closeTask();
+});
 
 // ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
 function applyNav(mini) {

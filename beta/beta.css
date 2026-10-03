@@ -116,7 +116,7 @@ button.avatar { cursor: pointer; font-family: inherit; }
    한 화면을 넓게 배치만 바꿈 — 모바일 화면은 그대로 */
 @media (min-width: 1000px) {
   body.b-nav { padding-left: 220px; }
-  .app { max-width: 1100px; padding: 28px 40px 60px; }
+  .app { max-width: none; padding: 28px 40px 60px; }
 
   /* 하단 탭 → 왼쪽 메뉴 */
   .b-tabbar {
@@ -134,10 +134,8 @@ button.avatar { cursor: pointer; font-family: inherit; }
   .b-attend.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
   .b-attend.split #detailView { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 2px 4px 8px; }
   .b-attend.split #detailView .back { display: none; }
-  .b-attend:not(.split) #listView { max-width: 640px; }
 
   /* 가능시간: 칸을 크게, 결과는 표 옆에 요약 */
-  #weeklyView { max-width: 980px; }
   .tgrid.half .gc { height: 24px; }
   .tgrid .gh b { font-size: 13.5px; }
   /* 오른쪽 요약 카드는 위에 붙고, 남는 높이는 마지막 줄(1fr)이 받음 */
@@ -165,7 +163,7 @@ button.avatar { cursor: pointer; font-family: inherit; }
 
 /* 과제 카드·상세 */
 .b-task .b-info b { white-space: normal; line-height: 1.35; }
-.b-cat { display: inline-block; margin-bottom: 5px; }
+.b-cat, .b-info .b-cat { display: inline-block; margin-bottom: 5px; align-self: flex-start; width: auto; }
 .b-desc { margin-top: 14px; padding: 16px 18px; font-size: 14px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
 .b-feedback { margin-top: 16px; background: var(--accent-soft); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .b-feedback b { display: block; font-size: 13px; color: var(--accent); margin-bottom: 4px; }
@@ -178,7 +176,6 @@ button.avatar { cursor: pointer; font-family: inherit; }
 
 @media (min-width: 1000px) {
   .b-tabbar { grid-template-columns: none; }
-  #noticeView, #taskView { max-width: 760px; }
 }
 
 /* ===== 모임 출결 흐름 (사전 체크 → 현장 확인 → 마감 → 사유) ===== */
@@ -265,7 +262,6 @@ button.avatar { cursor: pointer; font-family: inherit; }
 .b-rp-date { font-weight: 800; }
 .b-rp-reason { color: var(--text); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .b-rp-reason.none { color: var(--bad); font-weight: 700; }
-@media (min-width: 1000px) { #reportView { max-width: 760px; } }
 #myCard .msg:empty { display: none; }
 
 /* ===== 동네지도 탭: 화면 전체를 씀 (PC 전용) ===== */
@@ -321,3 +317,46 @@ body, body * {
   .b-tabbar .tab svg { width: 23px; height: 23px; }
   .b-navtoggle { font-size: 14.5px; }
 }
+
+/* ===== 등록 안 된 사람: 텔레그램 번호 안내 ===== */
+.b-nr-desc { display: block; margin-top: 8px; line-height: 1.6; }
+.b-nr-box { margin: 18px auto 6px; max-width: 300px; background: var(--accent-soft); border-radius: 16px; padding: 16px 18px 14px; text-align: center; }
+.b-nr-box small { display: block; color: var(--accent); font-weight: 700; font-size: 12.5px; }
+.b-nr-box strong { display: block; font-size: 30px; letter-spacing: .04em; color: var(--text); margin: 4px 0 10px; font-variant-numeric: tabular-nums; user-select: all; }
+.b-nr-copy { border: none; background: var(--accent); color: #fff; border-radius: 99px; padding: 8px 18px; font-size: 13.5px; font-weight: 700; }
+
+/* ===== PC: 화면을 넓게 쓰고, 무언가 열면 오른쪽에 상세가 들어옴 =====
+   평소: 카드를 여러 줄로 가득 / 모임·과제를 누르면: 왼쪽 목록 | 오른쪽 상세 (Esc나 ✕로 닫기) */
+.b-close { display: none; }
+@media (min-width: 1000px) {
+  .b-creates { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; align-items: start; margin-bottom: 14px; }
+  .b-creates > .card { margin: 0; }
+
+  #upList, #pastList, #hwOpen, #hwPast, #annList {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; align-items: start;
+  }
+  #upList > *, #pastList > *, #hwOpen > *, #hwPast > *, #annList > * { margin: 0; }
+  #upList > .empty, #pastList > .empty, #hwOpen > .empty, #hwPast > .empty, #annList > .empty { grid-column: 1 / -1; }
+
+  /* 상세가 열리면 목록은 한 줄로 */
+  .b-attend.split .b-creates,
+  .b-attend.split #upList, .b-attend.split #pastList,
+  #taskView.split #hwOpen, #taskView.split #hwPast { grid-template-columns: minmax(0, 1fr); }
+
+  /* 과제도 출결과 같은 반반 배치 */
+  #taskView.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+  #taskView.split #taskDetail { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 2px 4px 8px; }
+  #taskView.split #taskDetail .back { display: none; }
+
+  /* 오른쪽에서 스르륵 */
+  .b-attend.split #detailView, #taskView.split #taskDetail { animation: b-slidein .26s ease both; }
+  .b-attend.split .b-close, #taskView.split .b-close {
+    display: flex; align-items: center; justify-content: center;
+    position: absolute; top: 4px; right: 6px; z-index: 2;
+    width: 36px; height: 36px; border: none; border-radius: 99px;
+    background: var(--card); color: var(--muted); font-size: 15px; box-shadow: var(--shadow); cursor: pointer;
+  }
+  .b-attend.split .b-close:hover, #taskView.split .b-close:hover { color: var(--text); }
+  .b-attend.split #dHead h1, #taskView.split #tdHead h1, #taskView.split #tdHead .b-cat { margin-right: 44px; }
+}
+@keyframes b-slidein { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
