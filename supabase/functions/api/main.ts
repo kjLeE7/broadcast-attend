@@ -1274,6 +1274,141 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     };
   },
 
+  // ----- 동네지도 (PC 홈) -----
+  // { team_id } → 이 팀이 속한 과 사람들의 '오늘 일정'을 장소·업무유형으로 정리
+  // 일정 우선순위: 녹음 > 업무(사회·촬영 등) > 모임 > 사명자 일정 > 고정일정(직장). 일정이 없으면 화면에서 휴게실.
+  // 녹음·사회의 구체적인 내용(detail)은 보는 사람이 과 안의 어느 팀에서든 교관 이상일 때만 보냄.
+  async "dashboard.scene"(ctx) {
+    const { team_id } = ctx.payload;
+    await requireRank(ctx, team_id, RANK.MEMBER);
+    const team = must(await ctx.db.from("org_units").select("id, parent_id").eq("id", team_id).maybeSingle());
+    const sectionId = team?.parent_id ?? team_id;
+    const kids: any[] = must(await ctx.db.from("org_units").select("id, name")
+      .eq("parent_id", sectionId).eq("unit_type", "팀").is("ended_on", null)) ?? [];
+    const teamIds = kids.map((k) => k.id), unitIds = [sectionId, ...teamIds];
+    const teamName = new Map<string, string>(kids.map((k) => [k.id, k.name]));
+
+    let myMax = 0;
+    for (const t of teamIds) myMax = Math.max(myMax, await rankIn(ctx, t));
+    const canDetail = myMax >= RANK.INSTRUCTOR;
+
+    const today = kstToday();
+    const dow = new Date(today + "T00:00:00Z").getUTCDay();
+    const dayStart = kstMs(today), dayEnd = dayStart + 24 * HOUR;
+    const toMin = (ms: number) => Math.max(0, Math.min(1440, Math.round((ms - dayStart) / 60000)));
+    const hm = (t: string) => { const [h, m] = String(t).split(":").map(Number); return h * 60 + (m || 0); };
+
+    // 과 사람들 (팀·과 직책이 오늘 유효한 활성 인원). 직책이 여럿이면 등급 높은 것
+    const pos: any[] = must(await ctx.db.from("position_history")
+      .select("person_id, org_unit_id, people(name, is_active), positions(name, rank)")
+      .in("org_unit_id", unitIds).lte("started_on", today).or(`ended_on.is.null,ended_on.gte.${today}`)) ?? [];
+    const ppl = new Map<string, any>();
+    for (const r of pos) {
+      if (!r.people?.is_active) continue;
+      const rank = r.positions?.rank ?? 0, cur = ppl.get(r.person_id);
+      if (!cur || rank > cur.rank) {
+        ppl.set(r.person_id, { id: r.person_id, name: r.people.name, rank, role: r.positions?.name ?? "",
+          team: teamName.get(r.org_unit_id) ?? "방송예술과", teamId: teamName.has(r.org_unit_id) ? r.org_unit_id : null });
+      }
+    }
+    const ids = [...ppl.keys()];
+    if (ids.length) {
+      const gs: any[] = must(await ctx.db.from("group_assignments").select("person_id, org_units(name, parent_id)")
+        .in("person_id", ids).lte("started_on", today).or(`ended_on.is.null,ended_on.gte.${today}`)) ?? [];
+      for (const g of gs) { const p = ppl.get(g.person_id); if (p && g.org_units?.parent_id === p.teamId) p.group = g.org_units.name; }
+    }
+
+    const dayIso = [new Date(dayStart).toISOString(), new Date(dayEnd).toISOString()];
+    const none = Promise.resolve({ data: [], error: null });
+    const [plc, sess, recs, duty, staff, fixed] = await Promise.all([
+      ctx.db.from("places").select("code, name, aliases").eq("is_active", true),
+      teamIds.length ? ctx.db.from("meeting_sessions")
+        .select("id, team_id, title, session_date, start_time, end_time, location, target_unit_id, status, created_by, meeting_types(name, default_location)")
+        .in("team_id", teamIds).eq("session_date", today).neq("status", "취소") : none,
+      teamIds.length ? ctx.db.from("recording_sessions")
+        .select("id, team_id, scheduled_start, scheduled_end, location, status, recording_requests(title, request_code), recording_participants(person_id, role)")
+        .in("team_id", teamIds).gte("scheduled_start", dayIso[0]).lt("scheduled_start", dayIso[1]) : none,
+      ctx.db.from("duties").select("id, duty_type, title, owner_id, place, starts_at, ends_at, recording_session_id")
+        .in("unit_id", unitIds).gte("starts_at", dayIso[0]).lt("starts_at", dayIso[1]),
+      ctx.db.from("staff_schedules").select("id, title, category, place, organizer_id, starts_at, ends_at")
+        .in("unit_id", unitIds).gte("starts_at", dayIso[0]).lt("starts_at", dayIso[1]),
+      ids.length ? ctx.db.from("fixed_schedules").select("person_id, start_time, end_time, valid_from, valid_to")
+        .in("person_id", ids).eq("weekday", dow) : none,
+    ]);
+
+    // 장소 글자 → 장소 코드 (긴 별칭부터 맞춤). 목록에 없으면 '외부'
+    const norm = (s: any) => String(s ?? "").toLowerCase().replace(/\s+/g, "");
+    const aliasList: [string, string][] = [];
+    for (const p of must(plc as any) ?? []) for (const a of [p.name, ...(p.aliases ?? [])]) if (norm(a)) aliasList.push([norm(a), p.code]);
+    aliasList.sort((a, b) => b[0].length - a[0].length);
+    const where = (loc: any) => {
+      const n = norm(loc);
+      if (!n) return { place: "outside", ext: "장소 미정" };
+      for (const [a, code] of aliasList) if (n.includes(a)) return { place: code, ext: "" };
+      return { place: "outside", ext: String(loc).trim().slice(0, 20) };
+    };
+    const kindOf = (name: string, fallback: string) => {
+      const s = String(name ?? "");
+      if (/회의/.test(s)) return "회의"; if (/스터디/.test(s)) return "스터디"; if (/연습|리허설/.test(s)) return "연습";
+      if (/수업|교육|강의|훈련/.test(s)) return "수업"; return fallback;
+    };
+
+    const segs: any[] = [];
+    const push = (pid: string, from: number, to: number, w: any, type: string, title: string, detail: string, lead = false) => {
+      if (!ppl.has(pid) || to <= from) return;
+      segs.push({ pid, from, to, place: w.place, ext: w.ext, type, title, detail, lead });
+    };
+
+    // 1) 녹음: 참여자 모두. 녹음 제목·코드는 교관 이상만
+    for (const r of must(recs as any) ?? []) {
+      if (r.status === "취소") continue;
+      const st = Date.parse(r.scheduled_start), en = r.scheduled_end ? Date.parse(r.scheduled_end) : st + 2 * HOUR;
+      const req = r.recording_requests, base = req ? [req.title, req.request_code].filter(Boolean).join(" · ") : "녹음";
+      for (const pt of r.recording_participants ?? []) {
+        push(pt.person_id, toMin(st), toMin(en), where(r.location), "녹음", "",
+          canDetail ? [base, pt.role].filter(Boolean).join(" · ") : "");
+      }
+    }
+    // 2) 업무 (녹음과 연결된 업무는 위에서 이미 셈)
+    const DUTY: Record<string, string> = { "녹음": "녹음", "사회": "사회", "촬영": "촬영", "음향편집": "편집" };
+    for (const d of must(duty as any) ?? []) {
+      if (d.recording_session_id || !d.owner_id) continue;
+      const type = DUTY[d.duty_type] ?? "기타", gated = type === "녹음" || type === "사회";
+      const st = Date.parse(d.starts_at), en = d.ends_at ? Date.parse(d.ends_at) : st + 3 * HOUR;
+      push(d.owner_id, toMin(st), toMin(en), where(d.place), type, gated ? "" : (d.title ?? ""), gated && canDetail ? (d.title ?? "") : "", type === "사회");
+    }
+    // 3) 모임: 대상자 중 불참(사전·최종)이 아닌 사람. 만든 사람이 진행자
+    const S = must(sess as any) ?? [];
+    const att: any[] = S.length ? must(await ctx.db.from("attendance").select("session_id, person_id, status, planned_status")
+      .in("session_id", S.map((s: any) => s.id))) ?? [] : [];
+    for (const s of S) {
+      if (!s.start_time) continue;
+      const from = toMin(sessionStart(s)!), to = toMin(sessionEnd(s));
+      const absent = new Set(att.filter((a) => a.session_id === s.id && (a.status === "불참" || (!a.status && a.planned_status === "불참"))).map((a) => a.person_id));
+      const w = where(s.location || s.meeting_types?.default_location);
+      const type = kindOf(s.meeting_types?.name ?? s.title, "모임");
+      for (const m of await sessionMembers(ctx, s)) {
+        if (absent.has(m.id)) continue;
+        push(m.id, from, to, w, type, sessionName(s), "", m.id === s.created_by);
+      }
+    }
+    // 4) 사명자 일정: 주최자만 (참여자는 글자로만 적혀 있어서 사람과 연결할 수 없음)
+    for (const r of must(staff as any) ?? []) {
+      if (!r.organizer_id) continue;
+      const st = Date.parse(r.starts_at), en = r.ends_at ? Date.parse(r.ends_at) : st + 3 * HOUR;
+      push(r.organizer_id, toMin(st), toMin(en), where(r.place), kindOf(r.category || r.title, "모임"), r.title ?? "", "", true);
+    }
+    // 5) 고정일정 = 직장 (제목은 보내지 않음)
+    for (const f of must(fixed as any) ?? []) {
+      if ((f.valid_from && f.valid_from > today) || (f.valid_to && f.valid_to < today)) continue;
+      push(f.person_id, hm(f.start_time), hm(f.end_time), { place: "work", ext: "" }, "근무", "", "");
+    }
+
+    const people = [...ppl.values()].sort((a, b) => a.team.localeCompare(b.team) || b.rank - a.rank || a.name.localeCompare(b.name))
+      .map((p) => ({ id: p.id, name: p.name, team: p.team, role: [p.role, p.group].filter(Boolean).join(" · ") }));
+    return { date: today, can_detail: canDetail, people, segs };
+  },
+
   // 최초 PIN 설정: { pin } → PIN이 아직 없을 때만
   async "pin.setInitial"(ctx) {
     const p = must(await ctx.db.from("people").select("pin_hash").eq("id", ctx.me.id).single());

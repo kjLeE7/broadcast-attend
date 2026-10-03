@@ -1593,9 +1593,31 @@ function ddayText(start) {
 }
 function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); }); }
 
+// ----- 동네지도 (PC에서만) -----
+// 폰(텔레그램 안드로이드·iOS, 또는 터치 화면이면서 좁은 화면)에서는 숨기고 불러오지도 않음
+function isPhone() {
+  var p = tg && tg.platform;
+  if (p === 'android' || p === 'ios') return true;
+  return window.matchMedia('(pointer: coarse) and (max-width: 860px)').matches;
+}
+var townTeam = null;
+function startTown() {
+  var blk = $('townBlk');
+  if (!blk || !window.Town || isPhone()) { if (blk) blk.style.display = 'none'; return; }
+  blk.style.display = '';
+  if (townTeam === S.team.id) return;   // 이미 이 팀으로 그리는 중 (3분마다 알아서 새로고침)
+  townTeam = S.team.id;
+  var teamId = S.team.id;
+  Town.mount($('townArea'), {
+    load: function () { return api('dashboard.scene', { team_id: teamId }); },
+    refreshMs: 180000
+  });
+}
+
 function loadDashboard() {
   if (!S.team) return;
   lastDashAt = Date.now();
+  startTown();
   var d = new Date();
   $('todayText').textContent = d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + WD[d.getDay()] + '요일';
   if (dashData) renderDashboard();   // 그려둔 것 먼저, 새 내용은 뒤에서
