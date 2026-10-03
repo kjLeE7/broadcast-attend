@@ -140,10 +140,14 @@ button.avatar { cursor: pointer; font-family: inherit; }
   #weeklyView { max-width: 980px; }
   .tgrid.half .gc { height: 24px; }
   .tgrid .gh b { font-size: 13.5px; }
-  #wkResult { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0 24px; align-items: start; }
-  #wkResult > #wkTeamChips { grid-column: 1 / -1; }
-  #wkResult > #wkResGrid { grid-column: 1; grid-row: 2 / span 4; }
-  #wkResult > #wkBest, #wkResult > #wkCellInfo, #wkResult > #wkMemos, #wkResult > #wkWho { grid-column: 2; }
+  /* 오른쪽 요약 카드는 위에 붙고, 남는 높이는 마지막 줄(1fr)이 받음 */
+  #wkResult { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto auto 1fr; gap: 0 24px; align-items: start; }
+  #wkResult > #wkTeamChips { grid-column: 1 / -1; grid-row: 1; }
+  #wkResult > #wkResGrid { grid-column: 1; grid-row: 2 / 7; }
+  #wkResult > #wkBest { grid-column: 2; grid-row: 2; }
+  #wkResult > #wkCellInfo { grid-column: 2; grid-row: 3; }
+  #wkResult > #wkMemos { grid-column: 2; grid-row: 4; }
+  #wkResult > #wkWho { grid-column: 2; grid-row: 5; }
   #wkResult > #wkCellInfo { background: var(--card); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); margin: 0 0 10px; }
   #fxCard { max-width: 640px; }
 }
