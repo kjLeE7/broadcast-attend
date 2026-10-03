@@ -11,7 +11,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261003k">
+  <link rel="stylesheet" href="beta.css?v=20261004a">
 </head>
 <body>
   <div class="app">
@@ -372,27 +372,32 @@
 
   <!-- 하단 탭 -->
   <nav class="tabbar b-tabbar b-off" id="tabbar">
-    <button class="tab active" data-tab="home" onclick="goTab('home')">
+    <!-- PC 왼쪽 메뉴 접기/펴기 (휴대폰에선 안 보임) -->
+    <button class="b-navtoggle" id="navToggle" type="button" onclick="toggleNav()" aria-label="메뉴 접기" title="메뉴 접기">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path class="nt-arrow" d="M15.5 9.5 13 12l2.5 2.5"/></svg>
+      <span>메뉴 접기</span>
+    </button>
+    <button class="tab active" data-tab="home" title="홈" onclick="goTab('home')">
       <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
       <span>홈</span>
     </button>
-    <button class="tab" data-tab="town" id="townTab" onclick="goTab('town')" style="display:none;">
+    <button class="tab" data-tab="town" title="동네지도" id="townTab" onclick="goTab('town')" style="display:none;">
       <svg viewBox="0 0 24 24"><path d="M2 21h20"/><path d="M4 21V10l5-4 5 4v11"/><path d="M14 21V8l3-3 3 3v13"/><path d="M7 13h4M7 17h4M17 11v.01M17 15v.01"/></svg>
       <span>동네지도</span>
     </button>
-    <button class="tab" data-tab="attend" onclick="goTab('attend')">
+    <button class="tab" data-tab="attend" title="출결" onclick="goTab('attend')">
       <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
       <span>출결</span>
     </button>
-    <button class="tab" data-tab="notice" onclick="goTab('notice')">
+    <button class="tab" data-tab="notice" title="공지" onclick="goTab('notice')">
       <svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg>
       <span>공지</span>
     </button>
-    <button class="tab" data-tab="task" onclick="goTab('task')">
+    <button class="tab" data-tab="task" title="과제" onclick="goTab('task')">
       <svg viewBox="0 0 24 24"><path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2"/><path d="M9 12h6M9 16h4"/></svg>
       <span>과제</span>
     </button>
-    <button class="tab" data-tab="weekly" onclick="goTab('weekly')">
+    <button class="tab" data-tab="weekly" title="녹음가능" onclick="goTab('weekly')">
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
       <span>녹음가능</span>
     </button>
@@ -400,6 +405,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261003k"></script>
-  <script src="beta.js?v=20261003k"></script>
+  <script src="beta.js?v=20261004a"></script>
 </body>
 </html>

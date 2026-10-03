@@ -1596,6 +1596,21 @@ function ddayText(start) {
 }
 function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); }); }
 
+// ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
+function applyNav(mini) {
+  document.body.classList.toggle('nav-mini', mini);
+  var b = $('navToggle'); if (!b) return;
+  var label = mini ? '메뉴 펴기' : '메뉴 접기';
+  b.title = label; b.setAttribute('aria-label', label);
+  b.querySelector('span').textContent = label;
+}
+function toggleNav() {
+  var mini = !document.body.classList.contains('nav-mini');
+  applyNav(mini);
+  lsSet('navMini', mini ? '1' : '0');
+}
+applyNav(lsGet('navMini') === '1');
+
 // ----- 동네지도 (PC에서만) -----
 // 폰(텔레그램 안드로이드·iOS, 또는 터치 화면이면서 좁은 화면)에서는 숨기고 불러오지도 않음
 function isPhone() {
