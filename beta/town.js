@@ -702,15 +702,23 @@ let dev = 2, hoverId = null, hoverRegion = null, selId = null, selUntil = 0, clo
 let regions = [];
 const DISPLAY = "'Do Hyeon','IBM Plex Sans KR','Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif";
 
+let fillMode = false, mainEl = null, stageEl = null, panelEl = null;
 function fit() {
   if (!cv) return;
-  const avail = cv.parentElement.clientWidth;
-  if (!avail) return;
+  // 보통: 상자 너비에 맞춤. fill: 화면 높이까지 고려해 가장 크게 (남는 폭은 가운데 정렬)
+  const avail = fillMode ? mainEl.clientWidth - 6 : stageEl.clientWidth;
+  if (!avail || avail < 50) return;
+  let cssW = avail;
+  if (fillMode) {
+    const maxH = window.innerHeight - stageEl.getBoundingClientRect().top - 44;
+    if (maxH > 240) cssW = Math.min(avail, maxH * W / H);
+  }
   const dpr = window.devicePixelRatio || 1;
-  dev = avail * dpr / W;
+  dev = cssW * dpr / W;
   cv.width = Math.round(W * dev); cv.height = Math.round(H * dev);
   cv.style.width = (cv.width / dpr) + 'px'; cv.style.height = (cv.height / dpr) + 'px';
   ctx.imageSmoothingEnabled = false;
+  if (fillMode && panelEl) panelEl.style.maxHeight = Math.max(320, stageEl.offsetHeight + 34) + 'px';
 }
 function pill(txt, cx, top, fs, col, dot, placed) {
   ctx.font = `${fs}px ${DISPLAY}`;
@@ -872,7 +880,10 @@ const CSS = `
 .tw{--tw-ink:#17151d;--tw-panel:#211e29;--tw-panel2:#2a2634;--tw-line:#3b3647;--tw-fg:#f1e8d9;--tw-muted:#a89f92;--tw-lamp:#f2b84b;
   display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;align-items:start;color:var(--tw-fg);font-family:'IBM Plex Sans KR','Pretendard',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:14px;line-height:1.5}
 .tw.tw-nopanel{grid-template-columns:minmax(0,1fr)}
-@media (max-width:1180px){.tw{grid-template-columns:minmax(0,1fr)}}
+.tw.tw-fill{grid-template-columns:minmax(0,1fr) 300px}
+.tw.tw-fill .tw-stage{width:fit-content;justify-self:center}
+.tw.tw-fill .tw-legend{justify-content:center}
+@media (max-width:1180px){.tw,.tw.tw-fill{grid-template-columns:minmax(0,1fr)}}
 .tw-main{min-width:0;display:grid;gap:8px}
 .tw-stage{position:relative;background:#0e0c12;border:3px solid var(--tw-line);border-radius:6px;box-shadow:0 0 0 3px #0e0c12,0 14px 30px rgba(0,0,0,.35);overflow:hidden;line-height:0}
 .tw-stage canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
@@ -922,9 +933,11 @@ function mount(host, opts) {
   unmount();
   clockFn = opts.clock || null; maskDetail = opts.maskDetail || (() => false); loadFn = opts.load || null;
   showNames = opts.names !== false;
-  host.innerHTML = `<div class="tw${opts.panel === false ? ' tw-nopanel' : ''}"><div class="tw-main"><div class="tw-stage"><canvas aria-label="과원 위치 지도"></canvas><div class="tw-tip" hidden></div></div><div class="tw-legend"></div></div>`
+  fillMode = !!opts.fill;
+  host.innerHTML = `<div class="tw${opts.panel === false ? ' tw-nopanel' : ''}${fillMode ? ' tw-fill' : ''}"><div class="tw-main"><div class="tw-stage"><canvas aria-label="과원 위치 지도"></canvas><div class="tw-tip" hidden></div></div><div class="tw-legend"></div></div>`
     + (opts.panel === false ? '' : `<aside class="tw-panel"><h2>장소별 현황</h2><div class="tw-places"></div><p class="tw-note">캐릭터나 숫자 팻말에 마우스를 올리면 자세히 보여요. 한 방에 9명 이상이면 이름표는 숨겨져요. 일정이 없는 사람은 휴게실, 직장 근무 시간인 사람은 직장 건물에 들어가 있어요.</p></aside>`) + `</div>`;
   root = host.firstElementChild; cv = root.querySelector('canvas'); ctx = cv.getContext('2d'); tip = root.querySelector('.tw-tip');
+  mainEl = root.querySelector('.tw-main'); stageEl = root.querySelector('.tw-stage'); panelEl = root.querySelector('.tw-panel');
   placesEl = root.querySelector('.tw-places'); legendEl = root.querySelector('.tw-legend');
   cv.addEventListener('mousemove', onMove);
   cv.addEventListener('mouseleave', () => { hoverId = null; hoverRegion = null; cv.classList.remove('tw-hover'); hideTip(); });
@@ -932,7 +945,8 @@ function mount(host, opts) {
     selId = p.id; selUntil = clockT + 4;
     if (p.hidden) { const pl = placeOf(p.seg.place); placeTip(personTip(p), pl.door[0], pl.door[1] - 6); tip._id = null; } else showPersonTip(p);
     setTimeout(() => { if (hoverId == null && !hoverRegion) hideTip(); }, 3500); });
-  roObs = new ResizeObserver(fit); roObs.observe(cv.parentElement); fit();
+  roObs = new ResizeObserver(fit); roObs.observe(fillMode ? mainEl : stageEl); fit();
+  window.addEventListener('resize', fit);
   viewMin = clockFn ? clockFn() : kstMinute();
   if (opts.data) setData(opts.data); else renderPanel();
   if (loadFn) { refresh(); refreshTimer = setInterval(refresh, opts.refreshMs || 180000); }
@@ -942,7 +956,8 @@ function mount(host, opts) {
 function unmount() {
   running = false; clearInterval(refreshTimer); refreshTimer = 0;
   if (roObs) { roObs.disconnect(); roObs = null; }
-  root = null; cv = null; ctx = null; tip = null; placesEl = null; legendEl = null;
+  window.removeEventListener('resize', fit);
+  root = null; cv = null; ctx = null; tip = null; placesEl = null; legendEl = null; mainEl = null; stageEl = null; panelEl = null;
 }
 window.Town = {
   mount, unmount, refresh,

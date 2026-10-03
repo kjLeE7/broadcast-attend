@@ -10,8 +10,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
-  <link rel="stylesheet" href="../style.css?v=20261003j">
-  <link rel="stylesheet" href="beta.css?v=20261003j">
+  <link rel="stylesheet" href="../style.css?v=20261003k">
+  <link rel="stylesheet" href="beta.css?v=20261003k">
 </head>
 <body>
   <div class="app">
@@ -59,12 +59,6 @@
 
       <!-- 주간 녹음가능시간 미제출 알림 -->
       <div id="weeklyBanner"></div>
-
-      <!-- 동네지도: 과원이 일정상 지금 어디서 무엇을 하는지 (PC에서만, town.js) -->
-      <div class="blk" id="townBlk" style="display:none;">
-        <div class="section-head"><h2>우리 동네 지금</h2><span class="section-count">일정 기준이에요 · PC에서만 보여요</span></div>
-        <div id="townArea"></div>
-      </div>
       
       <!-- 과 대시보드 (모두 같은 화면) -->
       <div id="managerArea">
@@ -109,6 +103,15 @@
         </div>
       </div>
 
+    </section>
+
+    <!-- ===== 동네지도 (PC 전용, 화면 전체) ===== -->
+    <section id="townView" style="display:none;">
+      <div class="town-head">
+        <h1 class="page-title">동네지도</h1>
+        <p class="page-desc">일정을 기준으로 과원이 지금 어디서 무엇을 하는지 보여줘요. 실제 위치가 아니에요.</p>
+      </div>
+      <div id="townArea"></div>
     </section>
 
     <div class="b-attend" id="attendWrap">
@@ -373,6 +376,10 @@
       <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
       <span>홈</span>
     </button>
+    <button class="tab" data-tab="town" id="townTab" onclick="goTab('town')" style="display:none;">
+      <svg viewBox="0 0 24 24"><path d="M2 21h20"/><path d="M4 21V10l5-4 5 4v11"/><path d="M14 21V8l3-3 3 3v13"/><path d="M7 13h4M7 17h4M17 11v.01M17 15v.01"/></svg>
+      <span>동네지도</span>
+    </button>
     <button class="tab" data-tab="attend" onclick="goTab('attend')">
       <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
       <span>출결</span>
@@ -392,7 +399,7 @@
   </nav>
 
   <script src="../krmap.js?v=20261001a"></script>
-  <script src="town.js?v=20261003j"></script>
-  <script src="beta.js?v=20261003j"></script>
+  <script src="town.js?v=20261003k"></script>
+  <script src="beta.js?v=20261003k"></script>
 </body>
 </html>

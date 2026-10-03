@@ -111,6 +111,7 @@ function boot() {
     $('who').textContent = name + '님' + (top ? ' · ' + top.unit + ' ' + top.position : '');
     if (!me.teams.length) { showState('아직 소속 팀이 없어요', '팀장님께 팀 배정을 요청해주세요'); return; }
     $('tabbar').classList.remove('b-off');
+    setupTownTab();
     document.body.classList.add('b-nav');
     renderTeamTabs();
     if (DEEP_SESSION) openDeepSession(DEEP_SESSION);
@@ -812,7 +813,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
@@ -827,11 +828,13 @@ function setTabUI(t) {
   curTab = t;
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === t); });
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && t !== 'town' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  document.body.classList.toggle('town-mode', t === 'town');
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
 function refreshTab() {
   if (curTab === 'home') loadDashboard();
+  else if (curTab === 'town') startTown();
   else if (curTab === 'attend') showList();
   else if (curTab === 'notice') loadNotices();
   else if (curTab === 'task') loadTasks();
@@ -1601,23 +1604,27 @@ function isPhone() {
   return window.matchMedia('(pointer: coarse) and (max-width: 860px)').matches;
 }
 var townTeam = null;
+// 동네지도 탭은 PC에서만 보임
+function setupTownTab() {
+  if (isPhone()) return;
+  $('townTab').style.display = '';
+  $('tabbar').style.gridTemplateColumns = 'repeat(6, 1fr)';   // 좁은 PC 창의 아래 탭 6칸
+}
 function startTown() {
-  var blk = $('townBlk');
-  if (!blk || !window.Town || isPhone()) { if (blk) blk.style.display = 'none'; return; }
-  blk.style.display = '';
+  if (!window.Town || isPhone() || !S.team) return;
   if (townTeam === S.team.id) return;   // 이미 이 팀으로 그리는 중 (3분마다 알아서 새로고침)
   townTeam = S.team.id;
   var teamId = S.team.id;
   Town.mount($('townArea'), {
     load: function () { return api('dashboard.scene', { team_id: teamId }); },
-    refreshMs: 180000
+    refreshMs: 180000,
+    fill: true          // 화면 높이에 맞춰 크게
   });
 }
 
 function loadDashboard() {
   if (!S.team) return;
   lastDashAt = Date.now();
-  startTown();
   var d = new Date();
   $('todayText').textContent = d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + WD[d.getDay()] + '요일';
   if (dashData) renderDashboard();   // 그려둔 것 먼저, 새 내용은 뒤에서

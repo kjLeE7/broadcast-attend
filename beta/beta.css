@@ -267,3 +267,14 @@ button.avatar { cursor: pointer; font-family: inherit; }
 .b-rp-reason.none { color: var(--bad); font-weight: 700; }
 @media (min-width: 1000px) { #reportView { max-width: 760px; } }
 #myCard .msg:empty { display: none; }
+
+/* ===== 동네지도 탭: 화면 전체를 씀 (PC 전용) ===== */
+.town-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 12px; }
+.town-head .page-title { margin: 0; }
+.town-head .page-desc { margin: 0; }
+body.town-mode .app { max-width: none; }
+@media (min-width: 1000px) {
+  body.town-mode .app { max-width: none; padding: 18px 24px 16px; }
+  body.town-mode .topbar { display: none; }
+  body.town-mode .town-head .page-title { font-size: 24px; }
+}
