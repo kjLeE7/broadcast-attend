@@ -25,9 +25,11 @@
 - 베타 폴더는 다 고친 뒤 바로 올려도 된다고 했어요.
 - 베타는 `../style.css`, `../krmap.js`를 같이 써요. 운영 앱 화면과 똑같은 모양이 목표예요.
 - PC(가로 1000px 이상)에선 아래 탭이 왼쪽 메뉴가 돼요. 맨 위 버튼으로 접으면 아이콘만 남는 72px 막대(`body.nav-mini`, `toggleNav()`), 선택은 브라우저 저장 키 `navMini`에 기억.
-- 글꼴: 베타 전체(동네지도 포함)가 **고운바탕**(Gowun Batang, OFL). `beta/fonts/`에 woff로 넣고 `beta/fonts.css`에서 불러요.
-  자주 쓰는 완성형 2,350자+영문·기호는 기본 파일(약 40만 바이트), 나머지 드문 글자는 `-ext` 파일(그 글자가 화면에 있을 때만 내려받음).
-  `beta.css` 끝의 `body, body * { font-family: … !important }`가 style.css의 글꼴 지정을 전부 덮어써요. (woff2 변환은 brotli가 프록시에 막혀 woff로 함)
+- 글꼴: **제목은 고운바탕, 나머지는 프리텐다드** (2026-10-04 사용자 결정. 전부 고운바탕이던 걸 바꿈).
+  - `beta.css`의 `--font-body`(프리텐다드, 굵기 100~900) / `--font-title`(고운바탕, 400·700뿐) 두 변수로 관리. 글꼴을 바꾸려면 이 두 줄만 고치면 됨.
+  - `body, body * { font-family: var(--font-body) !important }` 아래에 고운바탕을 쓸 곳 목록(.page-title, .section-head h2, .b-info b, .b-dhead h1 등). 새 화면의 제목도 이 목록에 넣어요.
+  - 프리텐다드는 jsdelivr의 dynamic-subset(쓰는 글자만 내려받음). 고운바탕은 `beta/fonts/`의 woff(자주 쓰는 2,350자 기본 + 드문 글자 `-ext`), `beta/fonts.css`.
+  - 동네지도 그림 속 이름표(`town.js`의 `DISPLAY`)는 고운바탕 그대로. 개발 환경에선 jsdelivr가 막혀 있어 미리보기는 Noto Sans CJK로 대신 보임.
 - **PC 화면 배치 원칙**: 평소엔 화면 전체를 씀(카드는 여러 줄 격자). 모임·과제처럼 눌러서 상세가 필요하면 왼쪽 목록 | 오른쪽 상세로 반반,
   상세는 오른쪽에서 스르륵 들어옴(✕ 버튼이나 Esc로 닫으면 다시 전체). 출결 `#attendWrap.split`, 과제 `#taskView.split`. 새 화면도 이 방식으로.
 - 캐시 때문에 `beta/index.html`의 `?v=20261003h` 같은 버전 문자열을 고칠 때마다 올려요.

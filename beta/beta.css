@@ -304,11 +304,25 @@ body.town-mode .app { max-width: none; }
   body.nav-mini .b-navtoggle .nt-arrow { transform: scaleX(-1); }
 }
 
-/* ===== 글꼴: 화면 전체를 고운바탕으로 (fonts.css) ===== */
-body, body * {
-  font-family: 'Gowun Batang', 'Apple SD Gothic Neo', 'Malgun Gothic', serif !important;
+/* ===== 글꼴: 두 가지를 역할별로 =====
+   본문·버튼·숫자·작은 글씨 = 프리텐다드 (굵기 100~900, 작은 글씨도 또렷)
+   제목·카드 제목 = 고운바탕 (굵기 400·700 두 가지, fonts.css)
+   글꼴을 바꾸려면: 아래 두 줄의 이름만 바꾸면 돼요. */
+:root {
+  --font-body: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-title: 'Gowun Batang', 'Apple SD Gothic Neo', 'Malgun Gothic', serif;
 }
-/* 바탕체는 굵기가 400·700 두 가지뿐이라 800도 700으로 보여요 */
+body, body * { font-family: var(--font-body) !important; }
+
+/* 고운바탕을 쓰는 곳: 화면 제목, 상세 제목, 구역 제목, 카드 제목, 로고 */
+.page-title, .page-title *, .hero-title, .b-dhead h1, .section-head h2, .b-card-title,
+.b-info b, .b-toggle b, .ann-title, .pf-who > b, .pf-type-top b, .pf-it b,
+.brand-title, .logo, .pf-avatar, .b-month b, .poll-banner b,
+.tw-panel h2, .tw-t-name {
+  font-family: var(--font-title) !important;
+}
+/* 숫자는 프리텐다드로 (자리 맞춤) */
+.b-tile b, .b-date b, .b-month b { font-variant-numeric: tabular-nums; }
 
 /* ===== 메뉴 글씨 크게 ===== */
 .b-tabbar .tab { font-size: 12.5px; }
