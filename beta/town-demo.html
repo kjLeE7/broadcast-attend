@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 동네지도 미리보기: 로그인 없이 예시 50명(가짜 이름)으로 town.js를 돌려 봄. 실제 데이터는 쓰지 않음 -->
+<title>방예과 동네지도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* 레이아웃: 위쪽 시계·조작 막대 → 아래 동네지도(그림판 + 장소별 현황). 밤 골목 같은 어두운 바탕 하나로 고정 */
+:root{
+  --ink:#17151d; --panel:#211e29; --panel-2:#2a2634; --line:#3b3647; --fg:#f1e8d9; --muted:#a89f92; --lamp:#f2b84b; --lamp-ink:#2b2023;
+  --display:'Do Hyeon','IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  --body:'IBM Plex Sans KR',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{background:var(--ink);color:var(--fg)}
+body{font-family:var(--body);font-size:14px;line-height:1.5;padding-inline:16px;padding-block:16px 28px}
+.app{max-width:1440px;margin-inline:auto;display:grid;gap:14px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+.brand h1{font-family:var(--display);font-weight:400;font-size:30px;line-height:1.1;margin:0}
+.brand p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.tag{display:inline-block;margin-left:6px;padding:1px 7px;border:1px solid var(--line);border-radius:3px;font-size:11px;color:var(--lamp);letter-spacing:.04em}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.clock{display:flex;align-items:baseline;gap:8px;padding:4px 12px;background:var(--panel);border:1px solid var(--line);border-radius:4px}
+.clock .day{font-size:12px;color:var(--muted)}
+.clock output{font-family:var(--display);font-size:26px;line-height:1;color:var(--lamp);font-variant-numeric:tabular-nums;min-width:3.2em;text-align:right}
+.btn,.seg button{font:inherit;font-size:13px;color:var(--fg);background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:6px 12px;cursor:pointer}
+.btn:hover,.seg button:hover{border-color:#5a5368}
+.btn:focus-visible,.seg button:focus-visible,input:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+.seg{display:inline-flex}
+.seg button{border-radius:0}
+.seg button:first-child{border-radius:4px 0 0 4px}
+.seg button:last-child{border-radius:0 4px 4px 0;border-left:0}
+.seg button[aria-pressed="true"]{background:var(--lamp);color:var(--lamp-ink);border-color:var(--lamp)}
+#time{width:220px;max-width:100%;accent-color:var(--lamp)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer}
+.chk input{accent-color:var(--lamp)}
+.gate{display:none;min-height:70vh;align-items:center;justify-content:center;text-align:center;padding-inline:8px}
+.gate div{max-width:320px;display:grid;gap:10px;justify-items:center}
+.gate h2{font-family:var(--display);font-weight:400;font-size:26px;margin:0}
+.gate p{margin:0;color:var(--muted)}
+.gate .pc{width:96px;height:64px;border:3px solid var(--lamp);border-radius:4px;box-shadow:0 10px 0 -6px var(--lamp)}
+@media (max-width:860px) and (pointer:coarse){.app{display:none}.gate{display:flex}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>방예과 동네지도</h1>
+      <p>일정을 기준으로 과원 50명이 지금 어디서 무엇을 하는지 보여줘요.<span class="tag">예시 데이터</span></p>
+    </div>
+    <div class="controls">
+      <div class="clock"><span class="day">10월 3일 토</span><output id="clock">15:20</output></div>
+      <button class="btn" id="play" type="button" aria-pressed="true">일시정지</button>
+      <input type="range" id="time" min="480" max="1440" step="5" value="920" aria-label="시각 옮기기">
+      <div class="seg" role="group" aria-label="누구 권한으로 볼지">
+        <button type="button" id="v-member" aria-pressed="true">팀원으로 보기</button>
+        <button type="button" id="v-inst" aria-pressed="false">교관 이상으로 보기</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="names" checked> 이름표</label>
+    </div>
+  </header>
+  <div id="town"></div>
+</div>
+<div class="gate"><div><span class="pc" aria-hidden="true"></span><h2>PC에서 열어 주세요</h2><p>동네지도는 화면이 넓어야 잘 보여서 PC에서만 볼 수 있어요.</p></div></div>
+
+<script src="town.js?v=20261003k"></script>
+<script>
+(() => {
+// ---------- 예시 데이터 50명 ----------
+const m = s => { const [h, mi] = s.split(':').map(Number); return h * 60 + mi; };
+const SEONGWOO = ['한서연:팀장', '윤도현:교관', '강민재:교관', '오하은:교관 · 3조 조장', '김태오:교관', '박소율:교관', '이준서:교관 · 4조 조장', '최다인:교관', '배지호:조장 · 1조', '서지안:조장 · 2조',
+  '조은비:팀원 · 2조', '노가윤:팀원 · 1조', '류시우:팀원 · 2조', '차예린:팀원 · 1조', '서유나:팀원 · 2조', '문태윤:팀원 · 1조', '송민호:팀원 · 2조', '정하람:팀원 · 2조', '김하린:팀원 · 1조', '이도윤:팀원 · 3조',
+  '박서준:팀원 · 3조', '최유진:팀원 · 1조', '정민서:팀원 · 2조', '강지우:팀원 · 3조', '윤서아:팀원 · 1조', '장예준:팀원 · 3조', '임수아:팀원 · 2조', '한지민:팀원 · 3조', '오세훈:팀원 · 1조', '신나래:팀원 · 3조',
+  '권하율:팀원 · 2조', '황시온:팀원 · 3조', '안채윤:팀원 · 1조', '송이현:팀원 · 3조'];
+const ANNC = ['임채원:팀장', '고은서:팀원', '남도하:팀원', '백지유:팀원', '유하준:팀원', '심소미:팀원', '전예나:팀원', '홍서진:팀원', '문가은:팀원'];
+const ENG = ['권준혁:팀장', '홍다빈:팀원', '양지훈:팀원', '구민성:팀원', '나윤호:팀원', '도현우:팀원', '배수빈:팀원'];
+const people = [];
+const add = (arr, team) => arr.forEach(s => { const [name, role] = s.split(':'); people.push({ id:'p' + people.length, name, team, role }); });
+add(SEONGWOO, '성우팀'); add(ANNC, '아나운서팀'); add(ENG, '엔지니어팀');
+const id = n => people.find(p => p.name === n).id;
+const segs = [];
+// 우선순위: 녹음 > 업무 > 모임 > 사명자 일정 > 직장
+const seg = (names, from, to, place, type, title, detail, leadName, ext) => names.forEach(n => segs.push({ pid:id(n), from:m(from), to:m(to), place, type, title:title || '', detail:detail || '', lead:n === leadName, ext:ext || '' }));
+seg(['윤도현'], '15:00', '17:30', 'codeone', '녹음', '', '웹드라마 2화 · 해설');
+seg(['오하은'], '15:00', '17:30', 'codeone', '녹음', '', '웹드라마 2화 · 민지 역');
+seg(['권준혁'], '15:00', '17:30', 'codeone', '녹음', '', '웹드라마 2화 · 녹음 진행');
+seg(['조은비'], '19:00', '21:00', 'smc', '녹음', '', '교회 방송 · 오프닝 낭독');
+seg(['정하람'], '19:00', '21:00', 'smc', '녹음', '', '교회 방송 · 엔딩 낭독');
+seg(['홍다빈'], '19:00', '21:00', 'smc', '녹음', '', '교회 방송 · 녹음 진행');
+seg(['임채원'], '18:00', '20:00', 'seongjeon', '사회', '', '토요 집회 사회', '임채원');
+seg(['고은서'], '18:00', '20:00', 'seongjeon', '사회', '', '토요 집회 보조 사회');
+seg(['구민성'], '13:00', '18:00', 'sdam-office', '편집', '웹드라마 1화 음향편집');
+seg(['한서연'], '13:00', '17:00', 'sdam-office', '행정', '출결·공지 정리');
+seg(['강민재', '배지호', '서지안', '조은비', '노가윤', '류시우', '정하람', '김하린', '최유진', '정민서', '윤서아', '임수아', '오세훈', '권하율', '안채윤'], '14:00', '17:00', 'sdam-mirror', '수업', '정규수업 1·2조', '', '강민재');
+seg(['조은비', '노가윤', '정하람'], '13:30', '14:00', 'sdam-living', '연습', '수업 전 몸풀기');
+seg(['남도하', '백지유', '유하준', '심소미'], '14:30', '16:30', 'sdam-living', '연습', '아나운싱 리딩');
+seg(['강민재', '배지호', '서지안', '오하은'], '17:30', '18:30', 'sdam-meeting', '회의', '조장 회의', '', '강민재');
+seg(['노가윤', '최유진', '김하린', '윤서아'], '17:30', '19:30', 'sdam-lab', '스터디', '낭독 대본 연구');
+seg(['류시우', '권하율', '안채윤'], '17:00', '18:30', 'sdam-mirror', '연습', '개인 연습');
+seg(['한서연', '윤도현', '강민재', '오하은', '김태오', '박소율', '이준서', '최다인', '배지호', '서지안'], '19:30', '21:30', 'chonghoe', '회의', '운영회의', '', '한서연');
+seg(['이도윤', '박서준', '강지우', '장예준', '한지민', '신나래'], '20:00', '22:00', 'jamun', '스터디', '발성 스터디', '', '이도윤');
+seg(['서유나', '문태윤', '송민호', '황시온', '양지훈'], '18:30', '20:30', 'outside', '촬영', '웹드라마 장소 답사', '', '', '학의천 산책로');
+const workers = ['서유나', '문태윤', '송민호', '차예린', '이도윤', '박서준', '강지우', '장예준', '한지민', '신나래', '황시온', '송이현', '김태오', '박소율', '최다인', '이준서',
+  '전예나', '홍서진', '문가은', '나윤호', '도현우', '배수빈', '양지훈', '홍다빈', '정민서', '임수아'];
+workers.forEach((n, i) => { const from = i % 3 === 0 ? '10:00' : '09:00', to = i % 4 === 0 ? '17:00' : '18:00'; segs.push({ pid:id(n), from:m(from), to:m(to), place:'work', type:'근무', title:'', detail:'', lead:false, ext:'' }); });
+
+// ---------- 시계·조작 ----------
+let demoMin = 920, playing = !matchMedia('(prefers-reduced-motion: reduce)').matches, viewer = 'member';
+const SPEED = 4;
+const clockEl = document.getElementById('clock'), timeEl = document.getElementById('time'), playEl = document.getElementById('play');
+const fmt = v => String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(Math.floor(v % 60)).padStart(2, '0');
+const setPlay = v => { playing = v; playEl.setAttribute('aria-pressed', String(v)); playEl.textContent = v ? '일시정지' : '재생'; };
+setPlay(playing);
+playEl.addEventListener('click', () => setPlay(!playing));
+timeEl.addEventListener('input', () => { demoMin = Number(timeEl.value); });
+const vm = document.getElementById('v-member'), vi = document.getElementById('v-inst');
+const setViewer = v => { viewer = v; vm.setAttribute('aria-pressed', String(v === 'member')); vi.setAttribute('aria-pressed', String(v === 'inst')); Town.rerender(); };
+vm.addEventListener('click', () => setViewer('member')); vi.addEventListener('click', () => setViewer('inst'));
+document.getElementById('names').addEventListener('change', e => Town.setNames(e.target.checked));
+let last = performance.now();
+(function tick(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  if (playing) { demoMin += dt * SPEED; if (demoMin >= 1440) demoMin = 480; timeEl.value = String(Math.floor(demoMin / 5) * 5); }
+  clockEl.textContent = fmt(demoMin);
+  requestAnimationFrame(tick);
+})(last);
+Town.mount(document.getElementById('town'), { data:{ people, segs }, clock:() => demoMin, maskDetail:() => viewer !== 'inst' });
+})();
+</script>
+</body>
+</html>
