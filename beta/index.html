@@ -10,8 +10,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
-  <link rel="stylesheet" href="../style.css?v=20261003c">
-  <link rel="stylesheet" href="beta.css?v=20261003c">
+  <link rel="stylesheet" href="../style.css?v=20261003d">
+  <link rel="stylesheet" href="beta.css?v=20261003d">
 </head>
 <body>
   <div class="app">
@@ -94,9 +94,78 @@
       </div>
     </section>
 
-    <p class="b-foot" id="foot">베타 · 출결만 먼저 옮겨왔어요</p>
+    <!-- ===== 주간 녹음가능 ===== -->
+    <section id="weeklyView" style="display:none;">
+      <h1 class="page-title">Recording</h1>
+      <p class="page-desc">녹음 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
+
+      <div class="subtabs">
+        <button class="subtab wk-which" data-wk="next" onclick="openWeekly('next')">다음 주</button>
+        <button class="subtab wk-which" data-wk="this" onclick="openWeekly('this')">이번 주</button>
+      </div>
+      <div class="pd-title" id="wkTitle"></div>
+      <div class="pd-meta" id="wkMeta"></div>
+
+      <!-- 조장 이상만: 내 가능시간 / 모아보기 -->
+      <div class="subtabs" id="wkViewTabs" style="display:none;">
+        <button class="subtab wk-view" data-v="mine" onclick="switchWk('mine')">내 가능시간</button>
+        <button class="subtab wk-view" data-v="result" onclick="switchWk('result')">모아보기</button>
+      </div>
+
+      <div id="wkMine">
+        <div class="pd-quick" id="wkQuick"></div>
+        <p class="pd-hint">탭: 한 칸 · 꾹 누른 채 쓸기: 여러 칸 · 그냥 쓸면 스크롤</p>
+        <div class="grid-wrap" id="wkGrid"></div>
+        <div class="busy-legend" id="wkBusyLegend" style="display:none;"><span class="sw"></span>고정 일정이 있는 시간 (그래도 고를 수 있어요)</div>
+        <label class="field-label" for="wkMemo">특이사항 <span class="hint">선택 · 칸으로 애매할 때</span></label>
+        <textarea id="wkMemo" rows="2" maxlength="200" placeholder="예) 19:40까지 가능해요 / 22:10부터 가능해요" oninput="markWkDirty()"></textarea>
+        <div class="pd-actions">
+          <button class="ghost-btn" type="button" onclick="clearWk()">전부 지우기</button>
+          <button class="btn-primary" id="wkSaveBtn" onclick="saveWk()">저장</button>
+        </div>
+        <div class="msg" id="wkMsg"></div>
+      </div>
+
+      <div id="wkResult" style="display:none;">
+        <div class="wk-chips" id="wkTeamChips"></div>
+        <div id="wkBest"></div>
+        <div class="grid-wrap" id="wkResGrid"></div>
+        <div class="pd-cell-info" id="wkCellInfo">칸을 누르면 누가 되는지 보여요</div>
+        <div id="wkMemos"></div>
+        <div id="wkWho"></div>
+      </div>
+
+      <!-- 고정 일정 -->
+      <div class="card b-create b-gap" id="fxCard">
+        <button class="b-toggle" type="button" onclick="toggleFx()">
+          <span><b>⚙ 고정 일정</b><small>직장·학교처럼 매주 같은 일정</small></span>
+          <span class="b-chev" id="fxChev">›</span>
+        </button>
+        <div id="fxBody" class="b-fx" style="display:none;">
+          <p class="fx-desc">적어두면 칠하는 화면에 <b>음영</b>으로 미리 표시돼요. 휴가 등으로 되는 날엔 그 칸도 그대로 고를 수 있어요.</p>
+          <div id="fxList"></div>
+          <button class="ghost-btn" type="button" onclick="addFx()">+ 일정 추가</button>
+          <button class="btn-primary" id="fxSaveBtn" onclick="saveFx()">저장</button>
+          <div class="msg" id="fxMsg"></div>
+        </div>
+      </div>
+    </section>
+
+    <p class="b-foot" id="foot">베타 · 출결과 녹음가능을 먼저 옮겨왔어요</p>
   </div>
 
-  <script src="beta.js?v=20261003c"></script>
+  <!-- 하단 탭 -->
+  <nav class="tabbar b-tabbar b-off" id="tabbar">
+    <button class="tab active" data-tab="attend" onclick="goTab('attend')">
+      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
+      <span>출결</span>
+    </button>
+    <button class="tab" data-tab="weekly" onclick="goTab('weekly')">
+      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
+      <span>녹음가능</span>
+    </button>
+  </nav>
+
+  <script src="beta.js?v=20261003d"></script>
 </body>
 </html>

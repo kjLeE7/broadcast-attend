@@ -88,3 +88,13 @@
 }
 .b-prow.saving { opacity: .55; }
 .b-group-sep { padding: 12px 18px 4px; font-size: 11.5px; font-weight: 800; color: var(--muted); }
+
+/* 하단 탭 (2개) — 넓은 화면에서도 보이게 */
+.b-tabbar { grid-template-columns: repeat(2, 1fr); max-width: 280px; }
+@media (min-width: 1000px) { .b-tabbar { display: grid !important; } }
+
+/* 고정 일정 */
+.b-fx { padding: 0 20px 20px; }
+.b-fx .fx-top .b-input { min-height: 40px; padding: 9px 12px; }
+.b-fx .range-row select { padding: 10px 30px 10px 12px; }
+.b-off { display: none !important; }
