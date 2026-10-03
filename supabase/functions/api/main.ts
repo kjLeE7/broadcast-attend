@@ -311,13 +311,155 @@ async function editableNotice(ctx: Ctx, id: string) {
 }
 
 // ---------------------------------------------------------------------
+// 모임·출결 도우미
+// 흐름: 모임 생성(조장 이상, 대상자에게 봇 알림) → 사전 출결체크(본인, 시작 전까지)
+//      → 현장 출결확인(조장 이상이 이름을 눌러 확인, 시작 후면 지각)
+//      → 마감(끝나는 시간이 지나면 자동, 또는 마감 버튼) → 확인 안 된 대상자는 불참
+//      → 지각·불참은 본인이 사유 입력 → 월간 리포트
+// ---------------------------------------------------------------------
+const MINIAPP_URL = Deno.env.get("MINIAPP_URL") ?? "https://kjlee7.github.io/broadcast-attend/beta/";
+const HOUR = 3600000;
+const SESSION_COLS = "*, meeting_types(name)";
+
+// 한국 시간 'YYYY-MM-DD' + 'HH:MM(:SS)' → 밀리초
+function kstMs(d: string, t = "00:00:00") {
+  const tt = String(t).length === 5 ? t + ":00" : String(t);
+  return Date.parse(`${d}T${tt}+09:00`);
+}
+function kstToday() { return new Date(Date.now() + 9 * HOUR).toISOString().slice(0, 10); }
+// 모임 시작·끝 (끝 시간이 없으면 시작 + 3시간, 시작도 없으면 그날 밤 12시)
+function sessionStart(s: any): number | null { return s.start_time ? kstMs(s.session_date, s.start_time) : null; }
+function sessionEnd(s: any): number {
+  if (s.end_time) return kstMs(s.session_date, s.end_time);
+  const st = sessionStart(s);
+  return st !== null ? st + 3 * HOUR : kstMs(s.session_date, "23:59:59");
+}
+// 사전 체크를 받을 수 있는 마지막 시각 (시작 시간, 없으면 그날 끝)
+function planDeadline(s: any) { return sessionStart(s) ?? sessionEnd(s); }
+async function lateGraceMs(ctx: Ctx) {
+  const r = must(await ctx.db.from("app_settings").select("value").eq("key", "late_grace_minutes").maybeSingle());
+  return Math.max(0, Number(r?.value ?? 0)) * 60000;
+}
+function sessionName(s: any) { return s.title || s.meeting_types?.name || "모임"; }
+function sessionWhen(s: any) {
+  const d = new Date(s.session_date + "T00:00:00Z");
+  const wd = ["일", "월", "화", "수", "목", "금", "토"][d.getUTCDay()];
+  const t = s.start_time ? " " + String(s.start_time).slice(0, 5) + (s.end_time ? "~" + String(s.end_time).slice(0, 5) : "") : "";
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${wd})${t}`;
+}
+async function getSession(ctx: Ctx, id: string) {
+  const s = must(await ctx.db.from("meeting_sessions").select(SESSION_COLS).eq("id", id).maybeSingle());
+  if (!s) throw new HttpError(404, "모임을 찾을 수 없습니다");
+  return s;
+}
+
+// 그 모임의 대상자: 모임 날짜에 그 팀 직책이 있던 활성 인원 (대상이 조면 그 조만)
+async function sessionMembers(ctx: Ctx, s: any, withTelegram = false) {
+  const day = s.session_date;
+  const pos: any[] = must(await ctx.db.from("position_history")
+    .select(`person_id, people(name, is_active${withTelegram ? ", telegram_user_id" : ""}), positions(name, rank)`)
+    .eq("org_unit_id", s.team_id).lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`)) ?? [];
+  const byPerson = new Map<string, any>();
+  for (const r of pos) {
+    if (!r.people?.is_active) continue;
+    const cur = byPerson.get(r.person_id);
+    if (!cur || (r.positions?.rank ?? 0) > cur.rank) {
+      byPerson.set(r.person_id, {
+        id: r.person_id, name: r.people.name, position: r.positions?.name ?? "", rank: r.positions?.rank ?? 0,
+        group: null, group_id: null, telegram_user_id: r.people.telegram_user_id ?? null,
+      });
+    }
+  }
+  const ids = [...byPerson.keys()];
+  if (ids.length) {
+    const gs: any[] = must(await ctx.db.from("group_assignments")
+      .select("person_id, group_unit_id, org_units(name, parent_id)").in("person_id", ids)
+      .lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`)) ?? [];
+    for (const g of gs) {
+      if (g.org_units?.parent_id !== s.team_id) continue;
+      const p = byPerson.get(g.person_id);
+      p.group = g.org_units.name; p.group_id = g.group_unit_id;
+    }
+  }
+  let list = [...byPerson.values()];
+  if (s.target_unit_id) list = list.filter((m) => m.group_id === s.target_unit_id);
+  return list.sort((a, b) => (a.group ?? "힣").localeCompare(b.group ?? "힣") || b.rank - a.rank || a.name.localeCompare(b.name));
+}
+
+// 마감: 확인 안 된 대상자는 불참 (사전 체크 때 적은 사유가 있으면 그대로 옮김)
+async function closeSession(ctx: Ctx, s: any) {
+  if (s.closed_at || s.status === "취소") return s;
+  const members = await sessionMembers(ctx, s);
+  const rows: any[] = must(await ctx.db.from("attendance").select("*").eq("session_id", s.id)) ?? [];
+  const byPerson = new Map(rows.map((r) => [r.person_id, r]));
+  const ups: any[] = [];
+  for (const m of members) {
+    const r = byPerson.get(m.id);
+    if (r?.status) continue;   // 이미 참석·지각·조퇴 등이 정해짐
+    ups.push({
+      session_id: s.id, person_id: m.id, status: "불참",
+      reason: r?.reason ?? r?.planned_reason ?? null,
+      reason_at: r?.reason_at ?? (r?.planned_reason ? r.planned_at : null),
+    });
+  }
+  if (ups.length) must(await ctx.db.from("attendance").upsert(ups, { onConflict: "session_id,person_id" }));
+  return must(await ctx.db.from("meeting_sessions")
+    .update({ closed_at: new Date().toISOString(), status: "완료" })
+    .eq("id", s.id).select(SESSION_COLS).single());
+}
+// 끝나는 시간이 지난 모임은 자동 마감 (누군가 목록을 열 때 처리)
+async function autoClose(ctx: Ctx, sessions: any[]) {
+  const now = Date.now();
+  const out = [];
+  for (const s of sessions) {
+    out.push(!s.closed_at && s.status === "예정" && now > sessionEnd(s) ? await closeSession(ctx, s) : s);
+  }
+  return out;
+}
+
+// 봇으로 대상자에게 알림 (봇을 시작하지 않은 사람에겐 못 보냄 → 이름을 돌려줌)
+function escHtml(s: string) { return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!)); }
+async function notifyMembers(ctx: Ctx, s: any, kind: "new" | "cancel" | "change") {
+  const members = (await sessionMembers(ctx, s, true)).filter((m) => m.id !== ctx.me.id);
+  const head = { new: "📅 새 모임이 잡혔어요", cancel: "❌ 모임이 취소됐어요", change: "✏️ 모임 정보가 바뀌었어요" }[kind];
+  const text = `<b>${head}</b>\n\n<b>${escHtml(sessionName(s))}</b>\n${escHtml(sessionWhen(s))}${s.location ? " · " + escHtml(s.location) : ""}` +
+    (kind === "cancel" ? "" : "\n\n미니앱에서 참석·지각·불참을 미리 체크해주세요.");
+  const markup = kind === "cancel" ? undefined : {
+    inline_keyboard: [[{ text: "출결 체크하기", web_app: { url: `${MINIAPP_URL}?s=${s.id}` } }]],
+  };
+  const failed: string[] = [];
+  let sent = 0;
+  for (let i = 0; i < members.length; i += 20) {   // 텔레그램 초당 제한 때문에 20명씩
+    await Promise.all(members.slice(i, i + 20).map(async (m) => {
+      if (!m.telegram_user_id) { failed.push(m.name); return; }
+      try {
+        const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: m.telegram_user_id, text, parse_mode: "HTML", reply_markup: markup }),
+        }).then((x) => x.json());
+        if (r?.ok) sent++; else failed.push(m.name);
+      } catch { failed.push(m.name); }
+    }));
+  }
+  const result = { kind, sent, failed, at: new Date().toISOString() };
+  await ctx.db.from("meeting_sessions").update({ notified_at: result.at, notify_result: result }).eq("id", s.id);
+  return result;
+}
+
+// 출결 행에서 다른 사람에게 보여도 되는 칸 / 사유까지 (본인·조장 이상)
+function attView(r: any, withReason: boolean) {
+  if (!r) return null;
+  const base: any = {
+    planned_status: r.planned_status, planned_at: r.planned_at,
+    status: r.status, arrived_at: r.arrived_at, checked_by: r.checked_by,
+  };
+  if (withReason) Object.assign(base, { planned_reason: r.planned_reason, reason: r.reason, reason_at: r.reason_at });
+  return base;
+}
+
+// ---------------------------------------------------------------------
 // 기능(action) 목록
 // ---------------------------------------------------------------------
-const ATTENDANCE_FIELDS = [
-  "status", "reason", "departed_at", "arrived_at",
-  "makeup_required", "makeup_type", "makeup_done", "makeup_note",
-];
-
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 내 정보 + 내가 접근할 수 있는 팀 목록(팀 선택 탭용)
@@ -385,94 +527,309 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       (a.group ?? "힣").localeCompare(b.group ?? "힣") || b.rank - a.rank || a.name.localeCompare(b.name));
   },
 
-  // 모임 회차 만들기: { team_id, meeting_type_id, title?, session_date, start_time?, end_time?, location?, place_mode? } → 교관 이상
+  // ----- 모임·출결 -----
+  // 모임 만들기: { team_id, meeting_type_id?, title?, session_date, start_time?, end_time?, location?, place_mode?, target_unit_id?, notify? }
+  // → 조장 이상. 만들면 대상자에게 봇 알림 (notify: false면 생략)
   async "sessions.create"(ctx) {
     const p = ctx.payload;
-    await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
-    if (!p.session_date) throw new HttpError(400, "날짜를 입력해주세요");
+    await requireRank(ctx, p.team_id, RANK.GROUP_LEADER);
+    if (typeof p.session_date !== "string" || !/^\d{4}-\d\d-\d\d$/.test(p.session_date)) throw new HttpError(400, "날짜를 입력해주세요");
+    if (!p.meeting_type_id && !String(p.title ?? "").trim()) throw new HttpError(400, "모임 유형을 고르거나 제목을 적어주세요");
+    if (p.start_time && p.end_time && String(p.end_time) <= String(p.start_time)) throw new HttpError(400, "끝나는 시간이 시작보다 늦어야 해요");
     if (p.meeting_type_id) {
       const t = must(await ctx.db.from("meeting_types").select("team_id").eq("id", p.meeting_type_id).maybeSingle());
       if (!t || t.team_id !== p.team_id) throw new HttpError(400, "이 팀의 모임 유형이 아닙니다");
     }
-    return must(await ctx.db.from("meeting_sessions").insert({
-      ...pick(p, ["meeting_type_id", "title", "session_date", "start_time", "end_time", "location", "place_mode", "target_unit_id"]),
+    if (p.target_unit_id) {
+      const g = must(await ctx.db.from("org_units").select("parent_id, unit_type").eq("id", p.target_unit_id).maybeSingle());
+      if (!g || g.parent_id !== p.team_id || g.unit_type !== "조") throw new HttpError(400, "이 팀의 조가 아닙니다");
+    }
+    const s = must(await ctx.db.from("meeting_sessions").insert({
+      ...pick(p, ["meeting_type_id", "session_date", "start_time", "end_time", "place_mode"]),
+      title: String(p.title ?? "").trim().slice(0, 60) || null,
+      location: String(p.location ?? "").trim().slice(0, 40) || null,
+      target_unit_id: p.target_unit_id || null,
       team_id: p.team_id,
       created_by: ctx.me.id,
-    }).select("*, meeting_types(name)").single());
+    }).select(SESSION_COLS).single());
+    const notify = p.notify === false ? null : await notifyMembers(ctx, s, "new");
+    return { ...s, notify };
   },
 
-  // 모임 회차 수정·취소: { id, ...고칠 칸 } → 교관 이상
+  // 모임 고치기·취소: { id, ...고칠 칸, notify? } → 조장 이상
+  // 취소하면 대상자에게 알림. 날짜·시간·장소를 바꿨을 땐 notify: true일 때만 알림
   async "sessions.update"(ctx) {
-    const { id } = ctx.payload;
-    await requireRank(ctx, await sessionTeam(ctx, id), RANK.INSTRUCTOR);
-    return must(await ctx.db.from("meeting_sessions")
-      .update(pick(ctx.payload, ["title", "session_date", "start_time", "end_time", "location", "place_mode", "status"]))
-      .eq("id", id).select("*, meeting_types(name)").single());
+    const before = await getSession(ctx, ctx.payload.id);
+    await requireRank(ctx, before.team_id, RANK.GROUP_LEADER);
+    const patch = pick(ctx.payload, ["title", "session_date", "start_time", "end_time", "location", "place_mode", "status"]);
+    if ("status" in patch && !["예정", "취소"].includes(patch.status)) throw new HttpError(400, "상태가 올바르지 않습니다");
+    if (before.closed_at && Object.keys(patch).some((k) => ["session_date", "start_time", "status"].includes(k))) {
+      throw new HttpError(400, "이미 출결이 마감된 모임이라 날짜·시간·상태는 바꿀 수 없어요");
+    }
+    const s = must(await ctx.db.from("meeting_sessions").update(patch).eq("id", before.id).select(SESSION_COLS).single());
+    let notify = null;
+    if (ctx.payload.notify !== false && patch.status === "취소" && before.status !== "취소") {
+      notify = await notifyMembers(ctx, s, "cancel");
+    } else if (ctx.payload.notify === true) {
+      const t5 = (v: any) => String(v ?? "").slice(0, 5);
+      const moved = ["session_date", "start_time", "end_time", "location"].some((k) => k in patch && t5(patch[k]) !== t5(before[k]));
+      if (moved) notify = await notifyMembers(ctx, s, "change");
+    }
+    return { ...s, notify };
   },
 
-  // 모임 회차 목록: { team_id, from?, to? }
+  // 잘못 만든 모임 지우기: { id } → 조장 이상, 마감 전만
+  async "sessions.delete"(ctx) {
+    const s = await getSession(ctx, ctx.payload.id);
+    await requireRank(ctx, s.team_id, RANK.GROUP_LEADER);
+    if (s.closed_at) throw new HttpError(400, "마감된 모임은 지울 수 없어요. 기록이 리포트에 들어가 있어요");
+    must(await ctx.db.from("meeting_sessions").delete().eq("id", s.id));
+    return { ok: true };
+  },
+
+  // 모임 목록 + 모임마다 사전 체크·최종 출결 수와 내 출결: { team_id, from?, to? }
+  // 끝난 모임은 이때 자동 마감됨
   async "sessions.list"(ctx) {
     const { team_id, from, to } = ctx.payload;
-    await requireRank(ctx, team_id, RANK.MEMBER);
-    let q = ctx.db.from("meeting_sessions")
-      .select("*, meeting_types(name)")
-      .eq("team_id", team_id)
-      .order("session_date", { ascending: true });
+    const rank = await rankIn(ctx, team_id);
+    if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
+    let q = ctx.db.from("meeting_sessions").select(SESSION_COLS).eq("team_id", team_id)
+      .order("session_date", { ascending: true }).order("start_time", { ascending: true });
     if (from) q = q.gte("session_date", from);
     if (to) q = q.lte("session_date", to);
-    return must(await q);
+    const groups = await myGroupIds(ctx);
+    let list: any[] = (must(await q) ?? []).filter((s: any) => visibleToMe(s, rank, groups));
+    list = await autoClose(ctx, list);
+    const ids = list.map((s) => s.id);
+    const rows: any[] = ids.length ? must(await ctx.db.from("attendance")
+      .select("session_id, person_id, planned_status, planned_reason, planned_at, status, reason, reason_at, arrived_at, checked_by")
+      .in("session_id", ids)) ?? [] : [];
+    // 마감 전 모임의 대상 인원은 지금 팀원 기준으로 셈
+    const now = await sessionMembers(ctx, { team_id, session_date: kstToday(), target_unit_id: null });
+    return list.map((s) => {
+      const rs = rows.filter((r) => r.session_id === s.id);
+      const targets = s.closed_at ? null : now.filter((m) => !s.target_unit_id || m.group_id === s.target_unit_id);
+      const count = (k: string, v: string) => rs.filter((r) => r[k] === v).length;
+      const mine = rs.find((r) => r.person_id === ctx.me.id);
+      return {
+        ...s,
+        start_ms: sessionStart(s), end_ms: sessionEnd(s),
+        target_count: targets ? targets.length : rs.length,
+        is_target: targets ? targets.some((m) => m.id === ctx.me.id) : !!mine,
+        planned: { 참석: count("planned_status", "참석"), 지각: count("planned_status", "지각"), 불참: count("planned_status", "불참") },
+        final: { 참석: count("status", "참석"), 지각: count("status", "지각"), 불참: count("status", "불참"), 조퇴: count("status", "조퇴") },
+        mine: attView(mine, true),
+      };
+    });
   },
 
-  // 출결 목록: { session_id } → 조장 이상은 전체, 팀원은 본인 것만
-  async "attendance.list"(ctx) {
-    const { session_id } = ctx.payload;
-    const teamId = await sessionTeam(ctx, session_id);
-    const rank = await rankIn(ctx, teamId);
+  // 모임 하나의 출결 현황 (팀원 모두 볼 수 있음. 사유는 본인·조장 이상만): { session_id }
+  async "sessions.board"(ctx) {
+    let s = await getSession(ctx, ctx.payload.session_id);
+    const rank = await rankIn(ctx, s.team_id);
     if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
-
-    let q = ctx.db.from("attendance")
-      .select("*, people(name)")
-      .eq("session_id", session_id);
-    if (rank < RANK.GROUP_LEADER) q = q.eq("person_id", ctx.me.id);
-    return must(await q);
+    if (!visibleToMe(s, rank, await myGroupIds(ctx))) throw new HttpError(403, "이 모임 대상이 아니에요");
+    [s] = await autoClose(ctx, [s]);
+    const lead = rank >= RANK.GROUP_LEADER;
+    const [members, rowsRes, grace] = await Promise.all([
+      sessionMembers(ctx, s),
+      ctx.db.from("attendance").select("*").eq("session_id", s.id),
+      lateGraceMs(ctx),
+    ]);
+    const rows: any[] = must(rowsRes as any) ?? [];
+    const byPerson = new Map(rows.map((r) => [r.person_id, r]));
+    // 마감 뒤엔 출결 기록이 있는 사람도 대상자로 보여줌 (그새 팀에서 빠진 사람)
+    const known = new Set(members.map((m) => m.id));
+    const extraIds = rows.map((r) => r.person_id).filter((id) => !known.has(id));
+    const names = await nameMap(ctx, [...extraIds, ...rows.map((r) => r.checked_by)]);
+    const list = [
+      ...members,
+      ...extraIds.map((id) => ({ id, name: names.get(id) ?? "", position: "", group: null })),
+    ].map((m: any) => {
+      const r = byPerson.get(m.id);
+      const v = attView(r, lead || m.id === ctx.me.id);
+      if (v && r?.checked_by) v.checked_by_name = names.get(r.checked_by) ?? "";
+      return { id: m.id, name: m.name, position: m.position, group: m.group, me: m.id === ctx.me.id, att: v };
+    });
+    return {
+      session: { ...s, start_ms: sessionStart(s), end_ms: sessionEnd(s), plan_deadline: planDeadline(s) },
+      members: list,
+      is_target: list.some((m) => m.me),
+      can_check: lead,
+      grace_min: Math.round(grace / 60000),
+      server_now: Date.now(),
+    };
   },
 
-  // 내 출결 입력·수정: { session_id, status, reason, departed_at, arrived_at, ... }
-  async "attendance.saveMine"(ctx) {
-    const { session_id } = ctx.payload;
-    const teamId = await sessionTeam(ctx, session_id);
-    await requireRank(ctx, teamId, RANK.MEMBER);
-
-    const row = { ...pick(ctx.payload, ATTENDANCE_FIELDS), session_id, person_id: ctx.me.id };
-    return must(await ctx.db.from("attendance")
-      .upsert(row, { onConflict: "session_id,person_id" })
-      .select().single());
+  // 사전 출결체크 (본인, 모임 시작 전까지): { session_id, planned_status: 참석|지각|불참, planned_reason? }
+  async "attendance.plan"(ctx) {
+    const s = await getSession(ctx, ctx.payload.session_id);
+    await requireRank(ctx, s.team_id, RANK.MEMBER);
+    if (s.status === "취소") throw new HttpError(400, "취소된 모임이에요");
+    if (s.closed_at || Date.now() > planDeadline(s)) throw new HttpError(400, "모임이 시작돼서 사전 체크는 끝났어요");
+    if (!(await sessionMembers(ctx, s)).some((m) => m.id === ctx.me.id)) throw new HttpError(403, "이 모임 대상이 아니에요");
+    const st = ctx.payload.planned_status;
+    if (!["참석", "지각", "불참"].includes(st)) throw new HttpError(400, "참석·지각·불참 중에 골라주세요");
+    const reason = String(ctx.payload.planned_reason ?? "").trim().slice(0, 300) || null;
+    if (st !== "참석" && !reason) throw new HttpError(400, `${st} 사유를 적어주세요`);
+    const row = must(await ctx.db.from("attendance").upsert({
+      session_id: s.id, person_id: ctx.me.id,
+      planned_status: st, planned_reason: st === "참석" ? null : reason, planned_at: new Date().toISOString(),
+    }, { onConflict: "session_id,person_id" }).select().single());
+    return attView(row, true);
   },
 
-  // 다른 사람 출결 입력(미제출자 처리 등): { session_id, person_id, status, ... } → 조장 이상
-  async "attendance.saveFor"(ctx) {
-    const { session_id, person_id } = ctx.payload;
-    if (!person_id) throw new HttpError(400, "대상자가 없습니다");
-    await requireRank(ctx, await sessionTeam(ctx, session_id), RANK.GROUP_LEADER);
-    const row = { ...pick(ctx.payload, ATTENDANCE_FIELDS), session_id, person_id };
-    return must(await ctx.db.from("attendance")
-      .upsert(row, { onConflict: "session_id,person_id" })
-      .select("*, people(name)").single());
-  },
-
-  // 출결 수정(다른 사람 것 포함): { id, ...고칠 칸 } → 본인 것이거나 조장 이상
-  async "attendance.update"(ctx) {
-    const { id } = ctx.payload;
-    const row = must(await ctx.db.from("attendance")
-      .select("person_id, session_id").eq("id", id).maybeSingle());
-    if (!row) throw new HttpError(404, "출결 기록을 찾을 수 없습니다");
-
-    if (row.person_id !== ctx.me.id) {
-      await requireRank(ctx, await sessionTeam(ctx, row.session_id), RANK.GROUP_LEADER);
+  // 현장 출결확인 (조장 이상): { session_id, person_id, at?: "HH:MM"(깜빡하고 늦게 누를 때 실제 도착 시각) }
+  // 시작 시간(+여유 시간) 전이면 참석, 지나면 지각
+  async "attendance.check"(ctx) {
+    const { session_id, person_id, at } = ctx.payload;
+    const s = await getSession(ctx, session_id);
+    await requireRank(ctx, s.team_id, RANK.GROUP_LEADER);
+    if (s.status === "취소") throw new HttpError(400, "취소된 모임이에요");
+    if (s.session_date > kstToday()) throw new HttpError(400, "모임 당일부터 확인할 수 있어요");
+    const existing = must(await ctx.db.from("attendance").select("*").eq("session_id", s.id).eq("person_id", person_id).maybeSingle());
+    if (!existing && !(await sessionMembers(ctx, s)).some((m) => m.id === person_id)) throw new HttpError(400, "이 모임 대상이 아니에요");
+    let when = Date.now();
+    if (at) {
+      if (!/^\d\d:\d\d$/.test(at)) throw new HttpError(400, "시각을 HH:MM으로 넣어주세요");
+      when = kstMs(s.session_date, at);
+      if (when > Date.now() + 60000) throw new HttpError(400, "지금보다 뒤의 시각은 넣을 수 없어요");
     }
-    return must(await ctx.db.from("attendance")
-      .update(pick(ctx.payload, ATTENDANCE_FIELDS))
-      .eq("id", id).select().single());
+    const start = sessionStart(s);
+    const late = start !== null && when > start + (await lateGraceMs(ctx));
+    const patch: any = {
+      session_id: s.id, person_id, arrived_at: new Date(when).toISOString(), checked_by: ctx.me.id,
+      status: late ? "지각" : "참석",
+    };
+    if (!late) { patch.reason = null; patch.reason_at = null; }
+    else if (!existing?.reason && existing?.planned_reason) { patch.reason = existing.planned_reason; patch.reason_at = existing.planned_at; }
+    const row = must(await ctx.db.from("attendance").upsert(patch, { onConflict: "session_id,person_id" }).select().single());
+    return { ...attView(row, true), checked_by_name: ctx.me.name, late_min: late && start !== null ? Math.ceil((when - start) / 60000) : 0 };
+  },
+
+  // 출결확인 취소 (잘못 눌렀을 때): { session_id, person_id } → 조장 이상
+  async "attendance.uncheck"(ctx) {
+    const s = await getSession(ctx, ctx.payload.session_id);
+    await requireRank(ctx, s.team_id, RANK.GROUP_LEADER);
+    const r = must(await ctx.db.from("attendance").select("*").eq("session_id", s.id).eq("person_id", ctx.payload.person_id).maybeSingle());
+    if (!r) throw new HttpError(404, "출결 기록이 없어요");
+    const closed = !!s.closed_at;
+    const row = must(await ctx.db.from("attendance").update({
+      arrived_at: null, checked_by: null,
+      status: closed ? "불참" : null,
+      reason: closed ? (r.planned_reason ?? null) : null,
+      reason_at: closed && r.planned_reason ? r.planned_at : null,
+    }).eq("id", r.id).select().single());
+    return attView(row, true);
+  },
+
+  // 최종 출결 직접 바꾸기 (조퇴·사정 인정 등): { session_id, person_id, status } → 조장 이상
+  async "attendance.setStatus"(ctx) {
+    const { session_id, person_id, status } = ctx.payload;
+    const s = await getSession(ctx, session_id);
+    await requireRank(ctx, s.team_id, RANK.GROUP_LEADER);
+    if (!["참석", "지각", "불참", "조퇴"].includes(status)) throw new HttpError(400, "상태가 올바르지 않습니다");
+    const existing = must(await ctx.db.from("attendance").select("id").eq("session_id", s.id).eq("person_id", person_id).maybeSingle());
+    if (!existing && !(await sessionMembers(ctx, s)).some((m) => m.id === person_id)) throw new HttpError(400, "이 모임 대상이 아니에요");
+    const patch: any = { session_id: s.id, person_id, status };
+    if (status === "참석") { patch.reason = null; patch.reason_at = null; }
+    const row = must(await ctx.db.from("attendance").upsert(patch, { onConflict: "session_id,person_id" }).select().single());
+    return attView(row, true);
+  },
+
+  // 지각·불참·조퇴 사유: { session_id, reason, person_id?(조장 이상이 대신 적을 때) }
+  async "attendance.reason"(ctx) {
+    const s = await getSession(ctx, ctx.payload.session_id);
+    const target = ctx.payload.person_id || ctx.me.id;
+    await requireRank(ctx, s.team_id, target === ctx.me.id ? RANK.MEMBER : RANK.GROUP_LEADER);
+    const r = must(await ctx.db.from("attendance").select("id, status").eq("session_id", s.id).eq("person_id", target).maybeSingle());
+    if (!r || !["지각", "불참", "조퇴"].includes(r.status)) throw new HttpError(400, "지각·불참으로 정해진 뒤에 사유를 적을 수 있어요");
+    const reason = String(ctx.payload.reason ?? "").trim().slice(0, 300) || null;
+    const row = must(await ctx.db.from("attendance").update({ reason, reason_at: reason ? new Date().toISOString() : null })
+      .eq("id", r.id).select().single());
+    return attView(row, true);
+  },
+
+  // 출결 마감 (끝나기 전에 미리 마감): { session_id } → 조장 이상. 확인 안 된 대상자는 불참
+  async "sessions.close"(ctx) {
+    const s = await getSession(ctx, ctx.payload.session_id);
+    await requireRank(ctx, s.team_id, RANK.GROUP_LEADER);
+    if (s.status === "취소") throw new HttpError(400, "취소된 모임이에요");
+    if (Date.now() < (sessionStart(s) ?? kstMs(s.session_date))) throw new HttpError(400, "모임이 시작된 뒤에 마감할 수 있어요");
+    return await closeSession(ctx, s);
+  },
+
+  // ----- 월간 출결 리포트 -----
+  // { team_id, month: "YYYY-MM" } → 조장 이상은 팀 전체, 팀원은 본인 것만
+  async "reports.monthly"(ctx) {
+    const { team_id, month } = ctx.payload;
+    if (typeof month !== "string" || !/^\d{4}-\d\d$/.test(month)) throw new HttpError(400, "달을 YYYY-MM으로 넣어주세요");
+    const rank = await rankIn(ctx, team_id);
+    if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
+    const lead = rank >= RANK.GROUP_LEADER;
+    const [y, m] = month.split("-").map(Number);
+    const from = `${month}-01`;
+    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+    let sessions: any[] = must(await ctx.db.from("meeting_sessions").select(SESSION_COLS)
+      .eq("team_id", team_id).gte("session_date", from).lt("session_date", next).neq("status", "취소")
+      .order("session_date", { ascending: true }).order("start_time", { ascending: true })) ?? [];
+    sessions = await autoClose(ctx, sessions);
+    const closed = sessions.filter((s) => s.closed_at);
+    const byId = new Map(closed.map((s) => [s.id, s]));
+    let rows: any[] = closed.length ? must(await ctx.db.from("attendance").select("*").in("session_id", closed.map((s) => s.id))) ?? [] : [];
+    if (!lead) rows = rows.filter((r) => r.person_id === ctx.me.id);
+    const names = await nameMap(ctx, rows.map((r) => r.person_id));
+    const current = await sessionMembers(ctx, { team_id, session_date: kstToday(), target_unit_id: null });
+    const groupOf = new Map(current.map((c) => [c.id, c.group]));
+
+    const pct = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : null);
+    const people = new Map<string, any>();
+    for (const r of rows) {
+      const s = byId.get(r.session_id);
+      const p = people.get(r.person_id) ?? {
+        id: r.person_id, name: names.get(r.person_id) ?? "", group: groupOf.get(r.person_id) ?? null,
+        total: 0, 참석: 0, 지각: 0, 불참: 0, 조퇴: 0, planned: 0, late_min_sum: 0, missing_reason: 0, details: [] as any[],
+      };
+      p.total++;
+      if (r.status && r.status in p) p[r.status]++;
+      if (r.planned_status) p.planned++;
+      const start = sessionStart(s);
+      const lateMin = r.status === "지각" && r.arrived_at && start !== null ? Math.max(0, Math.ceil((Date.parse(r.arrived_at) - start) / 60000)) : null;
+      if (lateMin !== null) p.late_min_sum += lateMin;
+      if (["지각", "불참", "조퇴"].includes(r.status)) {
+        if (!r.reason) p.missing_reason++;
+        p.details.push({
+          session_id: s.id, date: s.session_date, title: sessionName(s), status: r.status,
+          planned_status: r.planned_status, reason: r.reason, late_min: lateMin,
+        });
+      }
+      people.set(r.person_id, p);
+    }
+    const list = [...people.values()].map((p) => ({
+      ...p,
+      attend_rate: pct(p.참석 + p.지각 + p.조퇴, p.total),
+      on_time_rate: pct(p.참석, p.total),
+      late_rate: pct(p.지각, p.total),
+      absent_rate: pct(p.불참, p.total),
+      planned_rate: pct(p.planned, p.total),
+      avg_late_min: p.지각 ? Math.round(p.late_min_sum / p.지각) : null,
+    })).sort((a, b) => (a.group ?? "힣").localeCompare(b.group ?? "힣") || a.name.localeCompare(b.name));
+
+    const sum = (k: string) => list.reduce((n, p) => n + p[k], 0);
+    const allTotal = sum("total");
+    return {
+      month, scope: lead ? "team" : "me",
+      sessions: { total: sessions.length, closed: closed.length, open: sessions.length - closed.length },
+      session_list: closed.map((s) => ({ id: s.id, date: s.session_date, title: sessionName(s), start_time: s.start_time })),
+      summary: {
+        people: list.length, records: allTotal,
+        참석: sum("참석"), 지각: sum("지각"), 불참: sum("불참"), 조퇴: sum("조퇴"),
+        attend_rate: pct(sum("참석") + sum("지각") + sum("조퇴"), allTotal),
+        late_rate: pct(sum("지각"), allTotal),
+        missing_reason: sum("missing_reason"),
+      },
+      people: list,
+    };
   },
 
   // ----- 주간 녹음가능 -----

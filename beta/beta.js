@@ -6,7 +6,6 @@
 var API = 'https://bundxpidywrcrwhhgclv.supabase.co/functions/v1/api';
 var RANK = { MEMBER: 10, GROUP_LEADER: 20, INSTRUCTOR: 30, TEAM_LEADER: 40 };
 var WD = ['일', '월', '화', '수', '목', '금', '토'];
-var STATUSES = ['참석', '불참', '지각', '조퇴'];
 
 var tg = (window.Telegram && Telegram.WebApp) ? Telegram.WebApp : null;
 var initData = tg ? (tg.initData || '') : '';
@@ -21,9 +20,8 @@ if (tg) {
 var S = {
   me: null,          // { profile, positions, teams }
   team: null,        // { id, name, rank }
-  sessions: [],      // 모임 회차
-  att: {},           // session_id → 출결 기록 배열
-  types: [],         // 모임 유형 (교관 이상)
+  sessions: [],      // 모임 (모임마다 사전 체크·최종 출결 수, 내 출결 포함)
+  types: [],         // 모임 유형 (조장 이상)
   members: null,     // 팀원 목록 (조장 이상)
   current: null      // 열어둔 모임
 };
@@ -69,11 +67,6 @@ function timePlace(s) {
   var t = hm(s.start_time) + (s.end_time ? '~' + hm(s.end_time) : '');
   return [t, s.location].filter(Boolean).join(' · ');
 }
-function myRow(sessionId) {
-  var rows = S.att[sessionId] || [];
-  for (var i = 0; i < rows.length; i++) if (rows[i].person_id === S.me.profile.id) return rows[i];
-  return null;
-}
 function chip(status) {
   if (!status) return '<span class="st st-none">미제출</span>';
   return '<span class="st st-' + esc(status) + '">' + esc(status) + '</span>';
@@ -82,12 +75,27 @@ function showState(title, desc) {
   $('loginBox').style.display = 'none';
   $('stateBox').style.display = 'block';
   $('stateBox').innerHTML = '<b>' + esc(title) + '</b>' + esc(desc || '');
-  ['homeView', 'listView', 'detailView', 'noticeView', 'taskView', 'weeklyView'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['homeView', 'listView', 'detailView', 'reportView', 'noticeView', 'taskView', 'weeklyView'].forEach(function (id) { $(id).style.display = 'none'; });
 }
 
 // ---------------------------------------------------------------------
 // 시작
 // ---------------------------------------------------------------------
+// 봇 알림의 '출결 체크하기' 버튼으로 열면 주소에 ?s=모임id 가 붙어 옴
+var DEEP_SESSION = (function () { try { return new URLSearchParams(location.search).get('s'); } catch (e) { return null; } })();
+function openDeepSession(id) {
+  DEEP_SESSION = null;
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  api('sessions.board', { session_id: id }).then(function (b) {
+    var team = S.me.teams.filter(function (t) { return t.id === b.session.team_id; })[0] || S.me.teams[0];
+    setTabUI('attend');
+    return selectTeam(team.id).then(function () { if (byId(S.sessions, id)) openSession(id); });
+  }).catch(function () {
+    if (curTab === 'home') $('teamTabs').style.display = 'none';
+    selectTeam(S.me.teams[0].id);
+  });
+}
+
 function boot() {
   if (!initData) {
     var saved = getLogin();
@@ -105,8 +113,8 @@ function boot() {
     $('tabbar').classList.remove('b-off');
     document.body.classList.add('b-nav');
     renderTeamTabs();
-    if (curTab === 'home') $('teamTabs').style.display = 'none';
-    selectTeam(me.teams[0].id);
+    if (DEEP_SESSION) openDeepSession(DEEP_SESSION);
+    else { if (curTab === 'home') $('teamTabs').style.display = 'none'; selectTeam(me.teams[0].id); }
   }).catch(function (err) {
     if (err.status === 401 && !initData) return;   // 로그인 화면으로 이미 넘어감
     showState('들어갈 수 없어요', err.message + (initData ? '' : ' (다른 텔레그램 계정이면 오른쪽 위 동그라미를 눌러 로그아웃)'));
@@ -125,7 +133,7 @@ function loginQuery(u) {
   return q.toString();
 }
 function showLogin(msg) {
-  ['stateBox', 'homeView', 'listView', 'detailView', 'weeklyView', 'noticeView', 'taskView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['stateBox', 'homeView', 'listView', 'detailView', 'reportView', 'weeklyView', 'noticeView', 'taskView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
   $('tabbar').classList.add('b-off');
   document.body.classList.remove('b-nav');
   $('who').textContent = '게스트';
@@ -171,11 +179,12 @@ function renderTeamTabs() {
 
 function selectTeam(id) {
   S.team = S.me.teams.filter(function (t) { return t.id === id; })[0];
-  S.members = null; S.types = []; S.att = {}; S.sessions = [];
+  S.members = null; S.types = []; S.sessions = []; S.current = null;
+  M.board = null; M.open = null; stopBoardTimer(); R.data = null; R.open = null;
   N.list = null; A.list = null; A.current = null; C.list = []; dashData = null;
   document.querySelectorAll('#teamTabs .subtab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-team') === id); });
   showState('불러오는 중...', S.team.name + ' 정보를 가져오고 있어요');
-  loadTeam().then(function () {
+  return loadTeam().then(function () {
     $(VIEWS[curTab]).style.display = '';
     if (curTab === 'attend') showList(); else { $('stateBox').style.display = 'none'; refreshTab(); }
   }).catch(function (err) { showState('불러오지 못했어요', err.message); });
@@ -186,7 +195,7 @@ function loadTeam() {
     api('sessions.list', { team_id: S.team.id, from: addDays(-14), to: addDays(60) }),
     api('checkins.list', { team_id: S.team.id }),
     api('team.groups', { team_id: S.team.id }),
-    S.team.rank >= RANK.INSTRUCTOR ? api('meeting_types.list', { team_id: S.team.id }) : Promise.resolve([])
+    S.team.rank >= RANK.GROUP_LEADER ? api('meeting_types.list', { team_id: S.team.id }) : Promise.resolve([])
   ];
   return Promise.all(jobs).then(function (r) {
     S.sessions = r[0] || [];
@@ -194,25 +203,38 @@ function loadTeam() {
     S.groups = r[2] || [];
     S.types = r[3] || [];
     fillTargets();
-    // 모임마다 출결 (팀원은 본인 것만, 조장 이상은 전체가 돌아옴)
-    return Promise.all(S.sessions.map(function (s) {
-      return api('attendance.list', { session_id: s.id }).then(function (rows) { S.att[s.id] = rows || []; });
-    }));
   });
 }
 
 // ---------------------------------------------------------------------
 // 모임 목록
+// 흐름: 사전 출결체크(본인, 시작 전) → 현장 출결확인(조장 이상) → 마감 → 지각·불참 사유
 // ---------------------------------------------------------------------
+var M = { board: null, open: null, timer: null };   // 열어둔 모임의 현황
+var R = { month: null, data: null, open: null };    // 월간 리포트
+var LATE_LIKE = ['지각', '불참', '조퇴'];
+
+// 모임 단계: before(시작 전, 사전 체크) / live(시작 후 마감 전) / closed / cancel
+function phaseOf(s) {
+  if (s.status === '취소') return 'cancel';
+  if (s.closed_at) return 'closed';
+  var deadline = s.start_ms != null ? s.start_ms : s.end_ms;
+  return Date.now() < deadline ? 'before' : 'live';
+}
+function planChip(v, small) { return '<span class="st st-plan st-' + esc(v) + (small ? ' sm' : '') + '">사전 ' + esc(v) + '</span>'; }
+function nowHm() { return hmD(new Date()); }
+
 function showList() {
-  S.current = null;
+  S.current = null; M.board = null; M.open = null; stopBoardTimer();
   $('stateBox').style.display = 'none';
   $('detailView').style.display = 'none';
+  $('reportView').style.display = 'none';
   $('listView').style.display = 'block';
   $('attendWrap').classList.remove('split');
-  $('createCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
+  var lead = S.team.rank >= RANK.GROUP_LEADER;
+  $('createCard').style.display = lead ? 'block' : 'none';
   $('ciCreateCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
-  if (S.team.rank >= RANK.INSTRUCTOR) fillTypeSelect();
+  if (lead) fillTypeSelect();
   renderList();
   renderCheckins();
   window.scrollTo(0, 0);
@@ -224,31 +246,59 @@ function renderList() {
   var past = S.sessions.filter(function (s) { return s.session_date < today; }).reverse();
   $('upCount').textContent = up.length ? up.length + '개' : '';
   $('upList').innerHTML = up.length ? up.map(sessionCard).join('')
-    : '<div class="empty"><b>예정된 모임이 없어요</b>' + (S.team.rank >= RANK.INSTRUCTOR ? '위에서 새로 만들 수 있어요' : '모임이 잡히면 여기에 보여요') + '</div>';
+    : '<div class="empty"><b>예정된 모임이 없어요</b>' + (S.team.rank >= RANK.GROUP_LEADER ? '위에서 새로 만들 수 있어요' : '모임이 잡히면 여기에 보여요') + '</div>';
   $('pastList').innerHTML = past.length ? past.map(sessionCard).join('')
     : '<div class="empty"><b>최근 지난 모임이 없어요</b></div>';
+  renderNeed();
+}
+
+// 위쪽 알림: 지각·불참 사유 미입력 / 아직 사전 체크 안 한 모임
+function renderNeed() {
+  var h = '';
+  S.sessions.forEach(function (s) {
+    var m = s.mine;
+    if (m && LATE_LIKE.indexOf(m.status) !== -1 && !m.reason) {
+      h += needBanner(s, true, m.status + ' 사유를 적어주세요', shortD(s.session_date) + ' ' + sessionName(s));
+    }
+  });
+  var todo = S.sessions.filter(function (s) { return s.is_target && phaseOf(s) === 'before' && !(s.mine && s.mine.planned_status); });
+  if (todo.length) {
+    h += needBanner(todo[0], false, '출결 체크 안 한 모임 ' + todo.length + '개',
+      todo.slice(0, 3).map(function (s) { return shortD(s.session_date) + ' ' + sessionName(s); }).join(', '));
+  }
+  $('needArea').innerHTML = h;
+}
+function needBanner(s, urgent, title, sub) {
+  return '<div class="poll-banner' + (urgent ? ' urgent' : '') + '" onclick="openSession(\'' + esc(s.id) + '\')"><span class="pb-i">' + (urgent ? '✍️' : '🙋') + '</span>' +
+    '<div><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></div><span class="pb-go">›</span></div>';
 }
 
 function sessionCard(s) {
   var d = parseDate(s.session_date);
-  var isToday = s.session_date === todayStr();
-  var past = s.session_date < todayStr();
-  var cancelled = s.status === '취소';
-  var mine = myRow(s.id);
-  var side = cancelled ? chip('취소') : chip(mine && mine.status);
-  if (S.team.rank >= RANK.GROUP_LEADER && !cancelled) {
-    var n = (S.att[s.id] || []).filter(function (r) { return r.status; }).length;
-    side += '<small>제출 ' + n + '명</small>';
+  var ph = phaseOf(s);
+  var m = s.mine || {};
+  var side;
+  if (ph === 'cancel') side = chip('취소');
+  else if (m.status) side = chip(m.status);
+  else if (m.planned_status) side = planChip(m.planned_status);
+  else if (!s.is_target) side = '<span class="st st-none">대상 아님</span>';
+  else side = '<span class="st st-none">' + (ph === 'before' ? '미체크' : '확인 전') + '</span>';
+  if (ph !== 'cancel') {
+    var n = ph === 'before' ? s.planned.참석 + s.planned.지각 + s.planned.불참
+      : s.final.참석 + s.final.지각 + s.final.조퇴 + (ph === 'live' ? s.final.불참 : 0);
+    side += '<small>' + (ph === 'before' ? '체크 ' : ph === 'live' ? '확인 ' : '출석 ') + n + '/' + s.target_count + '</small>';
   }
+  var tag = ph === 'live' ? ' · <em class="b-live">진행 중</em>' : '';
+  var target = s.target_unit_id ? ' · ' + esc(groupName(s.target_unit_id)) : '';
   var selected = S.current && S.current.id === s.id;
-  return '<button class="b-session' + (past ? ' b-past' : '') + (cancelled ? ' b-cancel' : '') + (selected ? ' b-sel' : '') + '" onclick="openSession(\'' + esc(s.id) + '\')">' +
-    '<div class="b-date' + (isToday ? ' today' : '') + '"><b>' + d.getDate() + '</b><span>' + (d.getMonth() + 1) + '월 ' + WD[d.getDay()] + '</span></div>' +
-    '<div class="b-info"><b>' + esc(sessionName(s)) + '</b><span>' + esc(timePlace(s) || '시간·장소 미정') + '</span></div>' +
+  return '<button class="b-session' + (s.session_date < todayStr() ? ' b-past' : '') + (ph === 'cancel' ? ' b-cancel' : '') + (selected ? ' b-sel' : '') + '" onclick="openSession(\'' + esc(s.id) + '\')">' +
+    '<div class="b-date' + (s.session_date === todayStr() ? ' today' : '') + '"><b>' + d.getDate() + '</b><span>' + (d.getMonth() + 1) + '월 ' + WD[d.getDay()] + '</span></div>' +
+    '<div class="b-info"><b>' + esc(sessionName(s)) + '</b><span>' + esc(timePlace(s) || '시간·장소 미정') + target + tag + '</span></div>' +
     '<div class="b-side">' + side + '</div></button>';
 }
 
 // ---------------------------------------------------------------------
-// 모임 회차 만들기 (교관 이상)
+// 모임 만들기 (조장 이상) — 만들면 대상자에게 봇 알림
 // ---------------------------------------------------------------------
 function toggleCreate() {
   var f = $('createForm'), open = f.style.display === 'none';
@@ -270,6 +320,12 @@ function applyTypeDefaults() {
   if (t.default_end && !$('cEnd').value) $('cEnd').value = hm(t.default_end);
   if (t.default_location && !$('cPlace').value) $('cPlace').value = t.default_location;
 }
+function notifyText(r) {
+  if (!r) return '';
+  var t = '알림 ' + r.sent + '명에게 보냈어요';
+  if (r.failed && r.failed.length) t += '\n못 받은 사람: ' + r.failed.join(', ') + ' (봇을 아직 시작하지 않았을 수 있어요)';
+  return t;
+}
 function createSession() {
   var p = {
     team_id: S.team.id,
@@ -278,132 +334,478 @@ function createSession() {
     session_date: $('cDate').value,
     start_time: $('cStart').value || null,
     end_time: $('cEnd').value || null,
-    location: $('cPlace').value.trim() || null
+    location: $('cPlace').value.trim() || null,
+    target_unit_id: $('cTarget').value || null,
+    notify: $('cNotify').checked
   };
   if (!p.meeting_type_id && !p.title) { setMsg('cMsg', '모임 유형을 고르거나 제목을 적어주세요!', true); return; }
   if (!p.session_date) { setMsg('cMsg', '날짜를 골라주세요!', true); return; }
-  if (p.start_time && p.end_time && p.end_time <= p.start_time) { setMsg('cMsg', '끝나는 시간이 시작보다 늦어야 해요!', true); return; }
-  var btn = $('cBtn'); btn.disabled = true; setMsg('cMsg', '만드는 중...');
+  if (!p.start_time) { setMsg('cMsg', '시작 시간을 넣어주세요! 지각을 판단하는 기준이 돼요.', true); return; }
+  if (p.end_time && p.end_time <= p.start_time) { setMsg('cMsg', '끝나는 시간이 시작보다 늦어야 해요!', true); return; }
+  var btn = $('cBtn'); btn.disabled = true; setMsg('cMsg', p.notify ? '만들고 알림 보내는 중...' : '만드는 중...');
   api('sessions.create', p).then(function (s) {
+    Object.assign(s, {
+      start_ms: kstMs(s.session_date, s.start_time), end_ms: s.end_time ? kstMs(s.session_date, s.end_time) : kstMs(s.session_date, s.start_time) + 3 * 3600000,
+      target_count: targetMembersCount(s.target_unit_id), is_target: false,
+      planned: { 참석: 0, 지각: 0, 불참: 0 }, final: { 참석: 0, 지각: 0, 불참: 0, 조퇴: 0 }, mine: null
+    });
     S.sessions.push(s);
-    S.sessions.sort(function (a, b) { return a.session_date < b.session_date ? -1 : a.session_date > b.session_date ? 1 : 0; });
-    S.att[s.id] = [];
+    S.sessions.sort(function (a, b) { return a.session_date + (a.start_time || '') < b.session_date + (b.start_time || '') ? -1 : 1; });
     ['cTitle', 'cStart', 'cEnd', 'cPlace'].forEach(function (id) { $(id).value = ''; });
-    $('cType').value = '';
-    setMsg('cMsg', '만들었어요!');
-    haptic('success');
+    $('cType').value = ''; $('cTarget').value = '';
     btn.disabled = false;
-    showList();
-    setTimeout(function () { setMsg('cMsg', ''); toggleCreate(); }, 900);
+    haptic('success');
+    renderList();
+    setMsg('cMsg', '만들었어요!' + (s.notify ? '\n' + notifyText(s.notify) : ''));
+    setTimeout(function () { setMsg('cMsg', ''); toggleCreate(); }, s.notify && s.notify.failed.length ? 6000 : 1500);
+    // 대상 인원·내 대상 여부는 서버 기준으로 다시
+    refreshSessions();
   }).catch(function (err) { setMsg('cMsg', err.message, true); haptic('error'); btn.disabled = false; });
+}
+function kstMs(d, t) { return Date.parse(d + 'T' + (String(t).length === 5 ? t + ':00' : t) + '+09:00'); }
+function targetMembersCount(groupId) { return S.members ? targetMembers(groupId).length : 0; }
+function refreshSessions() {
+  return api('sessions.list', { team_id: S.team.id, from: addDays(-14), to: addDays(60) }).then(function (l) {
+    S.sessions = l || [];
+    if (S.current) S.current = byId(S.sessions, S.current.id) || S.current;
+    if ($('listView').style.display !== 'none') renderList();
+  }).catch(function () {});
 }
 
 // ---------------------------------------------------------------------
-// 모임 하나 (내 출결 + 조장 이상 현황)
+// 모임 하나: 내 출결 + 모두가 보는 현황 (+ 조장 이상: 출결확인·마감)
 // ---------------------------------------------------------------------
 function openSession(id) {
-  var s = S.sessions.filter(function (x) { return x.id === id; })[0];
+  var s = byId(S.sessions, id);
   if (!s) return;
-  S.current = s;
+  S.current = s; M.board = null; M.open = null;
   var wide = isWide();   // 넓은 화면: 목록은 두고 오른쪽에 상세
+  $('reportView').style.display = 'none';
   $('listView').style.display = wide ? 'block' : 'none';
   $('attendWrap').classList.toggle('split', wide);
   if (wide) renderList();
   $('detailView').style.display = 'block';
-  var d = parseDate(s.session_date);
-  $('dHead').innerHTML = '<div class="b-dhead"><h1>' + esc(sessionName(s)) + '</h1><p>' +
-    (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + WD[d.getDay()] + ')' + (timePlace(s) ? ' · ' + esc(timePlace(s)) : '') +
-    (s.status === '취소' ? ' · <b>취소된 모임</b>' : '') + '</p></div>';
-
-  var mine = myRow(s.id);
-  var st = (mine && mine.status) || '참석';
-  document.querySelectorAll('input[name="st"]').forEach(function (r) { r.checked = r.value === st; });
-  $('reason').value = (mine && mine.reason) || '';
-  $('saveBtn').textContent = mine ? '출결 수정' : '출결 제출';
-  $('saveBtn').disabled = s.status === '취소';
-  setMsg('myMsg', mine ? '제출한 내용이에요. 바꾸려면 고치고 다시 눌러주세요.' : '');
-
-  var lead = S.team.rank >= RANK.GROUP_LEADER;
-  $('boardWrap').style.display = lead ? 'block' : 'none';
-  if (lead) loadBoard();
+  renderHead();
+  $('myCard').style.display = 'block';
+  $('myCard').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  ['board', 'boardChips', 'boardActs'].forEach(function (k) { $(k).innerHTML = ''; });
+  $('boardCount').textContent = ''; setMsg('boardMsg', '');
+  loadBoard(true);
   if (!wide) window.scrollTo(0, 0);
 }
 
-function saveMine() {
+function loadBoard(first) {
   var s = S.current; if (!s) return;
-  var status = document.querySelector('input[name="st"]:checked').value;
-  var reason = $('reason').value.trim();
-  if (status !== '참석' && !reason) { setMsg('myMsg', status + ' 사유를 적어주세요!', true); return; }
-  var btn = $('saveBtn'); btn.disabled = true; setMsg('myMsg', '저장 중...');
-  api('attendance.saveMine', { session_id: s.id, status: status, reason: reason || null }).then(function (row) {
-    upsertAtt(s.id, row);
-    setMsg('myMsg', '저장했어요! 수고하셨어요 🙌');
-    $('saveBtn').textContent = '출결 수정';
-    if ($('attendWrap').classList.contains('split')) renderList();
+  api('sessions.board', { session_id: s.id }).then(function (b) {
+    if (!S.current || S.current.id !== s.id) return;
+    M.board = b;
+    Object.assign(s, b.session);   // 자동 마감 등 반영
+    syncSession();
+    renderDetail();
+    startBoardTimer();
+  }).catch(function (err) {
+    if (first) $('myCard').innerHTML = '<div class="msg err">' + esc(err.message) + '</div>';
+  });
+}
+
+// 현황으로 목록 카드의 숫자·내 상태도 맞춤
+function syncSession() {
+  var s = S.current, b = M.board; if (!s || !b) return;
+  var cnt = function (k, v) { return b.members.filter(function (m) { return m.att && m.att[k] === v; }).length; };
+  var me = b.members.filter(function (m) { return m.me; })[0];
+  s.target_count = b.members.length;
+  s.is_target = !!me;
+  s.mine = me ? me.att : null;
+  s.planned = { 참석: cnt('planned_status', '참석'), 지각: cnt('planned_status', '지각'), 불참: cnt('planned_status', '불참') };
+  s.final = { 참석: cnt('status', '참석'), 지각: cnt('status', '지각'), 불참: cnt('status', '불참'), 조퇴: cnt('status', '조퇴') };
+  if ($('listView').style.display !== 'none') renderList();
+}
+
+function renderDetail() { renderHead(); renderMine(); renderBoard(); renderActs(); }
+
+function renderHead() {
+  var s = S.current, d = parseDate(s.session_date), ph = phaseOf(s);
+  var tag = { cancel: '<span class="st st-취소">취소</span>', closed: '<span class="chip">마감</span>',
+    live: '<span class="chip dark">진행 중</span>', before: '<span class="chip">예정</span>' }[ph];
+  var lead = S.team.rank >= RANK.GROUP_LEADER;
+  var nr = s.notify_result;
+  $('dHead').innerHTML = '<div class="b-dhead"><h1>' + esc(sessionName(s)) + '</h1><p>' +
+    (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + WD[d.getDay()] + ')' + (timePlace(s) ? ' · ' + esc(timePlace(s)) : '') + '</p>' +
+    '<div class="b-chips">' + tag + '<span class="chip">' + (s.target_unit_id ? esc(groupName(s.target_unit_id)) : esc(S.team.name) + ' 전체') + '</span>' +
+    (M.board && M.board.grace_min ? '<span class="chip">시작 후 ' + M.board.grace_min + '분까지 참석</span>' : '') + '</div>' +
+    (lead && nr ? '<div class="b-notify">📨 ' + esc(notifyText(nr)) + '</div>' : '') + '</div>';
+}
+
+function renderMine() {
+  var b = M.board, s = S.current, card = $('myCard');
+  var me = b.members.filter(function (m) { return m.me; })[0];
+  if (!me) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  var a = me.att || {}, ph = phaseOf(s);
+  var h = '<div class="b-card-title">내 출결</div>';
+  if (ph === 'cancel') {
+    h += '<p class="b-note">취소된 모임이에요.</p>';
+  } else if (ph === 'before') {
+    var st = a.planned_status || '참석';
+    h += '<p class="b-note">모임 시작 전까지 바꿀 수 있어요' + (a.planned_at ? ' · ' + dtLabel(a.planned_at) + ' 체크' : '') + '</p>' +
+      '<div class="segmented">' + ['참석', '지각', '불참'].map(function (v, i) {
+        return '<input type="radio" name="pst" id="pst' + i + '" value="' + v + '"' + (v === st ? ' checked' : '') + ' onchange="onPlanPick()"><label for="pst' + i + '">' + v + '</label>';
+      }).join('') + '</div>' +
+      '<div id="pReasonWrap"' + (st === '참석' ? ' style="display:none;"' : '') + '>' +
+        '<label class="field-label" for="pReason">사유 <span class="hint">지각·불참이면 꼭 적어주세요</span></label>' +
+        '<textarea id="pReason" rows="3" maxlength="300" placeholder="예) 회사 야근으로 30분 늦어요">' + esc(a.planned_reason || '') + '</textarea></div>' +
+      '<button class="btn-primary" id="planBtn" onclick="savePlan()">' + (a.planned_status ? '체크 수정' : '출결 체크') + '</button>' +
+      (a.arrived_at ? '<p class="b-note b-center">' + hmOf(a.arrived_at) + ' 도착 확인됨 ✓</p>' : '');
+  } else {
+    h += '<div class="b-mine-row"><span>사전 체크</span>' + (a.planned_status ? planChip(a.planned_status) : '<span class="st st-none">안 함</span>') + '</div>' +
+      '<div class="b-mine-row"><span>현장 확인</span><span>' + (a.status
+        ? chip(a.status) + (a.arrived_at ? ' <small>' + hmOf(a.arrived_at) + (a.checked_by_name ? ' · ' + esc(a.checked_by_name) : '') + '</small>' : '')
+        : '<span class="st st-none">' + (ph === 'closed' ? '미확인' : '확인 전') + '</span>') + '</span></div>';
+    if (!a.status && ph === 'live') h += '<p class="b-note">도착하면 조장님이 이름을 눌러 출결확인을 해줘요. 시작 시간이 지나서 확인되면 지각으로 기록돼요.</p>';
+    if (LATE_LIKE.indexOf(a.status) !== -1) {
+      h += '<label class="field-label" for="fReason">' + a.status + ' 사유' + (a.reason ? '' : ' <span class="b-need">입력해주세요</span>') + '</label>' +
+        '<textarea id="fReason" rows="3" maxlength="300" placeholder="' + (a.status === '불참' ? '예) 갑자기 야근이 잡혔어요' : '예) 지하철 지연으로 늦었어요') + '">' + esc(a.reason || '') + '</textarea>' +
+        '<button class="btn-primary" id="reasonBtn" onclick="saveReason()">사유 저장</button>';
+    }
+  }
+  card.innerHTML = h + '<div class="msg" id="myMsg"></div>';
+}
+
+function onPlanPick() {
+  var v = document.querySelector('input[name="pst"]:checked').value;
+  $('pReasonWrap').style.display = v === '참석' ? 'none' : 'block';
+}
+
+function savePlan() {
+  var s = S.current; if (!s) return;
+  var st = document.querySelector('input[name="pst"]:checked').value;
+  var reason = st === '참석' ? '' : $('pReason').value.trim();
+  if (st !== '참석' && !reason) { setMsg('myMsg', st + ' 사유를 적어주세요!', true); return; }
+  var btn = $('planBtn'); btn.disabled = true; setMsg('myMsg', '저장 중...');
+  api('attendance.plan', { session_id: s.id, planned_status: st, planned_reason: reason }).then(function (row) {
+    patchMember(S.me.profile.id, row);
     haptic('success');
-    btn.disabled = false;
-    if (S.team.rank >= RANK.GROUP_LEADER) renderBoard();
+    setMsg('myMsg', st === '참석' ? '참석으로 체크했어요! 이따 봬요 🙌' : st + '으로 체크했어요. 알려줘서 고마워요!');
   }).catch(function (err) { setMsg('myMsg', err.message, true); haptic('error'); btn.disabled = false; });
 }
 
-function upsertAtt(sessionId, row) {
-  var rows = S.att[sessionId] || (S.att[sessionId] = []);
-  for (var i = 0; i < rows.length; i++) if (rows[i].person_id === row.person_id) { rows[i] = Object.assign({}, rows[i], row); return; }
-  rows.push(row);
+function saveReason(personId) {
+  var s = S.current; if (!s) return;
+  var mine = !personId;
+  var box = mine ? $('fReason') : $('rs-' + personId);
+  var msgId = mine ? 'myMsg' : 'amsg-' + personId;
+  var reason = box.value.trim();
+  if (!reason) { setMsg(msgId, '사유를 적어주세요!', true); return; }
+  setMsg(msgId, '저장 중...');
+  api('attendance.reason', { session_id: s.id, person_id: personId || null, reason: reason }).then(function (row) {
+    patchMember(personId || S.me.profile.id, row);
+    haptic('success');
+    setMsg(msgId, '사유를 저장했어요!');
+  }).catch(function (err) { setMsg(msgId, err.message, true); });
 }
 
-// ----- 출결 현황 (조장 이상) -----
-function loadBoard() {
-  $('board').innerHTML = '<div class="b-group-sep">불러오는 중...</div>';
-  var p = S.members ? Promise.resolve(S.members) : api('team.members', { team_id: S.team.id }).then(function (m) { S.members = m; return m; });
-  p.then(renderBoard).catch(function (err) { $('board').innerHTML = '<div class="b-group-sep">' + esc(err.message) + '</div>'; });
+// 한 사람의 출결을 바꾸고 화면 다시 그림
+function patchMember(personId, att) {
+  var m = M.board && M.board.members.filter(function (x) { return x.id === personId; })[0];
+  if (!m) return;
+  m.att = Object.assign({}, m.att || {}, att);
+  syncSession();
+  renderDetail();
 }
+
+// ----- 출결 현황 (팀원 모두) -----
+function boardCountChip(label, n, cls) { return '<span class="st ' + (cls || 'st-none') + '">' + esc(label) + ' ' + n + '</span>'; }
 
 function renderBoard() {
-  var s = S.current; if (!s || !S.members) return;
-  var rows = S.att[s.id] || [];
-  var byPerson = {};
-  rows.forEach(function (r) { byPerson[r.person_id] = r; });
-  var done = S.members.filter(function (m) { return byPerson[m.id] && byPerson[m.id].status; }).length;
-  $('boardCount').textContent = '제출 ' + done + ' / ' + S.members.length + '명';
+  var b = M.board, s = S.current, ph = phaseOf(s);
+  var list = b.members, total = list.length;
+  var count = function (k, v) { return list.filter(function (m) { return m.att && m.att[k] === v; }).length; };
+  var chips = '';
+  if (ph === 'before') {
+    var done = list.filter(function (m) { return m.att && m.att.planned_status; }).length;
+    $('boardCount').textContent = '사전 체크 ' + done + ' / ' + total + '명';
+    chips = ['참석', '지각', '불참'].map(function (v) { return boardCountChip(v, count('planned_status', v), 'st-plan st-' + v); }).join('') +
+      boardCountChip('미체크', total - done);
+  } else {
+    var fin = list.filter(function (m) { return m.att && m.att.status; }).length;
+    $('boardCount').textContent = (ph === 'closed' ? '최종 ' : '현장 확인 ') + fin + ' / ' + total + '명';
+    chips = ['참석', '지각', '불참', '조퇴'].filter(function (v) { return v !== '조퇴' || count('status', v); })
+      .map(function (v) { return boardCountChip(v, count('status', v), 'st-' + v); }).join('') +
+      (total - fin ? boardCountChip('미확인', total - fin) : '');
+  }
+  $('boardChips').innerHTML = chips;
 
+  var lead = b.can_check && ph !== 'cancel' && s.session_date <= todayStr();   // 출결확인은 모임 당일부터
   var html = '', lastGroup = '§';
-  S.members.forEach(function (m) {
-    var g = m.group || '조 배정 없음';
-    if (g !== lastGroup) { html += '<div class="b-group-sep">' + esc(g) + '</div>'; lastGroup = g; }
-    var r = byPerson[m.id];
-    var cur = (r && r.status) || '';
-    html += '<div class="b-prow" id="row-' + esc(m.id) + '">' +
-      '<div class="nm"><b>' + esc(m.name) + '</b><span>' + esc(m.position || '') + '</span></div>' +
-      '<div class="select-wrap"><select onchange="saveFor(\'' + esc(m.id) + '\', this.value)"' + (s.status === '취소' ? ' disabled' : '') + '>' +
-        '<option value=""' + (cur ? '' : ' selected') + ' disabled>미제출</option>' +
-        STATUSES.map(function (v) { return '<option' + (v === cur ? ' selected' : '') + '>' + v + '</option>'; }).join('') +
-      '</select></div>' +
-      (r && r.reason ? '<div class="rs">' + esc(r.reason) + '</div>' : '') +
-    '</div>';
+  list.forEach(function (m) {
+    var g = m.group || (s.target_unit_id ? '' : '조 배정 없음');
+    if (g !== lastGroup) { if (g) html += '<div class="b-group-sep">' + esc(g) + '</div>'; lastGroup = g; }
+    var a = m.att || {}, open = lead && M.open === m.id;
+    var stHtml = ph === 'before'
+      ? (a.planned_status ? '<span class="st st-' + esc(a.planned_status) + '">' + esc(a.planned_status) + '</span>' : '<span class="st st-none">미체크</span>')
+      : (a.status ? chip(a.status) : '<span class="st st-none">' + (ph === 'closed' ? '미확인' : '확인 전') + '</span>');
+    var sub = [];
+    if (ph !== 'before' && a.planned_status) sub.push('사전 ' + a.planned_status);
+    if (a.arrived_at) sub.push(hmOf(a.arrived_at) + ' 도착');
+    if (ph === 'before' && a.planned_reason) sub.push(a.planned_reason);
+    if (ph !== 'before' && a.reason) sub.push('사유: ' + a.reason);
+    else if (ph !== 'before' && LATE_LIKE.indexOf(a.status) !== -1 && (lead || m.me)) sub.push('사유 미입력');
+    html += '<div class="b-prow b-arow' + (lead ? ' tap' : '') + (open ? ' open' : '') + (m.me ? ' me' : '') + '"' +
+      (lead ? ' onclick="toggleRow(\'' + esc(m.id) + '\')"' : '') + '>' +
+      '<div class="nm"><b>' + esc(m.name) + '</b><span>' + esc(m.position || '') + '</span>' + (m.me ? '<i class="b-me">나</i>' : '') + '</div>' +
+      '<div class="b-chs">' + stHtml + (lead ? '<span class="b-chev' + (open ? ' open' : '') + '">›</span>' : '') + '</div>' +
+      (sub.length ? '<div class="rs">' + esc(sub.join(' · ')) + '</div>' : '') +
+      (open ? actionPanel(m) : '') + '</div>';
   });
-  $('board').innerHTML = html || '<div class="b-group-sep">팀원이 없어요</div>';
+  $('board').innerHTML = html || '<div class="b-group-sep">대상자가 없어요</div>';
 }
 
-function saveFor(personId, status) {
-  var s = S.current; if (!s || !status) return;
-  var el = $('row-' + personId); if (el) el.classList.add('saving');
-  api('attendance.saveFor', { session_id: s.id, person_id: personId, status: status }).then(function (row) {
-    upsertAtt(s.id, row);
+function toggleRow(id) { M.open = M.open === id ? null : id; renderBoard(); }
+
+// 조장 이상: 이름을 누르면 나오는 출결확인 칸
+function actionPanel(m) {
+  var s = S.current, a = m.att || {}, id = esc(m.id);
+  var h = '<div class="b-act" onclick="event.stopPropagation()">';
+  if (s.session_date > todayStr()) {
+    return h + '<p class="b-note">모임 당일부터 출결확인을 할 수 있어요</p></div>';
+  }
+  if (!a.arrived_at) {
+    h += '<button class="btn-primary b-small" onclick="checkIn(\'' + id + '\')">✓ 출결확인 <small>(지금 ' + nowHm() + ')</small></button>' +
+      '<div class="b-at"><span>깜빡하고 늦게 누른다면, 실제 도착 시각</span>' +
+      '<div class="b-at-row"><input type="time" id="at-' + id + '"><button type="button" onclick="checkIn(\'' + id + '\', true)">이 시각으로</button></div></div>';
+  } else {
+    h += '<div class="b-note">' + hmOf(a.arrived_at) + ' 확인' + (a.checked_by_name ? ' · ' + esc(a.checked_by_name) : '') + '</div>' +
+      '<button class="ghost-btn" onclick="uncheck(\'' + id + '\')">확인 취소 (잘못 눌렀어요)</button>';
+  }
+  h += '<label class="field-label">최종 출결 직접 바꾸기 <span class="hint">조퇴·사정 인정 등</span></label><div class="b-stbtns">' +
+    ['참석', '지각', '불참', '조퇴'].map(function (v) {
+      return '<button type="button" class="b-stbtn' + (a.status === v ? ' on' : '') + '" onclick="setStatus(\'' + id + '\',\'' + v + '\')">' + v + '</button>';
+    }).join('') + '</div>';
+  if (a.planned_reason) h += '<div class="b-note">사전 사유: ' + esc(a.planned_reason) + '</div>';
+  if (LATE_LIKE.indexOf(a.status) !== -1) {
+    h += '<label class="field-label" for="rs-' + id + '">' + esc(a.status) + ' 사유 <span class="hint">본인 대신 적을 때</span></label>' +
+      '<textarea id="rs-' + id + '" rows="2" maxlength="300">' + esc(a.reason || '') + '</textarea>' +
+      '<button class="ghost-btn" onclick="saveReason(\'' + id + '\')">사유 저장</button>';
+  }
+  return h + '<div class="msg" id="amsg-' + id + '"></div></div>';
+}
+
+function memberName(id) { var m = M.board.members.filter(function (x) { return x.id === id; })[0]; return m ? m.name : ''; }
+
+function checkIn(personId, useAt) {
+  var s = S.current; if (!s) return;
+  var at = null;
+  if (useAt) {
+    at = $('at-' + personId).value;
+    if (!at) { setMsg('amsg-' + personId, '도착 시각을 넣어주세요!', true); return; }
+  }
+  setMsg('amsg-' + personId, '확인 중...');
+  api('attendance.check', { session_id: s.id, person_id: personId, at: at }).then(function (r) {
+    M.open = null;
+    patchMember(personId, r);
+    haptic(r.status === '지각' ? 'warning' : 'success');
+    setMsg('boardMsg', '✓ ' + memberName(personId) + ' ' + hmOf(r.arrived_at) + ' ' + r.status + (r.late_min ? ' (' + r.late_min + '분 늦음)' : ''));
+  }).catch(function (err) { setMsg('amsg-' + personId, err.message, true); haptic('error'); });
+}
+
+function uncheck(personId) {
+  if (!confirm(memberName(personId) + '님 출결확인을 취소할까요?')) return;
+  api('attendance.uncheck', { session_id: S.current.id, person_id: personId }).then(function (r) {
+    r.checked_by_name = null;
+    patchMember(personId, r);
+    setMsg('boardMsg', memberName(personId) + '님 확인을 취소했어요');
+  }).catch(function (err) { setMsg('amsg-' + personId, err.message, true); });
+}
+
+function setStatus(personId, status) {
+  api('attendance.setStatus', { session_id: S.current.id, person_id: personId, status: status }).then(function (r) {
+    patchMember(personId, r);
     haptic('success');
-    renderBoard();
-    if ($('attendWrap').classList.contains('split')) renderList();
-    if (personId === S.me.profile.id) openSessionKeepBoard();
-  }).catch(function (err) {
-    alertMsg(err.message);
-    renderBoard();
+    setMsg('amsg-' + personId, status + '(으)로 바꿨어요');
+  }).catch(function (err) { setMsg('amsg-' + personId, err.message, true); });
+}
+
+// ----- 마감·취소·지우기 (조장 이상) -----
+function renderActs() {
+  var s = S.current, ph = phaseOf(s), b = M.board;
+  if (!b.can_check || ph === 'cancel') { $('boardActs').innerHTML = ''; return; }
+  var left = b.members.filter(function (m) { return !(m.att && m.att.status); }).length;
+  var h = '';
+  if (ph === 'live') {
+    h += '<button class="btn-primary" onclick="closeSess()">출결 마감하기</button>' +
+      '<p class="b-note b-center">미확인 ' + left + '명은 불참으로 기록돼요.<br>끝나는 시간(' + hmMs(s.end_ms) + ')이 지나면 자동으로 마감돼요.</p>';
+  } else if (ph === 'closed') {
+    h += '<p class="b-note b-center">' + dtLabel(s.closed_at) + ' 마감됨 · 늦게 온 사람은 이름을 눌러 출결확인하면 지각으로 바뀌어요</p>';
+  } else {
+    h += '<p class="b-note b-center">모임 당일 시작 시간(' + hmMs(s.start_ms || s.end_ms) + ')부터 현장 출결확인을 해요.<br>이름을 누르면 출결확인 버튼이 나와요.</p>';
+  }
+  if (ph !== 'closed') {
+    h += '<button class="ghost-btn b-danger" onclick="cancelSess()">모임 취소 (대상자에게 알림)</button>' +
+      '<button class="ghost-btn" onclick="deleteSess()">잘못 만들었어요 · 지우기</button>';
+  }
+  $('boardActs').innerHTML = h;
+}
+
+function closeSess() {
+  var left = M.board.members.filter(function (m) { return !(m.att && m.att.status); }).length;
+  if (!confirm('지금 마감할까요?' + (left ? '\n미확인 ' + left + '명은 불참으로 기록돼요.' : ''))) return;
+  api('sessions.close', { session_id: S.current.id }).then(function () {
+    haptic('success'); loadBoard();
+    setMsg('boardMsg', '마감했어요. 불참인 사람에게 사유 입력 칸이 생겨요.');
+  }).catch(function (err) { alertMsg(err.message); });
+}
+function cancelSess() {
+  if (!confirm('이 모임을 취소할까요? 대상자에게 취소 알림이 가요.')) return;
+  api('sessions.update', { id: S.current.id, status: '취소' }).then(function (s) {
+    Object.assign(S.current, s);
+    haptic('success'); renderDetail(); renderList();
+    setMsg('boardMsg', '취소했어요.' + (s.notify ? ' ' + notifyText(s.notify) : ''));
+  }).catch(function (err) { alertMsg(err.message); });
+}
+function deleteSess() {
+  if (!confirm('이 모임과 체크 기록을 모두 지울까요? (알림은 가지 않아요)')) return;
+  var id = S.current.id;
+  api('sessions.delete', { id: id }).then(function () {
+    S.sessions = S.sessions.filter(function (x) { return x.id !== id; });
+    showList();
+  }).catch(function (err) { alertMsg(err.message); });
+}
+
+// 열어둔 모임은 30초마다 새로 (입력 중이거나 이름을 펼쳐 둔 동안은 쉼)
+function startBoardTimer() {
+  stopBoardTimer();
+  var ph = S.current && phaseOf(S.current);
+  if (ph !== 'before' && ph !== 'live') return;
+  M.timer = setInterval(function () {
+    if (document.visibilityState !== 'visible' || !S.current || M.open) return;
+    var ae = document.activeElement;
+    if (ae && /TEXTAREA|INPUT/.test(ae.tagName) && $('detailView').contains(ae)) return;
+    loadBoard();
+  }, 30000);
+}
+function stopBoardTimer() { if (M.timer) { clearInterval(M.timer); M.timer = null; } }
+
+// =====================================================================
+// 월간 출결 리포트 (조장 이상은 팀 전체, 팀원은 본인)
+// =====================================================================
+function curMonth() { var d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1); }
+function monthLabel(m) { var p = m.split('-'); return p[0] + '년 ' + (+p[1]) + '월'; }
+
+function showReport() {
+  S.current = null; stopBoardTimer();
+  $('listView').style.display = 'none';
+  $('detailView').style.display = 'none';
+  $('attendWrap').classList.remove('split');
+  $('reportView').style.display = 'block';
+  if (!R.month) R.month = curMonth();
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+  loadReport();
+  window.scrollTo(0, 0);
+}
+function moveMonth(n) {
+  var p = R.month.split('-'), d = new Date(+p[0], +p[1] - 1 + n, 1);
+  var m = d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+  if (m > curMonth()) return;
+  R.month = m; R.open = null; loadReport();
+}
+function loadReport() {
+  $('rpMonth').textContent = monthLabel(R.month);
+  $('rpNext').disabled = R.month >= curMonth();
+  $('rpBody').innerHTML = '<div class="empty"><b>불러오는 중...</b></div>';
+  var month = R.month, teamId = S.team.id;
+  api('reports.monthly', { team_id: teamId, month: month }).then(function (d) {
+    if (R.month !== month || S.team.id !== teamId) return;
+    R.data = d; renderReport();
+  }).catch(function (err) { $('rpBody').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function pctText(v) { return v == null ? '–' : (Math.round(v) === v ? v : v.toFixed(1)) + '%'; }
+function toggleRp(id) { R.open = R.open === id ? null : id; renderReport(); }
+
+function renderReport() {
+  var d = R.data, team = d.scope === 'team', sm = d.summary;
+  $('rpDesc').textContent = team ? S.team.name + ' 팀원마다 한 달 출결을 모아봐요' : '내 한 달 출결이에요';
+  var h = '<div class="b-tiles">' +
+    tile('모임', d.sessions.closed + '<small>회</small>') +
+    tile(team ? '평균 출석률' : '출석률', pctText(sm.attend_rate)) +
+    tile('지각', sm.지각 + '<small>건</small>') +
+    tile('불참', sm.불참 + '<small>건</small>') +
+    '</div>';
+  if (d.sessions.open) h += '<p class="b-note">아직 마감 안 된 모임 ' + d.sessions.open + '개는 빠져 있어요.</p>';
+  if (sm.missing_reason) h += '<p class="b-note b-need-line">사유 미입력 ' + sm.missing_reason + '건</p>';
+  if (!d.people.length) {
+    $('rpBody').innerHTML = h + '<div class="empty"><b>' + monthLabel(d.month) + '에 마감된 모임이 없어요</b>모임이 끝나면 여기에 모여요</div>';
+    return;
+  }
+  if (team) {
+    h += '<div class="section-head b-gap"><h2>사람별</h2><span class="section-count">' + d.people.length + '명 · 눌러서 사유 보기</span></div>' +
+      '<div class="card b-board b-rp">' +
+      '<div class="b-rp-row b-rp-head"><span>이름</span><span>출석률</span><span>참석·지각·불참</span><span>평균 지각</span></div>' +
+      d.people.map(function (p) {
+        var open = R.open === p.id;
+        return '<div class="b-rp-row tap' + (open ? ' open' : '') + '" onclick="toggleRp(\'' + esc(p.id) + '\')">' +
+          '<span class="nm"><b>' + esc(p.name) + '</b><small>' + esc(p.group || '') + '</small></span>' +
+          '<span class="' + rateCls(p.attend_rate) + '">' + pctText(p.attend_rate) + '</span>' +
+          '<span>' + p.참석 + ' · ' + p.지각 + ' · ' + p.불참 + (p.조퇴 ? ' <small>조퇴 ' + p.조퇴 + '</small>' : '') + '</span>' +
+          '<span>' + (p.avg_late_min != null ? p.avg_late_min + '분' : '–') + '</span>' +
+          (open ? '<div class="b-rp-detail">' + personDetail(p) + '</div>' : '') + '</div>';
+      }).join('') + '</div>' +
+      '<button class="ghost-btn" onclick="copyReport()">📋 텍스트로 복사 (텔레그램에 붙여넣기)</button>' +
+      '<div class="msg" id="rpMsg"></div>';
+  } else {
+    h += '<div class="card b-rp-me">' + personDetail(d.people[0]) + '</div>';
+  }
+  $('rpBody').innerHTML = h;
+}
+function tile(label, val) { return '<div class="b-tile"><span>' + label + '</span><b>' + val + '</b></div>'; }
+function rateCls(v) { return v == null ? '' : v >= 90 ? 'b-good' : v >= 70 ? 'b-mid' : 'b-low'; }
+
+function personDetail(p) {
+  var h = '<div class="b-rp-stats">' +
+    '<span>모임 <b>' + p.total + '회</b></span>' +
+    '<span>정시 참석 <b>' + pctText(p.on_time_rate) + '</b></span>' +
+    '<span>지각률 <b>' + pctText(p.late_rate) + '</b></span>' +
+    '<span>불참률 <b>' + pctText(p.absent_rate) + '</b></span>' +
+    '<span>사전 체크 <b>' + pctText(p.planned_rate) + '</b></span>' +
+    (p.avg_late_min != null ? '<span>평균 지각 <b>' + p.avg_late_min + '분</b></span>' : '') + '</div>';
+  if (!p.details.length) return h + '<p class="b-note">지각·불참 없이 모두 참석했어요 👏</p>';
+  return h + '<div class="b-rp-list">' + p.details.map(function (x) {
+    return '<div class="b-rp-item"><div><span class="b-rp-date">' + shortD(x.date) + '</span> ' + esc(x.title) + '</div>' +
+      '<div>' + chip(x.status) + (x.late_min ? ' <small>' + x.late_min + '분</small>' : '') +
+      (x.planned_status && x.planned_status !== x.status ? ' <small>(사전 ' + esc(x.planned_status) + ')</small>' : '') + '</div>' +
+      '<div class="b-rp-reason' + (x.reason ? '' : ' none') + '">' + (x.reason ? esc(x.reason) : '사유 미입력') + '</div></div>';
+  }).join('') + '</div>';
+}
+
+function reportText() {
+  var d = R.data, sm = d.summary;
+  var lines = ['[' + S.team.name + ' ' + monthLabel(d.month) + ' 출결 리포트]',
+    '모임 ' + d.sessions.closed + '회 · 평균 출석률 ' + pctText(sm.attend_rate) + ' · 지각 ' + sm.지각 + '건 · 불참 ' + sm.불참 + '건', ''];
+  d.people.forEach(function (p) {
+    lines.push('▪ ' + p.name + (p.group ? '(' + p.group + ')' : '') + ' — 출석률 ' + pctText(p.attend_rate) +
+      ' | 참석 ' + p.참석 + ' · 지각 ' + p.지각 + ' · 불참 ' + p.불참 + (p.조퇴 ? ' · 조퇴 ' + p.조퇴 : '') +
+      (p.avg_late_min != null ? ' | 평균 지각 ' + p.avg_late_min + '분' : ''));
+    p.details.forEach(function (x) {
+      lines.push('   - ' + shortD(x.date) + ' ' + x.title + ' ' + x.status + (x.late_min ? ' ' + x.late_min + '분' : '') + ': ' + (x.reason || '사유 미입력'));
+    });
   });
+  return lines.join('\n');
 }
-function openSessionKeepBoard() {
-  var mine = myRow(S.current.id);
-  if (!mine) return;
-  document.querySelectorAll('input[name="st"]').forEach(function (r) { r.checked = r.value === mine.status; });
+function copyReport() {
+  var text = reportText();
+  var done = function () { setMsg('rpMsg', '복사했어요! 텔레그램에 붙여넣으면 돼요.'); haptic('success'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(text) ? done() : setMsg('rpMsg', '복사하지 못했어요', true); });
+  } else if (fallbackCopy(text)) done(); else setMsg('rpMsg', '복사하지 못했어요', true);
 }
+function fallbackCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
+  return ok;
+}
+
 function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; } } catch (e) {} alert(m); }
 
 // =====================================================================
@@ -414,15 +816,18 @@ var VIEWS = { home: 'homeView', attend: 'attendWrap', notice: 'noticeView', task
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
+  setTabUI(t);
+  $('stateBox').style.display = 'none';
+  S.current = null; stopBoardTimer();
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+  refreshTab();
+  window.scrollTo(0, 0);
+}
+function setTabUI(t) {
   curTab = t;
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === t); });
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
   $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
-  $('stateBox').style.display = 'none';
-  S.current = null;
-  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
-  refreshTab();
-  window.scrollTo(0, 0);
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
 function refreshTab() {

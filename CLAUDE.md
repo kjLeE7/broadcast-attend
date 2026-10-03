@@ -1,7 +1,7 @@
 # CLAUDE.md — 방송예술과 텔레그램 미니앱 인수인계
 
 새 대화에서 이 저장소 작업을 이어갈 때 먼저 읽는 문서예요.
-(마지막 정리: 2026-10-03)
+(마지막 정리: 2026-10-03, 모임·출결 흐름 완성)
 
 ## 1. 누구와, 무엇을 만드는 중인지
 
@@ -58,11 +58,26 @@
 
 ### 지금 있는 기능(action)
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
-`sessions.create/update/list`, `attendance.list/saveMine/saveFor/update`,
+`sessions.create/update/delete/list/board/close`, `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete`, `assignments.list/create/update/delete`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
 `dashboard.load`, `pin.setInitial`, `pin.verify`
+
+### 모임·출결 흐름 (2026-10-03 완성)
+1. **모임 만들기**: 조장 이상. 대상(팀 전체 또는 조)을 고르고, 만들면 봇이 대상자에게 개인 메시지로 알림
+   (`notify_result`에 보낸 수·못 받은 사람 기록. 봇을 시작 안 한 사람은 못 받음). 버튼은 `beta/?s=모임id`로 열림.
+   취소하면 취소 알림. 미니앱 주소는 Secret `MINIAPP_URL`로 바꿀 수 있음(없으면 GitHub Pages 베타 주소).
+2. **사전 출결체크**: 본인이 참석/지각/불참 + 사유(지각·불참은 필수). 시작 시간 전까지만 → `attendance.planned_*`
+3. **현황**: 팀원 모두가 상태를 봄. **사유는 본인·조장 이상만** (`attView`에서 걸러냄)
+4. **현장 출결확인**: 조장 이상이 이름 눌러 확인 → `arrived_at`, `checked_by`. 시작 + `late_grace_minutes`(설정값, 기본 0) 지나면 지각.
+   늦게 누를 땐 실제 도착 시각(`at`)을 넣을 수 있음. 지각이면 사전 사유를 최종 사유로 옮겨 둠.
+5. **마감**: 끝나는 시간(없으면 시작+3시간)이 지나면 목록·현황·리포트를 열 때 자동 마감(`autoClose`), 또는 마감 버튼.
+   확인 안 된 대상자 = 불참. `closed_at` 기록, 상태 '완료'. 마감 뒤에도 늦게 온 사람 확인 가능(불참→지각).
+6. **사유 입력**: 최종이 지각·불참·조퇴면 본인 화면에 사유 칸, 목록 위에 '사유를 적어주세요' 알림. 조장 이상이 대신 적을 수 있음
+7. **월간 리포트**: 마감된 모임만 셈. 사람별 출석률(참석+지각+조퇴)/정시율/지각률/불참률/사전체크율/평균 지각 분/사유 목록.
+   조장 이상은 팀 전체 + '텍스트로 복사', 팀원은 본인 것만. (자동 발송은 아직 없음)
+- `attendance.status`는 **최종** 결과, `planned_status`는 **사전** 체크. 예전 `saveMine/saveFor/update/list`는 없앴음.
 
 ## 4. DB 요약
 
@@ -71,10 +86,10 @@
 - 모든 테이블에 `audit_trigger()`가 달려 있어요. 문지기가 보내는 헤더 `x-actor-id`로 누가 바꿨는지 `audit_log`에 남아요. 🔴 조회는 `access_log`.
 - 주요 테이블
   - 사람·조직: `org_units`, `churches`, `people`, `people_private`, `positions`, `position_history`, `group_assignments`, `external_roles`
-  - 교육: `meeting_types`, `meeting_sessions`, `attendance`(상태: 참석/불참/지각/조퇴), `checkins`, `checkin_reports`, `assignments`, `assignment_submissions`, `notices`, `session_reviews`
+  - 교육: `meeting_types`, `meeting_sessions`(+`closed_at`, `notified_at`, `notify_result`), `attendance`(최종 `status`: 참석/불참/지각/조퇴, 사전 `planned_status/planned_reason/planned_at`, 확인 `arrived_at/checked_by`, 사유 `reason/reason_at`), `checkins`, `checkin_reports`, `assignments`, `assignment_submissions`, `notices`, `session_reviews`
   - 녹음: `availability`(slots smallint[] 0~47, 30분 단위), `weekly_submissions`(week_start = 월요일), `fixed_schedules`, `recording_requests`(제목·코드, 대본은 `nas_ref`로 NAS만 가리킴), `castings`(한 배역에 여러 명 확정 가능), `recording_sessions`(retake_of), `recording_participants`
   - 홈: `staff_schedules`, `duties`(녹음/사회/촬영/음향편집/기타), `projects`(기획/진행/보류/완료), `tribe_stats`(12지파 행 미리 있음)
-  - 관리: `app_settings`(`weekly_hours` {"from":8,"to":24}, `recording_access`), `pin_sessions`, `audit_log`, `access_log`
+  - 관리: `app_settings`(`weekly_hours` {"from":8,"to":24}, `recording_access`, `late_grace_minutes` 0), `pin_sessions`, `audit_log`, `access_log`
 - 뷰: `v_people_current`, `v_positions_current`
 - 함수: `effective_rank(person, unit)`, `set_pin`, `reset_pin`, `verify_pin`, `is_pin_unlocked`, `audit_trigger`
 - 스키마를 바꿀 땐 Supabase MCP `apply_migration`을 써요. drop이 섞이면 취소될 때가 있어서 나눠서 해요.
@@ -90,6 +105,7 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요.
+- 모임: 만들기·고치기·취소·출결확인·마감은 조장 이상. 출결 상태는 팀원 모두, 사유는 본인·조장 이상.
 
 ## 6. 조직 계층
 
@@ -110,6 +126,7 @@
 ## 8. 남은 할 일
 
 - [ ] 사용자: BotFather `/newapp`(베타), `/setdomain`, 시범 인원에게 베타 링크 공유 → 의견 모으기
+- [ ] 모임: 월간 리포트 자동 발송(매달 1일 팀장에게 봇으로), 모임 전날 미체크자 알림, 모임 고치기 화면
 - [ ] 베타로 아직 안 옮긴 기능: 시간취합(투표), 녹음자 배치, 프로필
 - [ ] 녹음 요청·세션·캐스팅 화면
 - [ ] 관리자 페이지 (PIN 초기화, 설정값 수정, 비활성화)
