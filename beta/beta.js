@@ -1,6 +1,7 @@
 // =====================================================================
 // 방송예술과 미니앱 베타 — Supabase(문지기 api)만 사용
-// 지금은 출결만. 기존 앱(../app.js, 구글시트)과는 완전히 분리되어 있음.
+// 기존 앱(../app.js, 구글시트)과는 완전히 분리되어 있음.
+// 텔레그램 미니앱으로 열면 initData로, PC 브라우저로 열면 '텔레그램으로 로그인' 버튼으로 확인.
 // =====================================================================
 var API = 'https://bundxpidywrcrwhhgclv.supabase.co/functions/v1/api';
 var RANK = { MEMBER: 10, GROUP_LEADER: 20, INSTRUCTOR: 30, TEAM_LEADER: 40 };
@@ -9,6 +10,8 @@ var STATUSES = ['참석', '불참', '지각', '조퇴'];
 
 var tg = (window.Telegram && Telegram.WebApp) ? Telegram.WebApp : null;
 var initData = tg ? (tg.initData || '') : '';
+var LOGIN_KEY = 'beta_tg_login';  // PC 브라우저 로그인 정보 (7일 유지)
+var loginRaw = '';
 if (tg) {
   tg.ready();
   tg.expand();
@@ -29,13 +32,25 @@ var S = {
 // 공통
 // ---------------------------------------------------------------------
 function api(action, payload) {
+  var headers = { 'Content-Type': 'application/json' };
+  if (initData) headers['x-telegram-init-data'] = initData;
+  else if (loginRaw) headers['x-telegram-login'] = loginRaw;
   return fetch(API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-telegram-init-data': initData },
+    headers: headers,
     body: JSON.stringify({ action: action, payload: payload || {} })
-  }).then(function (res) { return res.json(); })
-    .then(function (j) { if (!j.ok) throw new Error(j.error || '알 수 없는 오류'); return j.data; });
+  }).then(function (res) {
+    return res.json().then(function (j) {
+      if (j.ok) return j.data;
+      var e = new Error(j.error || '알 수 없는 오류');
+      e.status = res.status;
+      // 브라우저 로그인이 만료·위조면 로그인 화면으로
+      if (res.status === 401 && !initData && loginRaw) { forgetLogin(); showLogin(e.message); }
+      throw e;
+    });
+  });
 }
+function isWide() { return window.matchMedia('(min-width: 1000px)').matches; }
 function $(id) { return document.getElementById(id); }
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -64,6 +79,7 @@ function chip(status) {
   return '<span class="st st-' + esc(status) + '">' + esc(status) + '</span>';
 }
 function showState(title, desc) {
+  $('loginBox').style.display = 'none';
   $('stateBox').style.display = 'block';
   $('stateBox').innerHTML = '<b>' + esc(title) + '</b>' + esc(desc || '');
   $('listView').style.display = 'none';
@@ -75,10 +91,11 @@ function showState(title, desc) {
 // ---------------------------------------------------------------------
 function boot() {
   if (!initData) {
-    $('who').textContent = '게스트';
-    showState('텔레그램 안에서 열어주세요', '베타는 텔레그램 미니앱으로 열었을 때만 동작해요');
-    return;
+    var saved = getLogin();
+    if (!saved) { showLogin(); return; }
+    loginRaw = loginQuery(saved);
   }
+  showState('불러오는 중...', '잠시만 기다려주세요');
   api('me').then(function (me) {
     S.me = me;
     var name = me.profile.name;
@@ -87,11 +104,60 @@ function boot() {
     $('who').textContent = name + '님' + (top ? ' · ' + top.unit + ' ' + top.position : '');
     if (!me.teams.length) { showState('아직 소속 팀이 없어요', '팀장님께 팀 배정을 요청해주세요'); return; }
     $('tabbar').classList.remove('b-off');
+    document.body.classList.add('b-nav');
     renderTeamTabs();
     selectTeam(me.teams[0].id);
   }).catch(function (err) {
-    showState('들어갈 수 없어요', err.message);
+    if (err.status === 401 && !initData) return;   // 로그인 화면으로 이미 넘어감
+    showState('들어갈 수 없어요', err.message + (initData ? '' : ' (다른 텔레그램 계정이면 오른쪽 위 동그라미를 눌러 로그아웃)'));
   });
+}
+
+// ---------------------------------------------------------------------
+// PC 브라우저 로그인 (텔레그램 로그인 버튼)
+// ---------------------------------------------------------------------
+function getLogin() { try { return JSON.parse(localStorage.getItem(LOGIN_KEY) || 'null'); } catch (e) { return null; } }
+function forgetLogin() { loginRaw = ''; try { localStorage.removeItem(LOGIN_KEY); } catch (e) {} }
+function loginQuery(u) {
+  // 텔레그램이 준 값을 그대로 (서버가 이 값들로 서명을 다시 계산함)
+  var q = new URLSearchParams();
+  Object.keys(u).forEach(function (k) { if (u[k] !== undefined && u[k] !== null) q.append(k, String(u[k])); });
+  return q.toString();
+}
+function showLogin(msg) {
+  ['stateBox', 'listView', 'detailView', 'weeklyView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
+  $('tabbar').classList.add('b-off');
+  document.body.classList.remove('b-nav');
+  $('who').textContent = '게스트';
+  $('avatar').textContent = '?';
+  $('loginBox').style.display = 'block';
+  setMsg('loginMsg', msg || '', !!msg);
+  if ($('tgWidget').getAttribute('data-ready')) return;
+  api('public.bot').then(function (b) {
+    if (!b.username) throw new Error('봇 정보를 가져오지 못했어요');
+    var sc = document.createElement('script');
+    sc.async = true;
+    sc.src = 'https://telegram.org/js/telegram-widget.js?22';
+    sc.setAttribute('data-telegram-login', b.username);
+    sc.setAttribute('data-size', 'large');
+    sc.setAttribute('data-radius', '14');
+    sc.setAttribute('data-onauth', 'onTgAuth(user)');
+    $('tgWidget').innerHTML = '';
+    $('tgWidget').appendChild(sc);
+    $('tgWidget').setAttribute('data-ready', '1');
+  }).catch(function (err) { $('tgWidget').innerHTML = '<span class="b-wait">' + esc(err.message) + '</span>'; });
+}
+window.onTgAuth = function (user) {
+  try { localStorage.setItem(LOGIN_KEY, JSON.stringify(user)); } catch (e) {}
+  loginRaw = loginQuery(user);
+  $('loginBox').style.display = 'none';
+  boot();
+};
+function onAvatar() {
+  if (initData || !loginRaw) return;  // 미니앱에선 로그아웃 없음
+  if (!confirm('로그아웃할까요? 다음에 다시 텔레그램으로 로그인해야 해요.')) return;
+  forgetLogin();
+  location.reload();
 }
 
 function renderTeamTabs() {
@@ -132,9 +198,14 @@ function showList() {
   $('stateBox').style.display = 'none';
   $('detailView').style.display = 'none';
   $('listView').style.display = 'block';
+  $('attendWrap').classList.remove('split');
   $('createCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
   if (S.team.rank >= RANK.INSTRUCTOR) fillTypeSelect();
+  renderList();
+  window.scrollTo(0, 0);
+}
 
+function renderList() {
   var today = todayStr();
   var up = S.sessions.filter(function (s) { return s.session_date >= today; });
   var past = S.sessions.filter(function (s) { return s.session_date < today; }).reverse();
@@ -143,7 +214,6 @@ function showList() {
     : '<div class="empty"><b>예정된 모임이 없어요</b>' + (S.team.rank >= RANK.INSTRUCTOR ? '위에서 새로 만들 수 있어요' : '모임이 잡히면 여기에 보여요') + '</div>';
   $('pastList').innerHTML = past.length ? past.map(sessionCard).join('')
     : '<div class="empty"><b>최근 지난 모임이 없어요</b></div>';
-  window.scrollTo(0, 0);
 }
 
 function sessionCard(s) {
@@ -157,7 +227,8 @@ function sessionCard(s) {
     var n = (S.att[s.id] || []).filter(function (r) { return r.status; }).length;
     side += '<small>제출 ' + n + '명</small>';
   }
-  return '<button class="b-session' + (past ? ' b-past' : '') + (cancelled ? ' b-cancel' : '') + '" onclick="openSession(\'' + esc(s.id) + '\')">' +
+  var selected = S.current && S.current.id === s.id;
+  return '<button class="b-session' + (past ? ' b-past' : '') + (cancelled ? ' b-cancel' : '') + (selected ? ' b-sel' : '') + '" onclick="openSession(\'' + esc(s.id) + '\')">' +
     '<div class="b-date' + (isToday ? ' today' : '') + '"><b>' + d.getDate() + '</b><span>' + (d.getMonth() + 1) + '월 ' + WD[d.getDay()] + '</span></div>' +
     '<div class="b-info"><b>' + esc(sessionName(s)) + '</b><span>' + esc(timePlace(s) || '시간·장소 미정') + '</span></div>' +
     '<div class="b-side">' + side + '</div></button>';
@@ -221,7 +292,10 @@ function openSession(id) {
   var s = S.sessions.filter(function (x) { return x.id === id; })[0];
   if (!s) return;
   S.current = s;
-  $('listView').style.display = 'none';
+  var wide = isWide();   // 넓은 화면: 목록은 두고 오른쪽에 상세
+  $('listView').style.display = wide ? 'block' : 'none';
+  $('attendWrap').classList.toggle('split', wide);
+  if (wide) renderList();
   $('detailView').style.display = 'block';
   var d = parseDate(s.session_date);
   $('dHead').innerHTML = '<div class="b-dhead"><h1>' + esc(sessionName(s)) + '</h1><p>' +
@@ -239,7 +313,7 @@ function openSession(id) {
   var lead = S.team.rank >= RANK.GROUP_LEADER;
   $('boardWrap').style.display = lead ? 'block' : 'none';
   if (lead) loadBoard();
-  window.scrollTo(0, 0);
+  if (!wide) window.scrollTo(0, 0);
 }
 
 function saveMine() {
@@ -252,6 +326,7 @@ function saveMine() {
     upsertAtt(s.id, row);
     setMsg('myMsg', '저장했어요! 수고하셨어요 🙌');
     $('saveBtn').textContent = '출결 수정';
+    if ($('attendWrap').classList.contains('split')) renderList();
     haptic('success');
     btn.disabled = false;
     if (S.team.rank >= RANK.GROUP_LEADER) renderBoard();
@@ -304,6 +379,7 @@ function saveFor(personId, status) {
     upsertAtt(s.id, row);
     haptic('success');
     renderBoard();
+    if ($('attendWrap').classList.contains('split')) renderList();
     if (personId === S.me.profile.id) openSessionKeepBoard();
   }).catch(function (err) {
     alertMsg(err.message);
@@ -393,7 +469,7 @@ function switchWk(v) {
   W.view = v;
   document.querySelectorAll('.wk-view').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-v') === v); });
   $('wkMine').style.display = v === 'mine' ? 'block' : 'none';
-  $('wkResult').style.display = v === 'result' ? 'block' : 'none';
+  $('wkResult').style.display = v === 'result' ? '' : 'none';
   $('fxCard').style.display = v === 'mine' ? 'block' : 'none';
   renderWkHead();
   if (v === 'mine') { renderWkQuick(); renderWkGrid(); renderFx(); }

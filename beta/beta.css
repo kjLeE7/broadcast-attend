@@ -98,3 +98,52 @@
 .b-fx .fx-top .b-input { min-height: 40px; padding: 9px 12px; }
 .b-fx .range-row select { padding: 10px 30px 10px 12px; }
 .b-off { display: none !important; }
+
+/* ===== PC 브라우저 로그인 ===== */
+.b-login { max-width: 420px; margin: 40px auto; text-align: center; padding: 34px 28px 26px; }
+.b-login-logo { width: 56px; height: 56px; font-size: 24px; border-radius: 16px; margin: 0 auto 14px; }
+.b-login h2 { margin: 0 0 8px; font-size: 20px; font-weight: 800; }
+.b-login p { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin: 0 0 20px; }
+.b-widget { min-height: 48px; display: flex; justify-content: center; align-items: center; }
+.b-wait { color: var(--muted); font-size: 13px; }
+.b-login .b-login-note { font-size: 12px; margin: 18px 0 0; }
+button.avatar { cursor: pointer; font-family: inherit; }
+
+/* 목록에서 지금 열어둔 모임 */
+.b-session.b-sel { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
+
+/* ===== PC 화면 (가로 1000px 이상) =====
+   한 화면을 넓게 배치만 바꿈 — 모바일 화면은 그대로 */
+@media (min-width: 1000px) {
+  body.b-nav { padding-left: 220px; }
+  .app { max-width: 1100px; padding: 28px 40px 60px; }
+
+  /* 하단 탭 → 왼쪽 메뉴 */
+  .b-tabbar {
+    position: fixed; left: 0; top: 0; bottom: 0; transform: none;
+    width: 220px; max-width: none; border-radius: 0;
+    display: flex !important; flex-direction: column; gap: 4px;
+    padding: 28px 14px 20px; background: var(--card);
+    box-shadow: none; border-right: 1px solid var(--line);
+  }
+  .b-tabbar.b-off { display: none !important; }
+  .b-tabbar .tab { flex: none; flex-direction: row; justify-content: flex-start; gap: 10px; padding: 12px 14px; font-size: 14.5px; border-radius: 12px; }
+  .b-tabbar .tab:not(.active):hover { background: var(--card-soft); color: var(--text); }
+
+  /* 출결: 모임을 누르면 목록 옆에 상세 */
+  .b-attend.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+  .b-attend.split #detailView { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 2px 4px 8px; }
+  .b-attend.split #detailView .back { display: none; }
+  .b-attend:not(.split) #listView { max-width: 640px; }
+
+  /* 가능시간: 칸을 크게, 결과는 표 옆에 요약 */
+  #weeklyView { max-width: 980px; }
+  .tgrid.half .gc { height: 24px; }
+  .tgrid .gh b { font-size: 13.5px; }
+  #wkResult { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0 24px; align-items: start; }
+  #wkResult > #wkTeamChips { grid-column: 1 / -1; }
+  #wkResult > #wkResGrid { grid-column: 1; grid-row: 2 / span 4; }
+  #wkResult > #wkBest, #wkResult > #wkCellInfo, #wkResult > #wkMemos, #wkResult > #wkWho { grid-column: 2; }
+  #wkResult > #wkCellInfo { background: var(--card); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); margin: 0 0 10px; }
+  #fxCard { max-width: 640px; }
+}
