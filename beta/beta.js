@@ -82,7 +82,7 @@ function showState(title, desc) {
   $('loginBox').style.display = 'none';
   $('stateBox').style.display = 'block';
   $('stateBox').innerHTML = '<b>' + esc(title) + '</b>' + esc(desc || '');
-  ['listView', 'detailView', 'noticeView', 'taskView', 'weeklyView'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['homeView', 'listView', 'detailView', 'noticeView', 'taskView', 'weeklyView'].forEach(function (id) { $(id).style.display = 'none'; });
 }
 
 // ---------------------------------------------------------------------
@@ -105,6 +105,7 @@ function boot() {
     $('tabbar').classList.remove('b-off');
     document.body.classList.add('b-nav');
     renderTeamTabs();
+    if (curTab === 'home') $('teamTabs').style.display = 'none';
     selectTeam(me.teams[0].id);
   }).catch(function (err) {
     if (err.status === 401 && !initData) return;   // 로그인 화면으로 이미 넘어감
@@ -124,7 +125,7 @@ function loginQuery(u) {
   return q.toString();
 }
 function showLogin(msg) {
-  ['stateBox', 'listView', 'detailView', 'weeklyView', 'noticeView', 'taskView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['stateBox', 'homeView', 'listView', 'detailView', 'weeklyView', 'noticeView', 'taskView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
   $('tabbar').classList.add('b-off');
   document.body.classList.remove('b-nav');
   $('who').textContent = '게스트';
@@ -171,7 +172,7 @@ function renderTeamTabs() {
 function selectTeam(id) {
   S.team = S.me.teams.filter(function (t) { return t.id === id; })[0];
   S.members = null; S.types = []; S.att = {}; S.sessions = [];
-  N.list = null; A.list = null; A.current = null; C.list = [];
+  N.list = null; A.list = null; A.current = null; C.list = []; dashData = null;
   document.querySelectorAll('#teamTabs .subtab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-team') === id); });
   showState('불러오는 중...', S.team.name + ' 정보를 가져오고 있어요');
   loadTeam().then(function () {
@@ -408,15 +409,15 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // =====================================================================
 // 하단 탭
 // =====================================================================
-var curTab = 'attend';
-var VIEWS = { attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView' };
+var curTab = 'home';
+var VIEWS = { home: 'homeView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   curTab = t;
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === t); });
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   $('stateBox').style.display = 'none';
   S.current = null;
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
@@ -425,7 +426,8 @@ function goTab(t) {
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
 function refreshTab() {
-  if (curTab === 'attend') showList();
+  if (curTab === 'home') loadDashboard();
+  else if (curTab === 'attend') showList();
   else if (curTab === 'notice') loadNotices();
   else if (curTab === 'task') loadTasks();
   else if (curTab === 'weekly' && !W.data) openWeekly('next');
@@ -1157,6 +1159,299 @@ function deleteTask() {
     closeTask();
   }).catch(function (err) { alertMsg(err.message); });
 }
+
+// =====================================================================
+// 홈 대시보드 — 지금 앱(app.js)의 홈 화면과 같은 동작. 데이터만 Supabase에서
+// =====================================================================
+var dashData = null;
+var teamFilter = '';
+var lastDashAt = 0;
+var TASK_ICON = { '녹음': '🎙', '사회': '🎤', '촬영': '🎥', '음향편집': '🎚' };
+var SCHED_HOLIDAYS = { '10-03': '개천절', '10-09': '한글날', '12-25': '성탄절', '01-01': '신정', '03-01': '삼일절', '05-05': '어린이날', '06-06': '현충일', '08-15': '광복절' };
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+// 보기 방식 (이 폰에 기억): 사명자 일정 = PC는 캘린더, 모바일은 목록 / 프로젝트 = 한 줄 목록
+var schedView = lsGet('schedView') || (window.innerWidth >= 1000 ? 'cal' : 'list');
+var projView = lsGet('projView') || 'list';
+
+function hmD(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+function mdw(ms) { var d = new Date(ms); return (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')'; }
+function hmMs(ms) { return hmD(new Date(ms)); }
+function sameDay(a, b) { return new Date(a).toDateString() === new Date(b).toDateString(); }
+function ddayText(start) {
+  var a = new Date(); a.setHours(0, 0, 0, 0);
+  var b = new Date(start.getTime()); b.setHours(0, 0, 0, 0);
+  var diff = Math.round((b - a) / 86400000);
+  if (diff === 0) return '오늘';
+  if (diff === 1) return '내일';
+  return 'D-' + diff;
+}
+function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); }); }
+
+function loadDashboard() {
+  if (!S.team) return;
+  lastDashAt = Date.now();
+  var d = new Date();
+  $('todayText').textContent = d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + WD[d.getDay()] + '요일';
+  if (dashData) renderDashboard();   // 그려둔 것 먼저, 새 내용은 뒤에서
+  var teamId = S.team.id;
+  return api('dashboard.load', { team_id: teamId }).then(function (r) {
+    if (!S.team || S.team.id !== teamId) return;
+    dashData = r;
+    renderDashboard();
+  }).catch(function (err) {
+    if (dashData) return;
+    $('scheduleArea').innerHTML = '<div class="empty"><b>대시보드를 불러오지 못했어요</b>' + esc(err.message) + '</div>';
+    ['taskNowArea', 'taskUpArea', 'projectArea', 'tribeArea'].forEach(function (id) { $(id).innerHTML = ''; });
+  });
+}
+
+function renderDashboard() {
+  renderTeamFilter();
+  renderManager();
+  renderWeeklyBanner();
+  var t = dashData.tribes;
+  $('tribeTotal').textContent = t.filled ? '총 ' + t.total + '명' : '';
+  $('tribeArea').innerHTML = tribeMapHtml(t);
+}
+
+// 팀 필터 칩은 과에 있는 팀으로
+function renderTeamFilter() {
+  var teams = dashData.teams || [];
+  if (teamFilter && teams.indexOf(teamFilter) === -1) teamFilter = '';
+  $('teamFilter').innerHTML = [''].concat(teams).map(function (t) {
+    return '<button class="fchip' + (t === teamFilter ? ' active' : '') + '" data-team="' + esc(t) + '">' + (t ? esc(t) : '전체') + '</button>';
+  }).join('');
+}
+
+function renderManager() {
+  var d = dashData;
+  if (!d) return;
+  var pillNow = $('pillNow');
+  pillNow.querySelector('b').innerHTML = d.tasksNow.length + '<small>건</small>';
+  pillNow.classList.toggle('now', d.tasksNow.length > 0);
+  $('dStatUp').innerHTML = d.tasksUpcoming.length + '<small>건</small>';
+  $('dStatProj').innerHTML = d.projects.length + '<small>개</small>';
+  $('taskLiveDot').classList.toggle('on', d.tasksNow.length > 0);
+
+  renderSchedule();
+
+  // 1. 진행 중 업무
+  $('taskNowArea').innerHTML = d.tasksNow.length
+    ? d.tasksNow.map(function (t) { return dashTaskCard(t, true); }).join('')
+    : '<div class="empty"><b>지금 진행 중인 업무가 없어요</b>녹음·사회·촬영·음향편집이 시작되면 여기에 떠요</div>';
+
+  // 2. 예정 업무 (팀 필터)
+  var ups = d.tasksUpcoming.filter(function (t) { return !teamFilter || t.team === teamFilter; });
+  $('taskUpCount').textContent = ups.length + '건';
+  $('taskUpArea').innerHTML = ups.length
+    ? ups.map(function (t) { return dashTaskCard(t, false); }).join('')
+    : '<div class="empty"><b>예정된 업무가 없어요</b>' + (teamFilter ? teamFilter + ' 업무가 없어요' : '업무가 등록되면 여기에 보여요') + '</div>';
+
+  renderProjects();
+}
+
+// 주간 녹음가능 알림: 이번 주 미제출(빨강) > 주일에 다음 주 미제출
+function renderWeeklyBanner() {
+  var w = dashData.weekly, el = $('weeklyBanner');
+  var b = function (which, urgent, title, sub) {
+    return '<div class="poll-banner' + (urgent ? ' urgent' : '') + '" onclick="goWeekly(\'' + which + '\')"><span class="pb-i">🎙</span>' +
+      '<div><b>' + title + '</b><small>' + sub + '</small></div><span class="pb-go">›</span></div>';
+  };
+  var label = function (ws) { var m = parseDate(ws), e = parseDate(ws); e.setDate(e.getDate() + 6); return (m.getMonth() + 1) + '/' + m.getDate() + '~' + (e.getMonth() + 1) + '/' + e.getDate(); };
+  if (!w.this.submitted) {
+    el.innerHTML = b('this', true, '이번 주 녹음 가능시간 미제출', label(w.this.week_start) + ' · 지금이라도 입력해주세요');
+  } else if (!w.next.submitted && (w.isSunday || Date.now() > w.next.due)) {
+    el.innerHTML = b('next', Date.now() > w.next.due, '다음 주 녹음 가능시간을 입력해주세요', label(w.next.week_start) + ' · 마감 ' + mdw(w.next.due) + ' ' + hmMs(w.next.due));
+  } else el.innerHTML = '';
+}
+function goWeekly(which) { goTab('weekly'); if (W.which !== which || !W.data) openWeekly(which); }
+
+// ----- 0. 사명자 일정: 2주 캘린더 / 목록 -----
+function schedKind(cat) {
+  var c = String(cat || '');
+  if (/회의/.test(c)) return 'meet';
+  if (/수업|스터디|교육|연습/.test(c)) return 'class';
+  if (/녹음/.test(c)) return 'rec';
+  if (/촬영|편집/.test(c)) return 'shoot';
+  return 'etc';
+}
+function renderSchedule() {
+  var d = dashData; if (!d) return;
+  setSeg('schedSeg', schedView);
+  var sa = $('scheduleArea');
+  $('schedSub').textContent = schedView === 'cal' ? '이번 주 · 다음 주' : '오늘부터 2주';
+  if (schedView === 'cal') { sa.innerHTML = scheduleCalendarHtml(d.schedules); return; }
+  var today0 = new Date(); today0.setHours(0, 0, 0, 0);
+  var rows = d.schedules.filter(function (r) { return r.start >= today0.getTime(); });   // 목록은 오늘부터
+  if (!rows.length) {
+    sa.innerHTML = '<div class="empty"><b>2주 안에 등록된 일정이 없어요</b>모임 회차나 사명자 일정이 등록되면 여기에 보여요</div>';
+    return;
+  }
+  var today = Date.now(), prevDay = null;
+  sa.innerHTML = '<div class="card table-card"><table class="sched"><thead><tr><th>날짜·시간</th><th>일정</th><th>주관자</th><th>참여자</th></tr></thead><tbody>' +
+    rows.map(function (r) {
+      var showDate = prevDay === null || !sameDay(prevDay, r.start);
+      prevDay = r.start;
+      return '<tr class="' + (sameDay(r.start, today) ? 'today' : '') + '">' +
+        '<td class="c-date">' + (showDate ? mdw(r.start) : '') +
+          '<span class="c-time">' + hmMs(r.start) + (r.end ? '~' + hmMs(r.end) : '') + '</span></td>' +
+        '<td class="c-what"><b>' + esc(r.title) + '</b><span>' +
+          esc([r.category, r.place].filter(Boolean).join(' · ')) + '</span></td>' +
+        '<td class="c-who"><b>' + esc(r.name) + '</b><span>' + esc(r.role) + '</span></td>' +
+        '<td class="c-part">' + (r.participants ? esc(r.participants) : '–') + '</td>' +
+      '</tr>';
+    }).join('') + '</tbody></table></div>';
+}
+function scheduleCalendarHtml(rows) {
+  var now = new Date(), today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var start = new Date(today0); start.setDate(start.getDate() - start.getDay()); // 이번 주 일요일
+  var byDay = {};
+  (rows || []).forEach(function (r) { var k = new Date(r.start).toDateString(); (byDay[k] = byDay[k] || []).push(r); });
+  var cells = '';
+  for (var i = 0; i < 14; i++) {
+    var d = new Date(start); d.setDate(start.getDate() + i);
+    var key = d.toDateString(), isToday = key === today0.toDateString();
+    var hol = SCHED_HOLIDAYS[pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())];
+    var evs = (byDay[key] || []).sort(function (a, b) { return a.start - b.start; });
+    cells += '<div class="day' + (d < today0 ? ' past' : '') + (isToday ? ' today' : '') + (hol ? ' holiday' : '') + '">' +
+      '<div class="dnum"><span class="n">' + ((i === 0 || d.getDate() === 1) ? (d.getMonth() + 1) + '/' : '') + d.getDate() + '</span>' +
+      (isToday ? '<small>오늘</small>' : hol ? '<small class="hol">' + hol + '</small>' : '') + '</div>' +
+      evs.map(function (r) {
+        return '<button type="button" class="ev ' + schedKind(r.category) + '" data-k="' + esc(key) + '" data-s="' + r.start + '">' +
+          '<span class="t">' + hmMs(r.start) + (r.end ? '~' + hmMs(r.end) : '') + '</span><span class="n">' + esc(r.title) + '</span></button>';
+      }).join('') + '</div>';
+  }
+  return '<div class="cal">' +
+    '<div class="cal-head"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>' +
+    '<div class="cal-body">' + cells + '</div>' +
+    '<div class="cal-foot"><span class="lg"><i class="meet"></i>회의</span><span class="lg"><i class="class"></i>수업</span>' +
+    '<span class="lg"><i class="rec"></i>녹음</span><span class="lg"><i class="shoot"></i>촬영</span>' +
+    '<div class="detail" id="schedDetail"><span>일정을 누르면 여기에 자세히 보여요</span></div></div></div>';
+}
+
+// ----- 3. 진행 중 프로젝트: 한 줄 목록 / 작은 타일 -----
+function renderProjects() {
+  var d = dashData; if (!d) return;
+  setSeg('projSeg', projView);
+  $('projCount').textContent = d.projects.length + '개';
+  var pa = $('projectArea');
+  if (!d.projects.length) { pa.innerHTML = '<div class="empty"><b>진행 중인 프로젝트가 없어요</b></div>'; return; }
+  pa.innerHTML = projView === 'grid'
+    ? '<div class="pgrid">' + d.projects.map(projectTile).join('') + '</div>'
+    : '<div class="plist">' + d.projects.map(projectRow).join('') + '</div>';
+}
+function projDue(p) {
+  return p.due ? '<span class="due">' + ddayText(new Date(p.due)) + ' · ' + mdw(p.due) + '</span>' : esc(p.status || '');
+}
+function projectRow(p) {
+  return '<div class="prow">' +
+    '<span class="chip dark">' + esc(p.channel || '프로젝트') + '</span>' +
+    '<div class="pt">' + esc(p.title) + (p.desc ? '<small>' + esc(p.desc) + '</small>' : '') + '</div>' +
+    '<div class="pp"><b>담당</b>' + esc(p.owner || '미정') + (p.mc ? ' &nbsp;<b>MC</b>' + esc(p.mc) : '') + '</div>' +
+    '<div class="bar">' + (p.progress !== null && p.progress !== undefined ? '<i style="width:' + Math.min(100, p.progress) + '%"></i>' : '') + '</div>' +
+    '<div class="pd">' + projDue(p) + '</div>' +
+  '</div>';
+}
+function projectTile(p) {
+  return '<div class="ptile">' +
+    '<div class="top"><span class="chip dark">' + esc(p.channel || '프로젝트') + '</span><span class="pd">' + projDue(p) + '</span></div>' +
+    '<div class="tt">' + esc(p.title) + '</div>' +
+    '<div class="pp"><b>담당</b>' + esc(p.owner || '미정') + (p.mc ? '<br><b>MC</b>' + esc(p.mc) : '') + '</div>' +
+    (p.progress !== null && p.progress !== undefined ? '<div class="bar"><i style="width:' + Math.min(100, p.progress) + '%"></i></div>' : '') +
+  '</div>';
+}
+
+function dashTaskCard(t, live) {
+  var when = t.start ? '<b>' + (live ? hmMs(t.start) : ddayText(new Date(t.start))) + '</b>' + (live ? (t.end ? '~' + hmMs(t.end) : '') : mdw(t.start) + ' ' + hmMs(t.start)) : '<b>미정</b>';
+  return '<div class="tcard' + (live ? ' live' : '') + '">' +
+    '<div class="t-icon">' + (TASK_ICON[t.type] || '📌') + '</div>' +
+    '<div class="t-body">' +
+      '<div class="t-top">' +
+        (t.type ? '<span class="chip' + (live ? '' : ' dark') + '">' + esc(t.type) + '</span>' : '') +
+        (t.team ? '<span class="chip">' + esc(t.team) + '</span>' : '') +
+      '</div>' +
+      '<div class="t-title">' + esc(t.title) + '</div>' +
+      '<div class="t-meta">' + esc([t.owner && '담당 ' + t.owner, t.place, t.dept && '요청 ' + t.dept].filter(Boolean).join(' · ')) + '</div>' +
+    '</div>' +
+    '<div class="t-when">' + when + '</div>' +
+  '</div>';
+}
+
+// ----- 12지파 인원현황 (남한 지도: ../krmap.js 의 KR_MAP·TRIBES) -----
+function tribeMapHtml(d) {
+  if (typeof KR_MAP === 'undefined' || typeof TRIBES === 'undefined') return '<div class="empty inner"><b>지도 파일(krmap.js)을 못 읽었어요</b></div>';
+  var count = {};
+  (d.list || []).forEach(function (t) { count[String(t.name).trim()] = t.count; });
+  var byRegion = {};
+  TRIBES.forEach(function (t) { (t.region || []).forEach(function (r) { byRegion[r] = t; }); });
+  function cntText(t) { var c = count[t.name]; return c === null || c === undefined ? '–' : c + '명'; }
+
+  var svg = [];
+  Object.keys(KR_MAP).forEach(function (r) {
+    var t = byRegion[r];
+    svg.push('<path class="rg" fill="' + (t ? t.color : '#D9CFBF') + '" d="' + KR_MAP[r] + '"><title>' +
+      esc(r + (t ? ' · ' + t.name + ' ' + cntText(t) : '')) + '</title></path>');
+  });
+  TRIBES.forEach(function (t) {
+    if (t.pin) svg.push('<circle class="pin" cx="' + t.pin.x + '" cy="' + t.pin.y + '" r="6" fill="' + t.color + '"><title>' + esc(t.name + ' ' + cntText(t)) + '</title></circle>');
+  });
+  TRIBES.forEach(function (t) {
+    var l = t.label; if (!l) return;
+    var left = l.side === 'L';
+    svg.push('<line class="ld" x1="' + (left ? -4 : 400) + '" y1="' + l.y + '" x2="' + l.px + '" y2="' + l.py + '"/>' +
+      '<circle cx="' + l.px + '" cy="' + l.py + '" r="2.6" class="lp"/>' +
+      '<text class="lbl" x="' + (left ? -8 : 404) + '" y="' + (l.y + 4) + '" text-anchor="' + (left ? 'end' : 'start') + '">' +
+      esc(t.name) + ' <tspan class="c">' + cntText(t) + '</tspan></text>');
+  });
+
+  var list = TRIBES.slice().sort(function (a, b) { return (count[b.name] || 0) - (count[a.name] || 0); }).map(function (t) {
+    var c = count[t.name];
+    return '<div class="trow' + (c ? '' : ' zero') + '"><i style="background:' + t.color + '"></i><span>' + esc(t.name) +
+      '<small>' + esc(t.area || '') + '</small></span><b>' + (c === null || c === undefined ? '–' : c + '<small>명</small>') + '</b></div>';
+  }).join('');
+
+  return '<div class="tribe-wrap">' +
+    '<svg class="map" viewBox="-118 0 620 540" role="img" aria-label="12지파 지경 지도">' + svg.join('') + '</svg>' +
+    '<div class="tlist">' + list + '</div></div>' +
+    (d.filled ? '' : '<div class="tribe-hint">지파별 인원을 입력하면 여기에 보여요</div>');
+}
+
+// 보기 방식 전환·일정 상세·팀 필터 (화면에 처음부터 있는 요소라 한 번만 연결)
+$('schedSeg').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  schedView = b.getAttribute('data-v'); lsSet('schedView', schedView); renderSchedule();
+});
+$('projSeg').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  projView = b.getAttribute('data-v'); lsSet('projView', projView); renderProjects();
+});
+$('scheduleArea').addEventListener('click', function (e) {
+  var b = e.target.closest('.ev'); if (!b || !dashData) return;
+  var r = dashData.schedules.filter(function (x) { return String(x.start) === b.getAttribute('data-s') && new Date(x.start).toDateString() === b.getAttribute('data-k'); })[0];
+  if (!r) return;
+  document.querySelectorAll('#scheduleArea .ev.sel').forEach(function (x) { x.classList.remove('sel'); });
+  b.classList.add('sel');
+  $('schedDetail').innerHTML = '<b>' + esc(r.title) + '</b>' +
+    '<span>' + mdw(r.start) + ' ' + hmMs(r.start) + (r.end ? '~' + hmMs(r.end) : '') + '</span>' +
+    (r.place ? '<span>' + esc(r.place) + '</span>' : '') +
+    '<span>주관 <b>' + esc(r.name || '') + '</b>' + (r.role ? ' ' + esc(r.role) : '') + '</span>' +
+    (r.participants ? '<span>참여 ' + esc(r.participants) + '</span>' : '');
+});
+$('teamFilter').addEventListener('click', function (e) {
+  var b = e.target.closest('.fchip');
+  if (!b) return;
+  teamFilter = b.getAttribute('data-team');
+  document.querySelectorAll('#teamFilter .fchip').forEach(function (x) { x.classList.toggle('active', x === b); });
+  renderManager();
+});
+// 5분마다 새로고침 (홈을 보고 있을 때만)
+setInterval(function () {
+  if (document.visibilityState === 'visible' && curTab === 'home' && S.team) loadDashboard();
+}, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible' && curTab === 'home' && S.team && Date.now() - lastDashAt > 5 * 60 * 1000) loadDashboard();
+});
 
 // 텔레그램 뒤로가기 버튼: 모임·과제 상세에서 누르면 목록으로
 if (tg && tg.BackButton) {

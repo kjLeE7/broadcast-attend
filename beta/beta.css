@@ -153,7 +153,8 @@ button.avatar { cursor: pointer; font-family: inherit; }
 }
 
 /* ===== 공지·과제·체크인 ===== */
-.b-tabbar { grid-template-columns: repeat(4, 1fr); max-width: 452px; }
+.b-tabbar { grid-template-columns: repeat(5, 1fr); max-width: 452px; }
+.b-tabbar .tab { font-size: 11px; }
 .b-pad { padding: 0 20px 20px; }
 .b-top { padding-top: 14px; }
 .b-sub { font-size: 12px; color: var(--muted); margin-top: 3px; font-weight: 600; }

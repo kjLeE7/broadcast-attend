@@ -10,8 +10,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
-  <link rel="stylesheet" href="../style.css?v=20261003g">
-  <link rel="stylesheet" href="beta.css?v=20261003g">
+  <link rel="stylesheet" href="../style.css?v=20261003h">
+  <link rel="stylesheet" href="beta.css?v=20261003h">
 </head>
 <body>
   <div class="app">
@@ -41,6 +41,69 @@
       <div class="msg" id="loginMsg"></div>
       <p class="b-login-note">텔레그램 미니앱으로 열면 로그인 없이 바로 들어가요.</p>
     </div>
+
+    <!-- ===== 홈 (지금 앱 홈 화면과 같은 구조) ===== -->
+    <section id="homeView" style="display:none;">
+      <div class="home-head">
+        <div>
+          <h1 class="page-title home-title" id="homeTitle">방송예술을 한 눈에</h1>
+          <p class="page-desc" id="todayText"></p>
+        </div>
+        <!-- 숫자 요약 (얇은 알약) -->
+        <div class="pills" id="homePills">
+          <span class="pill" id="pillNow"><i class="dot"></i>지금 <b>–</b></span>
+          <span class="pill"><i class="dot"></i>준비 중 <b id="dStatUp">–</b></span>
+          <span class="pill"><i class="dot"></i>프로젝트 <b id="dStatProj">–</b></span>
+        </div>
+      </div>
+
+      <!-- 주간 녹음가능시간 미제출 알림 -->
+      <div id="weeklyBanner"></div>
+      
+      <!-- 과 대시보드 (모두 같은 화면) -->
+      <div id="managerArea">
+        <!-- 사명자 일정: 이번 주·다음 주 캘린더 (PC) / 목록 (모바일 기본) -->
+        <div class="blk">
+          <div class="section-head"><h2>사명자 일정</h2><span class="section-count" id="schedSub">이번 주 · 다음 주</span>
+            <div class="seg" id="schedSeg"><button type="button" data-v="cal">2주</button><button type="button" data-v="list">목록</button></div>
+          </div>
+          <div id="scheduleArea"><div class="skeleton row-skel"></div></div>
+        </div>
+
+        <!-- 우리는 지금 | 우리는 준비 중 (PC에서 반반) -->
+        <div class="two">
+          <div class="blk">
+            <div class="section-head"><h2>우리는 지금</h2><span class="section-count">하나님나라 건설 중이예요!</span><span class="live-dot" id="taskLiveDot"></span></div>
+            <div id="taskNowArea"><div class="skeleton row-skel"></div></div>
+          </div>
+          <div class="blk">
+            <div class="section-head"><h2>우리는 준비 중</h2><span class="section-count">많은 기도가 필요해요. <b id="taskUpCount"></b></span></div>
+            <div class="filter-chips" id="teamFilter">
+              <button class="fchip active" data-team="">전체</button>
+              <button class="fchip" data-team="성우팀">성우팀</button>
+              <button class="fchip" data-team="아나운서팀">아나운서팀</button>
+              <button class="fchip" data-team="엔지니어팀">엔지니어팀</button>
+            </div>
+            <div id="taskUpArea"><div class="skeleton row-skel"></div></div>
+          </div>
+        </div>
+
+        <!-- 진행 중인 프로젝트: 한 줄 목록 / 작은 타일 -->
+        <div class="blk">
+          <div class="section-head"><h2>진행 중인 프로젝트</h2><span class="section-count" id="projCount"></span>
+            <div class="seg" id="projSeg"><button type="button" data-v="list">한 줄 목록</button><button type="button" data-v="grid">작은 타일</button></div>
+          </div>
+          <div id="projectArea"><div class="skeleton row-skel"></div></div>
+        </div>
+
+        <!-- 12지파 인원현황: 남한 지도 -->
+        <div class="blk">
+          <div class="section-head"><h2>12지파 방송예술과 인원현황</h2><span class="section-count" id="tribeTotal"></span></div>
+          <div class="card tribe-card" id="tribeArea"><div class="skeleton row-skel"></div></div>
+        </div>
+      </div>
+
+    </section>
 
     <div class="b-attend" id="attendWrap">
 
@@ -287,12 +350,16 @@
       </div>
     </section>
 
-    <p class="b-foot" id="foot">베타 · 출결·체크인·공지·과제·녹음가능</p>
+    <p class="b-foot" id="foot">베타 · 홈·출결·체크인·공지·과제·녹음가능</p>
   </div>
 
   <!-- 하단 탭 -->
   <nav class="tabbar b-tabbar b-off" id="tabbar">
-    <button class="tab active" data-tab="attend" onclick="goTab('attend')">
+    <button class="tab active" data-tab="home" onclick="goTab('home')">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
+      <span>홈</span>
+    </button>
+    <button class="tab" data-tab="attend" onclick="goTab('attend')">
       <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
       <span>출결</span>
     </button>
@@ -310,6 +377,7 @@
     </button>
   </nav>
 
-  <script src="beta.js?v=20261003g"></script>
+  <script src="../krmap.js?v=20261001a"></script>
+  <script src="beta.js?v=20261003h"></script>
 </body>
 </html>
