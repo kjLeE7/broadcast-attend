@@ -9,7 +9,7 @@
   사용자는 `headroom wrap claude` 명령으로 클로드 코드를 켜요. **저장소 폴더 안에서 켜야** 이 문서가 자동으로 읽혀요.
 - **Supabase 연결**: 저장소 루트의 `.mcp.json`에 Supabase MCP(이 프로젝트 `bundxpidywrcrwhhgclv`만, 문서·DB·디버깅·개발·함수 기능)가 들어 있어요.
   처음 켜면 "이 MCP 서버를 쓸까요?"를 승인하고, `/mcp` → supabase → Authenticate로 브라우저에서 Supabase 로그인하면 돼요(토큰 따로 필요 없음).
-  MCP 도구 이름은 claude.ai 쪽과 같아요: `apply_migration`, `execute_sql`, `deploy_edge_function`, `get_logs` 등.
+  MCP 도구 이름은 claude.ai 쪽과 같아요: `apply_migration`, `execute_sql`, `deploy_edge_function`, 로그 보기(`get_logs` 또는 `query_logs`, 버전마다 이름이 달라요) 등.
 - **좋아진 점**: 사용자 컴퓨터에서는 Supabase 주소로 직접 요청이 돼요. claude.ai 작업 공간에선 막혀 있어서 실제 서버를 한 번도 못 불러 봤는데,
   여기선 `dashboard.scene`, `profile.report` 같은 걸 실제로 확인할 수 있어요(아래 '아직 확인 못 한 것' 참고).
 - **푸시**: 사용자 본인 GitHub 계정으로 푸시돼요. 커밋 작성자는 7번 규칙대로.
@@ -198,7 +198,7 @@
 ## 8. 남은 할 일
 
 - [ ] 사용자: BotFather `/newapp`(베타), `/setdomain`, 시범 인원에게 베타 링크 공유 → 의견 모으기
-- [ ] 실제 서버로 한 번씩 확인: `dashboard.scene`, `profile.get/update/report`, 미등록자 화면(`not_registered`). 클로드 코드에서 함수 로그(`get_logs`)로 오류 확인
+- [ ] 실제 서버로 한 번씩 확인: `dashboard.scene`, `profile.get/update/report`, 미등록자 화면(`not_registered`). 클로드 코드에서 함수 로그로 오류 확인
 - [ ] 모임: 월간 리포트 자동 발송(매달 1일 팀장에게 봇으로), 모임 전날 미체크자 알림, 모임 고치기 화면
 - [ ] 베타로 아직 안 옮긴 기능: 시간취합(투표), 녹음자 배치
 - [ ] `churches` 표 채우기(지파별 본부교회·지교회), 팀장 이상이 다른 사람의 '나의 기록' 보기
