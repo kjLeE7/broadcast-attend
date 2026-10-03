@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>방송예술과 베타</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://bundxpidywrcrwhhgclv.supabase.co">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+  <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
+  <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
+  <link rel="stylesheet" href="../style.css?v=20261003b">
+  <link rel="stylesheet" href="beta.css?v=20261003b">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">방</div>
+        <div>
+          <div class="brand-title">방송예술과 <span class="beta-badge">BETA</span></div>
+          <div class="brand-sub" id="who">불러오는 중...</div>
+        </div>
+      </div>
+      <div class="avatar" id="avatar">?</div>
+    </header>
+
+    <!-- 여러 팀 소속일 때만 보이는 팀 선택 -->
+    <div class="subtabs" id="teamTabs" style="display:none;"></div>
+
+    <!-- 시작 상태 (로딩·오류) -->
+    <div id="stateBox" class="empty"><b>불러오는 중...</b>잠시만 기다려주세요</div>
+
+    <!-- ===== 출결: 모임 목록 ===== -->
+    <section id="listView" style="display:none;">
+      <h1 class="page-title">Attendance</h1>
+      <p class="page-desc">모임을 눌러 출결을 남겨주세요</p>
+
+      <!-- 모임 회차 만들기 (교관 이상) -->
+      <div class="card b-create" id="createCard" style="display:none;">
+        <button class="b-toggle" type="button" onclick="toggleCreate()">
+          <span><b>+ 모임 회차 만들기</b><small>교관 이상만 보이는 메뉴예요</small></span>
+          <span class="b-chev" id="createChev">›</span>
+        </button>
+        <div id="createForm" style="display:none;">
+          <label class="field-label" for="cType">모임 유형</label>
+          <div class="select-wrap"><select id="cType" onchange="applyTypeDefaults()"></select></div>
+          <label class="field-label" for="cTitle">제목 <span class="hint">비우면 모임 유형 이름으로</span></label>
+          <input type="text" id="cTitle" class="b-input" maxlength="60" placeholder="예) 10월 2주차 정규수업">
+          <label class="field-label" for="cDate">날짜</label>
+          <input type="date" id="cDate" class="b-input">
+          <div class="b-row">
+            <div><label class="field-label" for="cStart">시작</label><input type="time" id="cStart" class="b-input"></div>
+            <div><label class="field-label" for="cEnd">끝</label><input type="time" id="cEnd" class="b-input"></div>
+          </div>
+          <label class="field-label" for="cPlace">장소</label>
+          <input type="text" id="cPlace" class="b-input" maxlength="40" placeholder="예) 스담">
+          <button class="btn-primary" id="cBtn" onclick="createSession()">만들기</button>
+          <div class="msg" id="cMsg"></div>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>다가오는 모임</h2><span class="section-count" id="upCount"></span></div>
+      <div id="upList"></div>
+
+      <div class="section-head b-gap"><h2>지난 모임</h2><span class="section-count">최근 2주</span></div>
+      <div id="pastList"></div>
+    </section>
+
+    <!-- ===== 출결: 모임 하나 ===== -->
+    <section id="detailView" style="display:none;">
+      <button class="back" onclick="showList()">‹ 모임 목록</button>
+      <div id="dHead"></div>
+
+      <div class="card" id="myCard">
+        <div class="b-card-title">내 출결</div>
+        <label class="field-label">참석 여부</label>
+        <div class="segmented">
+          <input type="radio" name="st" id="st1" value="참석" checked><label for="st1">참석</label>
+          <input type="radio" name="st" id="st2" value="불참"><label for="st2">불참</label>
+          <input type="radio" name="st" id="st3" value="지각"><label for="st3">지각</label>
+        </div>
+        <label class="field-label" for="reason">사유 <span class="hint">불참·지각 시 작성</span></label>
+        <textarea id="reason" rows="3" maxlength="300" placeholder="예) 회사 야근으로 30분 늦어요"></textarea>
+        <button class="btn-primary" id="saveBtn" onclick="saveMine()">출결 제출</button>
+        <div class="msg" id="myMsg"></div>
+      </div>
+
+      <!-- 조장 이상: 팀 출결 현황 -->
+      <div id="boardWrap" style="display:none;">
+        <div class="section-head b-gap"><h2>출결 현황</h2><span class="section-count" id="boardCount"></span></div>
+        <div class="card b-board" id="board"></div>
+      </div>
+    </section>
+
+    <p class="b-foot" id="foot">베타 · 출결만 먼저 옮겨왔어요</p>
+  </div>
+
+  <script src="beta.js?v=20261003b"></script>
+</body>
+</html>
