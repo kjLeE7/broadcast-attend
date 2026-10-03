@@ -1,7 +1,7 @@
 # CLAUDE.md — 방송예술과 텔레그램 미니앱 인수인계
 
 새 대화에서 이 저장소 작업을 이어갈 때 먼저 읽는 문서예요.
-(마지막 정리: 2026-10-03, 모임·출결 흐름 완성)
+(마지막 정리: 2026-10-03, 동네지도 추가)
 
 ## 1. 누구와, 무엇을 만드는 중인지
 
@@ -17,7 +17,7 @@
 
 | | 운영 앱 (지금 다들 쓰는 것) | 베타 앱 (새로 만드는 것) |
 |---|---|---|
-| 파일 | `index.html`, `app.js`, `style.css`, `krmap.js` | `beta/index.html`, `beta/beta.js`, `beta/beta.css` |
+| 파일 | `index.html`, `app.js`, `style.css`, `krmap.js` | `beta/index.html`, `beta/beta.js`, `beta/beta.css`, `beta/town.js` |
 | 데이터 | 구글 스프레드시트 + Apps Script | **Supabase만** 사용 |
 | 주소 | https://kjlee7.github.io/broadcast-attend/ | https://kjlee7.github.io/broadcast-attend/beta/ |
 
@@ -53,7 +53,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `2dc168d929672c08e31e4a4c3e7d80e9bce50275` (함수 버전 11, 모임·출결 흐름).
+- 현재 배포: SHA `1bfb3a986dc058c26ebc10bd60ba42d470d356d8` (함수 버전 12, 동네지도 dashboard.scene).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -62,7 +62,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete`, `assignments.list/create/update/delete`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`dashboard.load`, `pin.setInitial`, `pin.verify`
+`dashboard.load`, `dashboard.scene`, `pin.setInitial`, `pin.verify`
 
 ### 모임·출결 흐름 (2026-10-03 완성)
 1. **모임 만들기**: 조장 이상. 대상(팀 전체 또는 조)을 고르고, 만들면 봇이 대상자에게 개인 메시지로 알림
@@ -79,6 +79,19 @@
    조장 이상은 팀 전체 + '텍스트로 복사', 팀원은 본인 것만. (자동 발송은 아직 없음)
 - `attendance.status`는 **최종** 결과, `planned_status`는 **사전** 체크. 예전 `saveMine/saveFor/update/list`는 없앴음.
 
+### 동네지도 (2026-10-03, PC 홈의 '우리 동네 지금')
+- 과원이 **일정상** 지금 어디서 무엇을 하는지 도트 캐릭터로 보여줌. 실제 위치 아님.
+- 그림판: `beta/town.js` 하나 (`Town.mount(요소, { load })`). 같은 파일로 Claude 미리보기(예시 50명)도 만듦.
+  장소 배치·가구·캐릭터는 전부 코드로 그림(이미지 파일 없음). 장소 코드는 town.js의 `place('코드', …)`와 `places.code`가 같아야 함.
+- 폰(텔레그램 android·ios, 또는 터치+좁은 화면)에서는 숨기고 불러오지도 않음 (`isPhone()` in beta.js).
+- 서버 `dashboard.scene { team_id }` → 그 과 사람 + 오늘 일정 조각(segs). 우선순위: 녹음 > 업무(duties) > 모임 > 사명자 일정(주최자만) > 고정일정(=직장).
+  일정 없으면 화면에서 휴게실. 고정일정은 전부 '직장'으로 봄(제목은 안 보냄).
+- 공개 범위: 장소·이름·캐릭터·업무유형은 모두. **녹음·사회의 구체적인 내용(detail)은 과 안 어느 팀에서든 교관 이상일 때만 서버가 보냄.**
+  모임·업무 제목(예: 정규수업 1·2조)은 모두에게 보임.
+- 장소 글자 맞추기: `places` 표의 `aliases`(띄어쓰기·대소문자 무시, 긴 별칭부터). 목록에 없으면 '외부'(장소 글자를 그대로 표시), 비어 있으면 '외부 · 장소 미정'.
+- 직장은 거리 위 건물(안 보이고 인원 팻말·창문 불, 마우스 올리면 명단). 휴게실은 8명까지만 보이고 나머지 '+N명 더'. 다른 방도 자리가 모자라면 '+N명 더'.
+- 한 방에 9명 이상이면 이름표 숨김(마우스를 올리면 보임). 3분마다 새로 불러옴.
+
 ## 4. DB 요약
 
 - 모든 테이블 RLS 켜짐 + 정책 없음 → 공개 키로는 아무것도 못 해요. service_role(문지기)만 접근.
@@ -89,6 +102,7 @@
   - 교육: `meeting_types`, `meeting_sessions`(+`closed_at`, `notified_at`, `notify_result`), `attendance`(최종 `status`: 참석/불참/지각/조퇴, 사전 `planned_status/planned_reason/planned_at`, 확인 `arrived_at/checked_by`, 사유 `reason/reason_at`), `checkins`, `checkin_reports`, `assignments`, `assignment_submissions`, `notices`, `session_reviews`
   - 녹음: `availability`(slots smallint[] 0~47, 30분 단위), `weekly_submissions`(week_start = 월요일), `fixed_schedules`, `recording_requests`(제목·코드, 대본은 `nas_ref`로 NAS만 가리킴), `castings`(한 배역에 여러 명 확정 가능), `recording_sessions`(retake_of), `recording_participants`
   - 홈: `staff_schedules`, `duties`(녹음/사회/촬영/음향편집/기타), `projects`(기획/진행/보류/완료), `tribe_stats`(12지파 행 미리 있음)
+  - 동네지도: `places`(code·name·area·building·floor·aliases)
   - 관리: `app_settings`(`weekly_hours` {"from":8,"to":24}, `recording_access`, `late_grace_minutes` 0), `pin_sessions`, `audit_log`, `access_log`
 - 뷰: `v_people_current`, `v_positions_current`
 - 함수: `effective_rank(person, unit)`, `set_pin`, `reset_pin`, `verify_pin`, `is_pin_unlocked`, `audit_trigger`
@@ -130,6 +144,7 @@
 - [ ] 베타로 아직 안 옮긴 기능: 시간취합(투표), 녹음자 배치, 프로필
 - [ ] 녹음 요청·세션·캐스팅 화면
 - [ ] 관리자 페이지 (PIN 초기화, 설정값 수정, 비활성화)
+- [ ] 동네지도: 모임 만들 때 장소를 `places` 목록에서 고르게 (지금은 글자 맞추기), 고정일정에 종류(직장/학교/기타) 칸, 캐릭터 꾸미기(본인이 고르기)
 - [ ] 홈 대시보드 데이터 입력 화면 (`staff_schedules`, `duties`, `projects`, `tribe_stats` — 지금은 Supabase 표 편집기로 입력)
 - [ ] NAS 대본 연동
 - [ ] 조직현황.md의 [확인 필요] 항목 정리
