@@ -1605,6 +1605,7 @@ function applyNav(mini) {
   b.querySelector('span').textContent = label;
 }
 function toggleNav() {
+  document.body.classList.add('nav-anim');
   var mini = !document.body.classList.contains('nav-mini');
   applyNav(mini);
   lsSet('navMini', mini ? '1' : '0');

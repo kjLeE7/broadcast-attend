@@ -283,8 +283,10 @@ body.town-mode .app { max-width: none; }
    접으면 아이콘만 남는 좁은 막대(72px). 선택은 이 브라우저에 기억 (localStorage 'navMini') */
 .b-navtoggle { display: none; }
 @media (min-width: 1000px) {
-  body.b-nav { transition: padding-left .2s ease; }
-  .b-tabbar { transition: width .2s ease, padding .2s ease; overflow: hidden; }
+  /* 버튼을 누를 때만 부드럽게 (처음 열 때는 움직이지 않게) */
+  body.nav-anim.b-nav { transition: padding-left .2s ease; }
+  body.nav-anim .b-tabbar { transition: width .2s ease, padding .2s ease; }
+  .b-tabbar { overflow: hidden; }
   .b-navtoggle {
     display: flex; align-items: center; gap: 10px; flex: none;
     border: none; background: none; font-family: inherit; cursor: pointer;
@@ -304,4 +306,18 @@ body.town-mode .app { max-width: none; }
   body.nav-mini .b-tabbar .tab span,
   body.nav-mini .b-navtoggle span { display: none; }
   body.nav-mini .b-navtoggle .nt-arrow { transform: scaleX(-1); }
+}
+
+/* ===== 글꼴: 화면 전체를 고운바탕으로 (fonts.css) ===== */
+body, body * {
+  font-family: 'Gowun Batang', 'Apple SD Gothic Neo', 'Malgun Gothic', serif !important;
+}
+/* 바탕체는 굵기가 400·700 두 가지뿐이라 800도 700으로 보여요 */
+
+/* ===== 메뉴 글씨 크게 ===== */
+.b-tabbar .tab { font-size: 12.5px; }
+@media (min-width: 1000px) {
+  .b-tabbar .tab { font-size: 17px; padding: 13px 14px; gap: 12px; }
+  .b-tabbar .tab svg { width: 23px; height: 23px; }
+  .b-navtoggle { font-size: 14.5px; }
 }

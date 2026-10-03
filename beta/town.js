@@ -700,7 +700,7 @@ function drawWorld(t) {
 let root = null, cv = null, ctx = null, tip = null, placesEl = null, legendEl = null;
 let dev = 2, hoverId = null, hoverRegion = null, selId = null, selUntil = 0, clockT = 0, lastTs = 0, running = false;
 let regions = [];
-const DISPLAY = "'Do Hyeon','IBM Plex Sans KR','Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif";
+const DISPLAY = "'Gowun Batang','Apple SD Gothic Neo','Malgun Gothic',serif";
 
 let fillMode = false, mainEl = null, stageEl = null, panelEl = null;
 function fit() {
@@ -878,7 +878,7 @@ function loop(ts) {
 // ---------- 붙이기 ----------
 const CSS = `
 .tw{--tw-ink:#17151d;--tw-panel:#211e29;--tw-panel2:#2a2634;--tw-line:#3b3647;--tw-fg:#f1e8d9;--tw-muted:#a89f92;--tw-lamp:#f2b84b;
-  display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;align-items:start;color:var(--tw-fg);font-family:'IBM Plex Sans KR','Pretendard',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:14px;line-height:1.5}
+  display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;align-items:start;color:var(--tw-fg);font-family:'Gowun Batang','Apple SD Gothic Neo','Malgun Gothic',serif;font-size:14px;line-height:1.5}
 .tw.tw-nopanel{grid-template-columns:minmax(0,1fr)}
 .tw.tw-fill{grid-template-columns:minmax(0,1fr) 300px}
 .tw.tw-fill .tw-stage{width:fit-content;justify-self:center}
@@ -893,10 +893,10 @@ const CSS = `
 .tw-legend b{font-weight:600;color:inherit;font-variant-numeric:tabular-nums}
 .tw-dot{width:9px;height:9px;border:1px solid #2b2023;background:var(--c);display:inline-block;flex:none}
 .tw-tip{position:absolute;z-index:3;transform:translate(-50%,-100%);min-width:180px;max-width:260px;background:#f4ead7;color:#2b2023;border:2px solid #2b2023;box-shadow:3px 3px 0 #2b2023;padding:8px 10px;line-height:1.4;pointer-events:none;font-size:12px}
-.tw-t-name{font-family:'Do Hyeon',sans-serif;font-size:18px;line-height:1.1}
+.tw-t-name{font-family:'Gowun Batang',serif;font-weight:700;font-size:18px;line-height:1.1}
 .tw-t-name.tw-t-small{font-size:15px;margin-bottom:4px}
 .tw-t-name span{font-family:inherit;font-size:11px;color:#6b5a50;margin-left:6px}
-.tw-tip .tw-t-name span{font-family:'IBM Plex Sans KR','Pretendard',sans-serif}
+.tw-tip .tw-t-name span{font-weight:400}
 .tw-t-type{display:flex;align-items:center;gap:6px;margin-top:5px;font-weight:600}
 .tw-t-place small{display:block;color:#6b5a50;font-size:11px}
 .tw-t-time{font-variant-numeric:tabular-nums;color:#6b5a50;font-size:11px}
@@ -904,14 +904,14 @@ const CSS = `
 .tw-t-grp{margin-top:3px}
 .tw-lock{color:#8a6f5c}
 .tw-panel{background:var(--tw-panel);border:1px solid var(--tw-line);border-radius:6px;padding:12px;display:grid;gap:8px;min-width:0;max-height:82vh;overflow:auto}
-.tw-panel h2{font-family:'Do Hyeon',sans-serif;font-weight:400;font-size:19px;margin:0;color:var(--tw-fg)}
+.tw-panel h2{font-family:'Gowun Batang',serif;font-weight:700;font-size:19px;margin:0;color:var(--tw-fg)}
 .tw-town{display:grid;gap:4px}
 .tw-town h3{margin:6px 0 2px;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--tw-muted)}
 .tw-place{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:6px 8px;border-radius:4px;background:var(--tw-panel2)}
 .tw-place.tw-empty{background:transparent;opacity:.55}
 .tw-nm{font-weight:500;font-size:13px;min-width:0}
 .tw-nm small{color:var(--tw-muted);font-weight:400;font-size:11px;margin-left:5px}
-.tw-ct{font-family:'Do Hyeon',sans-serif;font-size:16px;color:var(--tw-lamp);font-variant-numeric:tabular-nums;line-height:1.2}
+.tw-ct{font-family:'Gowun Batang',serif;font-weight:700;font-size:16px;color:var(--tw-lamp);font-variant-numeric:tabular-nums;line-height:1.2}
 .tw-chips{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px}
 .tw-chip{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:12px;color:var(--tw-fg);background:#1b1922;border:1px solid var(--tw-line);border-radius:3px;padding:1px 7px 1px 5px;cursor:pointer}
 .tw-chip.moving{border-style:dashed;color:var(--tw-muted)}
@@ -920,7 +920,6 @@ const CSS = `
 `;
 function ensureAssets() {
   if (!document.getElementById('tw-css')) { const st = document.createElement('style'); st.id = 'tw-css'; st.textContent = CSS; document.head.appendChild(st); }
-  if (!document.querySelector('link[data-tw-font]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.setAttribute('data-tw-font', ''); l.href = 'https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap'; document.head.appendChild(l); }
 }
 let loadFn = null, refreshTimer = 0, roObs = null;
 function refresh() {

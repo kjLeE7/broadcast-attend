@@ -5,15 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- 동네지도 미리보기: 로그인 없이 예시 50명(가짜 이름)으로 town.js를 돌려 봄. 실제 데이터는 쓰지 않음 -->
 <title>방예과 동네지도</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="fonts.css?v=20261004b">
 <style>
 /* 레이아웃: 위쪽 시계·조작 막대 → 아래 동네지도(그림판 + 장소별 현황). 밤 골목 같은 어두운 바탕 하나로 고정 */
 :root{
   --ink:#17151d; --panel:#211e29; --panel-2:#2a2634; --line:#3b3647; --fg:#f1e8d9; --muted:#a89f92; --lamp:#f2b84b; --lamp-ink:#2b2023;
-  --display:'Do Hyeon','IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
-  --body:'IBM Plex Sans KR',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  --display:'Gowun Batang','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  --body:'Gowun Batang',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
   color-scheme:dark;
 }
 html,body{background:var(--ink);color:var(--fg)}
@@ -69,7 +67,7 @@ body{font-family:var(--body);font-size:14px;line-height:1.5;padding-inline:16px;
 </div>
 <div class="gate"><div><span class="pc" aria-hidden="true"></span><h2>PC에서 열어 주세요</h2><p>동네지도는 화면이 넓어야 잘 보여서 PC에서만 볼 수 있어요.</p></div></div>
 
-<script src="town.js?v=20261003k"></script>
+<script src="town.js?v=20261004b"></script>
 <script>
 (() => {
 // ---------- 예시 데이터 50명 ----------

@@ -25,6 +25,9 @@
 - 베타 폴더는 다 고친 뒤 바로 올려도 된다고 했어요.
 - 베타는 `../style.css`, `../krmap.js`를 같이 써요. 운영 앱 화면과 똑같은 모양이 목표예요.
 - PC(가로 1000px 이상)에선 아래 탭이 왼쪽 메뉴가 돼요. 맨 위 버튼으로 접으면 아이콘만 남는 72px 막대(`body.nav-mini`, `toggleNav()`), 선택은 브라우저 저장 키 `navMini`에 기억.
+- 글꼴: 베타 전체(동네지도 포함)가 **고운바탕**(Gowun Batang, OFL). `beta/fonts/`에 woff로 넣고 `beta/fonts.css`에서 불러요.
+  자주 쓰는 완성형 2,350자+영문·기호는 기본 파일(약 40만 바이트), 나머지 드문 글자는 `-ext` 파일(그 글자가 화면에 있을 때만 내려받음).
+  `beta.css` 끝의 `body, body * { font-family: … !important }`가 style.css의 글꼴 지정을 전부 덮어써요. (woff2 변환은 brotli가 프록시에 막혀 woff로 함)
 - 캐시 때문에 `beta/index.html`의 `?v=20261003h` 같은 버전 문자열을 고칠 때마다 올려요.
 - 봇: `@BangYeah_bot`. 같은 봇에 BotFather `/newapp`으로 베타 미니앱을 따로 등록해요.
   PC 브라우저 로그인(텔레그램 로그인 위젯)은 BotFather `/setdomain` → `kjlee7.github.io`가 돼 있어야 해요.
