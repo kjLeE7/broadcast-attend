@@ -23,9 +23,10 @@
 - **먼저 할 일**: 이 문서를 읽고, 사용자에게 "지난번 이어서 뭐부터 할까요?"를 짧게 묻기. 사용자의 기억(메모리)에 결정사항·보안 남은 일이 정리돼 있음
   (공개 저장소라 보안 관련 남은 일·계정 상태는 여기 안 적고 메모리에만 둠).
 - **대기 중인 사용자 결정·자료**
-  1. 저장소 비공개 전환 여부(유료 플랜 필요). 비공개로 바꾸면 **함수 배포 방식이 깨짐**: 지금 `index.ts`가 raw.githubusercontent에서 main.ts를 가져오는데 비공개면 못 가져옴
-     → `deploy_edge_function`에 main.ts 내용을 통째로 `index.ts`로 올리는 방식으로 바꿔야 함(이 문서 3번 '문지기 배포 방법'도 고치기).
-  2. 옛 운영 앱 Apps Script 코드를 사용자가 붙여 줄 예정 → 점검(서명 확인·로그인 시도 제한·토큰 없이 되는 기능). 받은 코드는 저장소에 올리지 않기.
+  1. 저장소 비공개 전환(2026-10-04 사용자가 진행): **무료 플랜은 비공개 저장소에서 GitHub Pages가 꺼짐** → GitHub Pro로 올린 뒤 비공개로.
+     함수 배포는 아래 3번 '문지기 배포 방법'대로 파일을 직접 올리는 방식으로 바꿨음(raw.githubusercontent는 비공개면 못 가져옴).
+     이미 배포된 버전 31은 배포할 때 코드가 묶여 저장돼서(eszip) 비공개로 바꿔도 계속 돌아감.
+  2. 옛 운영 앱 Apps Script 점검 → 2026-10-04 고친 Code.gs·WeeklyAvail.gs를 사용자에게 줌(사용자가 붙여넣고 새 버전 배포). 받은 코드는 저장소에 올리지 않기.
   3. 정식 런칭 때 **테스트 데이터 초기화** + **서버 키 교체**. 초기화 SQL은 아직 안 만듦(만들면 저장소엔 파일만, 실행은 사용자 승인 뒤).
 - **작업 환경 메모 (claude.ai 클라우드 작업 공간)**
   - 저장소 `.mcp.json`의 Supabase MCP는 여기선 프록시 오류로 안 붙음 → claude.ai의 Supabase 커넥터(`mcp__Supabase__*`, ToolSearch로 불러옴)로 SQL·배포·마이그레이션 함.
@@ -141,12 +142,12 @@
 
 ### 문지기 배포 방법 (중요)
 - 실제 코드: `supabase/functions/api/main.ts`
-- Supabase에 배포된 `index.ts`는 **한 줄**이에요:
-  ```ts
-  import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
-  ```
-- 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `3f6c2a4ca51e219f28abe87c9a30d82dcb609de7` (함수 버전 31, 보안 마무리: 횟수 제한·대상 확인·CSP).
+- **저장소가 비공개라 GitHub에서 불러오는 한 줄 방식은 안 돼요.** `deploy_edge_function`에 파일을 직접 올려요:
+  - `files` = `[{name:"index.ts", content:'import "./main.ts";\n'}, {name:"main.ts", content: <main.ts 전체>}]`, entrypoint `index.ts`, verify_jwt = false.
+  - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
+- 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
+- (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
+- 현재 배포: 커밋 `3f6c2a4`의 main.ts (함수 버전 31, 보안 마무리: 횟수 제한·대상 확인·CSP). 다음 배포부터 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
