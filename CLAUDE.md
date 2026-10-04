@@ -1,7 +1,7 @@
 # CLAUDE.md — 방송예술과 텔레그램 미니앱 인수인계
 
 새 대화에서 이 저장소 작업을 이어갈 때 먼저 읽는 문서예요.
-(마지막 정리: 2026-10-04 밤, 홈 개편·녹음 요청(배역·회차·수락/조율)·보안 점검·시간취합 이전까지. 함수 버전 32)
+(마지막 정리: 2026-10-04 밤, 홈 개편·녹음 요청(배역·회차·수락/조율)·보안 점검·시간취합·봇 채팅 답장 이전까지. 함수 버전 33)
 
 ## 0. 클로드 코드(터미널)에서 이어서 할 때
 
@@ -82,7 +82,8 @@
    - **녹음 배역·회차·수락/조율**(함수 버전 29): 배역별 지정/후보, 회차 여러 개, 엔지니어 교대, 받은 사람 수락/조율, 인력 배치 현황판.
    - **보안 점검**(함수 버전 30·31): 아래 '보안 점검' 참고. 사용자는 계정 2단계 인증을 진행 중(상세는 메모리).
    - **운영 앱 → 베타 완전 이전 시작**(2026-10-04): 목표는 Apps Script를 없애고 '레시피는 GitHub, 주방은 Supabase'로. 첫 단계로 **시간취합** 옮김(함수 버전 32, 아래 '시간취합').
-     남은 것: 봇 채팅 단어 답장('출결'·'기상' 등, 지금은 Apps Script 웹훅) 옮기기 → 과장님 컨펌 뒤 실제 인원 넣기 → BotFather 기본 메뉴를 베타로 → Apps Script 트리거·배포 정리, 스크립트 속성의 봇 토큰 지우기.
+     봇 채팅 답장도 문지기에 만들어 둠(함수 버전 33, 아래 '봇 채팅 답장'). **웹훅은 아직 Apps Script** — 운영 앱 사람들의 채팅 체크인이 시트에 들어가야 해서.
+     남은 순서(전환하는 날): 과장님 컨펌 뒤 실제 인원 넣기 → 웹훅 전환(`cron.setWebhook`) → BotFather 기본 메뉴를 베타로 → Apps Script 트리거·배포 정리, 스크립트 속성의 봇 토큰 지우기.
    - 관리자 페이지에서 문구를 고치는 방법을 의논함 → **문구를 DB(`ui_texts` 같은 표)에 두는 방식이 좋다**고 정리했지만, 사용자가 "일단은 이대로"라고 해서 보류.
 
 ## 1. 누구와, 무엇을 만드는 중인지
@@ -149,7 +150,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `2d07698`의 main.ts (함수 버전 32, 시간취합). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `b6cbed8`의 main.ts (함수 버전 33, 봇 채팅 답장). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -158,7 +159,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -248,6 +249,17 @@
 - 개인노트 '지금 할 일' kind `poll`(대상인데 아직 안 칠한 것, 내가 만든 건 빼고).
 - 표: `time_polls`(team_id, title, start/end_date, hour_from/to, deadline, target_people, target_label, status 진행중/마감/취소, reminded_at, closed_at, close_result, created_by), `time_poll_answers`(poll_id, person_id, slots, memo).
 - `sessions.audience`(대상 고르기 명단)는 이제 과 사람이면 받음(예전엔 조장 이상). 만들 수 있는지는 각 create에서 서열로 다시 확인.
+
+### 봇 채팅 답장 (2026-10-04, 함수 버전 33, 운영 앱 Apps Script 웹훅에서 옮겨 옴)
+- 문지기 맨 앞: 헤더 `X-Telegram-Bot-Api-Secret-Token`이 있으면 텔레그램 웹훅. vault `tg_webhook_secret`(함수 `tg_webhook_secret()`, service_role만)과 비교, 틀리면 401.
+  처리는 `handleTelegramUpdate`, 오류가 나도 200(텔레그램이 다시 보내지 않게, 로그 "bot"). 같은 update_id는 한 번만(`bot_updates`, 하루 지나면 cron이 지움).
+- 개인 채팅 글자만. 단어(`BOT_WORDS`, 앞 '/'·'@봇이름' 떼고): 앱·출결·공지·할일·시간취합·업무가능 → 그 화면 web_app 버튼(`beta/?go=attend|notice|poll|profile|weekly`, 앱의 `DEEP_TAB`·`DEEP_WEEK`).
+  기상·출발·도착 → `todayCheckins`(오늘 체크인 중 내가 대상인 것, `requireItemTarget`과 같은 규칙)에 바로 `checkin_reports` 기록. 여러 개면 고르는 버튼(callback `ci|체크인id|항목`).
+  출발 뒤 15분 안에 시간 답장(`parseHm`: 7:40·7시 40분·19시) → 출발 기록 note에 '07:40 도착 예정'(`bot_waits`). 모르는 말 → 도움말. 등록 안 된 사람 → 텔레그램 번호 안내.
+- **전환**(지금은 안 함): SQL `select net.http_post(url:='…/functions/v1/api', body:='{"action":"cron.setWebhook"}'::jsonb, headers:=jsonb_build_object('Content-Type','application/json','x-cron-secret',(select decrypted_secret from vault.decrypted_secrets where name='cron_secret')));`
+  → 웹훅을 문지기로 + 명령어 메뉴(`BOT_COMMANDS`) 등록. 확인은 같은 방식으로 `cron.webhookInfo`(target: supabase/apps-script).
+  **되돌리기**: Apps Script 편집기에서 `setupBot` 실행(웹훅을 Apps Script로 다시 맞춤). 전환하면 Supabase에 없는 운영 앱 사람은 '등록 안 됨' 답을 받고, 채팅 체크인이 시트로 안 감.
+- 테스트(2026-10-04): 가짜 update를 없는 채팅(id 1)으로 보내 확인 — 비밀값 틀리면 401, 등록자 '기상'·'/todo@BangYeah_bot', 미등록자 모두 200, 로그엔 'chat not found'만(정상).
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
@@ -401,7 +413,7 @@
 - [ ] 사용자: BotFather `/newapp`(베타), `/setdomain`, 시범 인원에게 베타 링크 공유 → 의견 모으기
 - [ ] 실제 서버로 한 번씩 확인: `dashboard.scene`, `profile.get/update/report`, 미등록자 화면(`not_registered`). 클로드 코드에서 함수 로그로 오류 확인
 - [ ] 모임: 월간 리포트 자동 발송(매달 1일 팀장에게 봇으로), 모임 전날 미체크자 알림, 모임 고치기 화면
-- [ ] 베타로 아직 안 옮긴 기능: 봇 채팅 단어 답장(Apps Script 웹훅). (시간취합은 옮김, 녹음자 배치는 녹음 요청으로 대신)
+- [ ] 운영 앱 기능은 다 옮김(시간취합·봇 채팅 답장, 녹음자 배치는 녹음 요청으로 대신). 전환하는 날: 웹훅 `cron.setWebhook` → BotFather 기본 메뉴 → Apps Script 정리
 - [ ] `churches` 표 채우기(지파별 본부교회·지교회), 팀장 이상이 다른 사람의 '나의 기록' 보기
 - [ ] 녹음: 재녹음·편집완료·전달완료 흐름, 요청·배역 고치기 화면, 감독 교대
 - [ ] 관리자 페이지 (PIN 초기화, 설정값 수정, 비활성화)
