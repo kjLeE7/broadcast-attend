@@ -605,7 +605,98 @@ async function remindUnplanned(ctx: Ctx, s: any, kind: "72h" | "24h" | "manual")
   must(await ctx.db.from("meeting_sessions").update(patch).eq("id", s.id));
   return result;
 }
-// 10분마다 pg_cron이 부름: 72시간 전·24시간 전이 된 모임에 자동 알림
+// ----- 과·팀에 지금 직책이 있는 활성 인원 (업무가능 독촉·생일에 씀) -----
+async function unitMembers(ctx: Ctx, unitIds: string[]) {
+  const day = kstToday();
+  const pos: any[] = must(await ctx.db.from("position_history")
+    .select("person_id, people(name, is_active, telegram_user_id, birth_date)")
+    .in("org_unit_id", unitIds).lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`)) ?? [];
+  const out = new Map<string, any>();
+  for (const r of pos) {
+    if (!r.people?.is_active || out.has(r.person_id)) continue;
+    out.set(r.person_id, { id: r.person_id, name: r.people.name, telegram_user_id: r.people.telegram_user_id, birth_date: r.people.birth_date });
+  }
+  return [...out.values()];
+}
+// 팀 → 그 팀이 속한 과와 과의 모든 팀
+async function sectionUnits(ctx: Ctx, teamId: string) {
+  const team = must(await ctx.db.from("org_units").select("id, parent_id, unit_type").eq("id", teamId).maybeSingle());
+  const sectionId = team?.unit_type === "팀" ? team.parent_id : teamId;
+  const kids: any[] = must(await ctx.db.from("org_units").select("id").eq("parent_id", sectionId).eq("unit_type", "팀").is("ended_on", null)) ?? [];
+  return [sectionId, ...kids.map((k) => k.id)];
+}
+
+// ----- 생일: 오늘 생일 + 일주일 안 생일 (월·일만, 나이는 안 보냄) -----
+function bdayMd(birth: string, year: number) {
+  const md = birth.slice(5, 10);
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  return md === "02-29" && !leap ? "02-28" : md;
+}
+async function birthdayInfo(ctx: Ctx, unitIds: string[]) {
+  const today = kstToday(), year = +today.slice(0, 4);
+  const people = (await unitMembers(ctx, unitIds)).filter((p) => p.birth_date);
+  const days = [0, 1, 2, 3, 4, 5, 6, 7].map((n) => addDaysStr(today, n));
+  const list: any[] = [];
+  for (const p of people) {
+    const n = days.findIndex((d) => bdayMd(p.birth_date, +d.slice(0, 4)) === d.slice(5));
+    if (n >= 0) list.push({ id: p.id, name: p.name, md: days[n].slice(5), in_days: n, me: p.id === ctx.me.id });
+  }
+  const todays = list.filter((b) => b.in_days === 0);
+  let wished = new Set<string>(), mine: any[] = [];
+  if (todays.length) {
+    const rows: any[] = must(await ctx.db.from("birthday_wishes").select("person_id, from_id, message, sent_at")
+      .eq("year", year).in("person_id", todays.map((b) => b.id))) ?? [];
+    wished = new Set(rows.filter((r) => r.from_id === ctx.me.id).map((r) => r.person_id));
+    const toMe = rows.filter((r) => r.person_id === ctx.me.id);
+    const names = await nameMap(ctx, toMe.map((r) => r.from_id));
+    mine = toMe.sort((a, b) => a.sent_at < b.sent_at ? -1 : 1).map((r) => ({ name: names.get(r.from_id) ?? "", message: r.message, at: r.sent_at }));
+  }
+  return {
+    today: todays.map((b) => ({ id: b.id, name: b.name, me: b.me, wished: wished.has(b.id) })),
+    soon: list.filter((b) => b.in_days > 0).sort((a, b) => a.in_days - b.in_days).map((b) => ({ name: b.name, md: b.md, in_days: b.in_days })),
+    wishes_to_me: mine,
+  };
+}
+
+// ----- 업무가능 시간: 마감(주일 22시) 뒤 미제출자에게 6시간마다 독촉 (밤 0~8시는 쉼) -----
+const NAG_GAP = 6 * HOUR;
+const NAG_FROM = "2026-10-05";   // 독촉 시작 주 (기능을 넣은 날 이미 끝나 가던 주는 건너뜀)
+// 지금 기준 '마감이 지난 주'의 월요일 (주일 22시가 지나면 다음 주로 넘어감)
+function nagWeek(now: number) {
+  const k = new Date(now + 9 * HOUR), today = k.toISOString().slice(0, 10);
+  const thisMon = addDaysStr(today, -((k.getUTCDay() + 6) % 7)), nextMon = addDaysStr(thisMon, 7);
+  return now >= kstMs(addDaysStr(nextMon, -1), "22:00:00") ? nextMon : thisMon;
+}
+function weekLabel(ws: string) {
+  const f = (d: string) => { const x = new Date(d + "T00:00:00Z"); return `${x.getUTCMonth() + 1}/${x.getUTCDate()}(${"일월화수목금토"[x.getUTCDay()]})`; };
+  return `${f(ws)} ~ ${f(addDaysStr(ws, 6))}`;
+}
+async function cronWeeklyNag(ctx: Ctx) {
+  const now = Date.now();
+  if (new Date(now + 9 * HOUR).getUTCHours() < 8) return null;   // 밤에는 안 보냄
+  const ws = nagWeek(now);
+  if (ws < NAG_FROM) return null;
+  const row = must(await ctx.db.from("weekly_nags").select("*").eq("week_start", ws).maybeSingle());
+  if (row && now - Date.parse(row.last_at) < NAG_GAP - 10 * 60000) return null;   // 10분마다 도니까 그만큼 여유
+  const sections: any[] = must(await ctx.db.from("org_units").select("id").eq("unit_type", "과").is("ended_on", null)) ?? [];
+  const units: string[] = [];
+  for (const sec of sections) units.push(...await sectionUnits(ctx, sec.id));
+  const members = await unitMembers(ctx, units);
+  const subs: any[] = must(await ctx.db.from("weekly_submissions").select("person_id").eq("week_start", ws)) ?? [];
+  const done = new Set(subs.map((x) => x.person_id));
+  const targets = members.filter((m) => !done.has(m.id));
+  if (!targets.length) return { week_start: ws, total: 0 };
+  const deadline = addDaysStr(ws, -1);
+  const text = `<b>📮 업무가능 시간이 아직 안 들어왔어요</b>\n\n${weekLabel(ws)}\n마감 ${weekLabel(deadline).split(" ~ ")[0]} 22:00 지남` +
+    `\n\n미니앱 › 프로필 › 업무가능에서 되는 시간을 칠하고 저장해주세요. 되는 시간이 없으면 빈 채로 저장해도 돼요.`;
+  const markup = { inline_keyboard: [[{ text: "업무가능 입력하기", web_app: { url: `${MINIAPP_URL}?go=weekly&ws=${ws}` } }]] };
+  const { sent, failed, why } = await sendToMembers(targets, text, markup);
+  const result = { sent, failed, why, total: targets.length, at: new Date(now).toISOString() };
+  must(await ctx.db.from("weekly_nags").upsert({ week_start: ws, last_at: result.at, count: (row?.count ?? 0) + 1, result }));
+  return { week_start: ws, ...result };
+}
+
+// 10분마다 pg_cron이 부름: 72시간 전·24시간 전이 된 모임에 자동 알림 + 업무가능 독촉
 async function cronReminders(db: any) {
   const ctx = { db, me: { id: null, name: "자동 알림" }, payload: {} } as unknown as Ctx;
   const today = kstToday();
@@ -624,7 +715,9 @@ async function cronReminders(db: any) {
     try { out.push({ id: s.id, ...(await remindUnplanned(ctx, s, kind)) }); }
     catch (e) { console.error("remind", s.id, e); }
   }
-  return out;
+  let weekly = null;
+  try { weekly = await cronWeeklyNag(ctx); } catch (e) { console.error("weekly nag", e); }
+  return { sessions: out, weekly };
 }
 
 // 출결 행에서 다른 사람에게 보여도 되는 칸 / 사유까지 (본인·조장 이상)
@@ -1412,6 +1505,26 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     return { ok: true };
   },
 
+  // 생일 축하 메시지: { team_id, person_id, message } → 같은 과 사람, 오늘 생일일 때만, 한 사람에게 그해 한 번. 봇으로 바로 전달
+  async "birthday.wish"(ctx) {
+    const p = ctx.payload;
+    await requireRank(ctx, p.team_id, RANK.MEMBER);
+    const message = String(p.message ?? "").trim().slice(0, 300);
+    if (!message) throw new HttpError(400, "축하 메시지를 적어주세요");
+    if (p.person_id === ctx.me.id) throw new HttpError(400, "내 생일엔 축하를 받기만 해요 🎂");
+    const units = await sectionUnits(ctx, p.team_id);
+    const target = (await unitMembers(ctx, units)).find((m) => m.id === p.person_id);
+    const today = kstToday(), year = +today.slice(0, 4);
+    if (!target?.birth_date || bdayMd(target.birth_date, year) !== today.slice(5)) throw new HttpError(400, "오늘 생일인 사람에게만 보낼 수 있어요");
+    const ins = await ctx.db.from("birthday_wishes").insert({ person_id: target.id, year, from_id: ctx.me.id, message }).select("id").single();
+    if (ins.error?.code === "23505") throw new HttpError(409, "이미 축하 메시지를 보냈어요");
+    must(ins);
+    const text = `<b>🎂 ${escHtml(ctx.me.name)}님이 생일 축하 메시지를 보냈어요</b>\n\n${escHtml(message)}`;
+    const { sent } = await sendToMembers([target], text, { inline_keyboard: [[{ text: "방송예술과 열기", web_app: { url: MINIAPP_URL } }]] });
+    if (sent) await ctx.db.from("birthday_wishes").update({ delivered: true }).eq("id", ins.data.id);
+    return { delivered: !!sent };
+  },
+
   // 확인 기록 남기기 (공지를 펼치거나 과제를 열 때): { kind: notice|assignment, id }
   async "reads.mark"(ctx) {
     const { kind, id } = ctx.payload;
@@ -1685,8 +1798,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const total = tribeList.reduce((n: number, t: any) => n + (t.count ?? 0), 0);
 
     const done = new Set((must(subs as any) ?? []).map((s: any) => s.week_start));
+    const birthdays = await birthdayInfo(ctx, unitIds).catch((e) => { console.error("birthday", e); return null; });
     return {
-      schedules, tasksNow, tasksUpcoming, projects,
+      schedules, tasksNow, tasksUpcoming, projects, birthdays,
       teams: kids.map((k) => k.name),
       tribes: { list: tribeList, total, filled },
       weekly: {

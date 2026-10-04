@@ -103,6 +103,8 @@ function showState(title, desc) {
 // ---------------------------------------------------------------------
 // 봇 알림의 '출결 체크하기' 버튼으로 열면 주소에 ?s=모임id 가 붙어 옴
 var DEEP_SESSION = (function () { try { return new URLSearchParams(location.search).get('s'); } catch (e) { return null; } })();
+// 업무가능 독촉 알림의 버튼: ?go=weekly&ws=월요일
+var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || 'this') : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -135,6 +137,11 @@ function boot() {
     document.body.classList.add('b-nav');
     renderTeamTabs();
     if (DEEP_SESSION) openDeepSession(DEEP_SESSION);
+    else if (DEEP_WEEK) {
+      var ws = DEEP_WEEK; DEEP_WEEK = null;
+      try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+      Promise.resolve(selectTeam(me.teams[0].id)).then(function () { goWeekly(ws === mondayOf('next') ? 'next' : 'this'); });
+    }
     else { if (curTab === 'home') $('teamTabs').style.display = 'none'; selectTeam(me.teams[0].id); }
   }).catch(function (err) {
     if (err.status === 401 && !initData) return;   // 로그인 화면으로 이미 넘어감
@@ -1955,6 +1962,7 @@ function loadDashboard() {
 function renderDashboard() {
   renderTeamFilter();
   renderManager();
+  renderBdayBanner();
   renderWeeklyBanner();
   var t = dashData.tribes;
   $('tribeTotal').textContent = t.filled ? '총 ' + t.total + '명' : '';
@@ -1995,6 +2003,62 @@ function renderManager() {
     : '<div class="empty"><b>예정된 업무가 없어요</b>' + (teamFilter ? teamFilter + ' 업무가 없어요' : '업무가 등록되면 여기에 보여요') + '</div>';
 
   renderProjects();
+}
+
+// ----- 생일: 오늘 생일인 사람에게 축하 메시지 (봇으로 전달), 내 생일이면 받은 메시지 보기 -----
+function renderBdayBanner() {
+  var b = dashData.birthdays, el = $('bdayBanner');
+  if (!b || (!b.today.length && !b.soon.length)) { el.innerHTML = ''; return; }
+  var h = '';
+  b.today.forEach(function (p) {
+    if (p.me) {
+      var n = b.wishes_to_me.length;
+      h += '<div class="bday-card me" onclick="openMyWishes()"><span class="bd-i">🎉</span><div><b>생일 축하해요, ' + esc(p.name) + '님!</b>' +
+        '<small>' + (n ? '축하 메시지 ' + n + '개가 왔어요 · 눌러서 보기' : '오늘 하루 축복이 가득하길 바라요') + '</small></div></div>';
+    } else {
+      h += '<div class="bday-card"><span class="bd-i">🎂</span><div><b>오늘은 ' + esc(p.name) + '님 생일이에요!</b><small>축하 한마디 보내볼까요?</small></div>' +
+        (p.wished ? '<span class="bd-done">✓ 보냈어요</span>'
+          : '<button type="button" class="bd-btn" onclick="openWish(\'' + esc(p.id) + '\')">축하 메시지</button>') + '</div>';
+    }
+  });
+  if (b.soon.length) {
+    h += '<p class="bday-soon">🎈 다가오는 생일 · ' + b.soon.map(function (p) {
+      var d = parseDate(new Date().getFullYear() + '-' + p.md);
+      return (p.in_days === 1 ? '내일' : (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')') + ' ' + esc(p.name);
+    }).join(' · ') + '</p>';
+  }
+  el.innerHTML = h;
+}
+function openWish(id) {
+  var p = dashData.birthdays.today.filter(function (x) { return x.id === id; })[0]; if (!p) return;
+  $('bdayModalT').textContent = '🎂 ' + p.name + '님 생일 축하';
+  $('bdayModalSub').textContent = '보내면 ' + p.name + '님 텔레그램으로 바로 전해져요 · 한 번만 보낼 수 있어요';
+  $('bdayBody').innerHTML =
+    '<div class="bd-quick">' + ['생일 축하해요! 🎉', '태어나 주셔서 감사해요 🙏', '오늘 하루 축복이 가득하길 바라요 ✨'].map(function (t) {
+      return '<button type="button" class="b-pick" onclick="$(\'bdMsg\').value=this.textContent">' + t + '</button>';
+    }).join('') + '</div>' +
+    '<label class="field-label" for="bdMsg">메시지</label>' +
+    '<textarea id="bdMsg" rows="4" maxlength="300">생일 축하해요! 🎉</textarea>' +
+    '<button class="btn-primary" id="bdBtn" onclick="sendWish(\'' + esc(id) + '\')">축하 메시지 보내기</button><div class="msg" id="bdSendMsg"></div>';
+  openModal('bdayModal');
+}
+function sendWish(id) {
+  var btn = $('bdBtn'); btn.disabled = true; setMsg('bdSendMsg', '보내는 중...');
+  api('birthday.wish', { team_id: S.team.id, person_id: id, message: $('bdMsg').value }).then(function (r) {
+    var p = dashData.birthdays.today.filter(function (x) { return x.id === id; })[0]; if (p) p.wished = true;
+    haptic('success'); renderBdayBanner();
+    setMsg('bdSendMsg', r.delivered ? '보냈어요! 🎉' : '저장했어요. 다만 그분이 봇과 대화를 시작하지 않아서 텔레그램으로는 못 갔어요.', !r.delivered);
+    setTimeout(function () { closeModal('bdayModal'); }, r.delivered ? 1200 : 3500);
+  }).catch(function (err) { btn.disabled = false; setMsg('bdSendMsg', err.message, true); });
+}
+function openMyWishes() {
+  var w = dashData.birthdays.wishes_to_me;
+  $('bdayModalT').textContent = '🎉 받은 축하 메시지';
+  $('bdayModalSub').textContent = w.length ? w.length + '명이 축하해 줬어요' : '아직 도착한 메시지가 없어요';
+  $('bdayBody').innerHTML = w.length ? w.map(function (m) {
+    return '<div class="bd-wish"><b>' + esc(m.name) + '</b><p>' + esc(m.message) + '</p><small>' + hmOf(m.at) + '</small></div>';
+  }).join('') : '<p class="rd-empty">메시지가 오면 여기와 텔레그램으로 보여요</p>';
+  openModal('bdayModal');
 }
 
 // 주간 업무가능 시간 알림: 이번 주 미제출(빨강) > 주일에 다음 주 미제출
