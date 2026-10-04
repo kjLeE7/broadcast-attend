@@ -151,7 +151,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `7c40232`의 main.ts (함수 버전 38, 동네지도 장소 상태·불러오기 간격). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `858b08a`의 main.ts (함수 버전 39, 칭호·배지). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -160,7 +160,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -290,6 +290,17 @@
 - 화면: 지난달 말 모양(prev_level) 연하게 겹침, 처음 열 때 가운데서 펼침, 축 누르면 다음 레벨까지 남은 XP, 레벨업 반짝임은 이 기기 localStorage `statSeen:<id>`와 비교. 아래 '받은 피드백'(실무 제목만).
   '⭐ 스탯 주기'(`openStatGrant`, `#statModal`): 나의 기록 위 버튼(사람·수업/스터디/기타 고르기) + 녹음 현황판 '녹음 완료' 회차의 성우 칩 옆 '⭐ 스탯'(이미 줬으면 고치기·취소). 받는 사람에게 봇 알림.
 - 테스트(2026-10-05): DB 규칙은 SQL로 확인(본인 지급·같은 실무 두 번·XP 4 막힘, 취소하면 합계에서 빠짐). 문지기 권한 검사는 실제 로그인이 필요해서 아직 사람별로 못 돌림.
+
+### 칭호·배지 (2026-10-05, 함수 버전 39)
+- 표 `badges`(team_id, key, name, description, icon 이모지, cond_type, cond_value jsonb, sort, is_active) / `person_badges`(person_id, badge_id, earned_at, source_type 'auto', source_id, is_title; 사람·배지 unique, 대표 칭호는 사람당 하나 부분 unique). 마이그레이션 `supabase/migrations/20261005_badges.sql`.
+- 조건 5종(깨지는 조건 없음): `rec_count`(녹음 완료 회차에 성우(녹음자)로 selected, 감독·엔지니어는 안 셈 → 감독 칭호는 나중에 따로) · `axis_level`({axis key, level}) · `all_axes_level`({level}) · `meeting_count`(마감된 모임 참석·지각·조퇴) · `grant_count`(취소 안 된 스탯 지급).
+  레벨 기준 XP는 DB 함수 `stat_xp_for_level`(설정값 stat_level). 그 팀 사람(`effective_rank > 0`)만.
+- 판정: DB 함수 `award_badges(사람)` = 새로 딴 것만 넣고 돌려줌(두 번 돌려도 중복 없음, 확인함). 소급은 `award_badges_all()`(알림 없음, 2026-10-05에 돌림 → 0개).
+  문지기 `awardBadges(ctx, ids)` → 새로 딴 사람에게 봇 알림. 부르는 곳: `stats.grant`(받은 사람), `rec.sessionStatus` 완료(selected 성우), `closeSession`(모임 대상자), `badges.get` 본인(놓친 것 챙김).
+- 초기 배지 11개(성우팀): 첫 마이크·녹음 10건·단골 목소리(30)·백 개의 목소리(변성5)·대본 해부학자(대본분석5)·또박또박 장인(발음5)·톤 마스터(톤5)·균형 잡힌 성우(전 축3)·꾸준한 발걸음(모임10)·뿌리 깊은 나무(모임50)·피드백 수집가(지급10).
+- 화면: 나의 기록 차트 아래 '나의 배지'(`#badgeArea`, `renderBadges`), 못 딴 건 흐리게, 새로 딴 건 반짝임(localStorage `badgeSeen:<id>`), 누르면 설명 + '대표 칭호로 걸기/내리기'(`badges.setTitle`).
+  대표 칭호는 `dashboard.scene` people의 `title`('🎭 백 개의 목소리') → 동네지도 이름표 위.
+- 권한: `badges.get` 본인 또는 그 팀 기준 서열(stat_grant_min_level) 이상. 대표 칭호는 고른 것만 모두에게. 배지 정의 추가·수정은 지금 SQL(관리자 페이지 생기면 팀장 이상).
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
@@ -427,6 +438,7 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
+- 배지(🟡): 보유 목록은 본인 + 그 팀 교관(설정값) 이상. 대표 칭호는 본인이 고른 것만 모두에게. 배지 정의는 팀장 이상(관리자 페이지, 지금은 SQL).
 - 성우 스탯(🟡): 주기·고치기는 그 팀 교관(설정값 `stat_grant_min_level`) 이상, 본인에겐 못 줌. 보기는 본인 + 그 팀 교관 이상. 취소는 준 사람·팀장 이상. 녹음 관계자 예외 없음.
 - 모임: 만들기·고치기·취소·출결확인·마감은 조장 이상. 출결 상태는 팀원 모두, 사유는 본인·조장 이상.
 
