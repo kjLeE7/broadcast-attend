@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261005l">
+  <link rel="stylesheet" href="beta.css?v=20261005m">
 </head>
 <body>
   <div class="app">
@@ -489,10 +489,17 @@
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
       <span>업무</span>
     </button>
-    <button class="tab" data-tab="profile" title="개인노트" onclick="goTab('profile')">
+    <button class="tab" data-tab="profile" id="pfTab" title="개인" onclick="togglePfSub()">
       <i class="tab-ic"><svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M16 3v3h3"/><path d="M9 10h7M9 14h7M9 18h4"/></svg><b class="tab-badge" id="todoBadge" hidden></b></i>
-      <span>개인노트</span>
+      <span>개인</span>
     </button>
+    <!-- '개인'을 누르면 펼쳐지는 하위 메뉴 (PC 펼친 메뉴: 아래로 펼침 / 폰·접힌 메뉴: 떠 있는 상자) -->
+    <div class="b-pfsub" id="pfSub">
+      <button type="button" data-t="profile" onclick="pfGo('profile')">나의 기록</button>
+      <button type="button" data-t="task" onclick="pfGo('task')">내 과제</button>
+      <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
+      <button type="button" data-t="poll" onclick="pfGo('poll')">시간취합</button>
+    </div>
   </nav>
 
   <!-- ===== 만들기 팝업 (FAB로 열림, PC: 가운데 / 폰: 아래에서 올라옴) ===== -->
@@ -757,6 +764,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261005k"></script>
+  <script src="beta.js?v=20261005l"></script>
 </body>
 </html>

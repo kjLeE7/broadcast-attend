@@ -1249,10 +1249,30 @@ function renderTaskSeg() {
   $('todoAreaTask').style.display = taskFrom === 'profile' ? '' : 'none';
   $('taskDesc').textContent = taskFrom === 'profile' ? '나에게 하달된 과제예요. 눌러서 제출해주세요' : '과제를 눌러 제출하고, 제출 현황을 봐요';
 }
+// 아래 탭 '개인': 누르면 하위 메뉴(나의 기록·내 과제·업무가능 시간·시간취합)
+// PC 펼친 메뉴에선 그 자리 아래로 펼침(개인 화면에 있으면 늘 펼침), 폰·접힌 메뉴에선 떠 있는 상자
+function pfFloating() { return !isWide() || document.body.classList.contains('nav-mini'); }
+function togglePfSub(open) {
+  var el = $('pfSub');
+  if (open === undefined) open = !el.classList.contains('open');
+  if (open && pfFloating() && isWide()) el.style.top = $('pfTab').getBoundingClientRect().top + 'px';
+  el.classList.toggle('open', open);
+}
+function pfGo(t) {
+  if (pfFloating()) togglePfSub(false);
+  if (t === 'task') goTask('profile'); else goTab(t);
+}
+document.addEventListener('click', function (e) {
+  if (!pfFloating() || !$('pfSub').classList.contains('open')) return;
+  if (!e.target.closest('#pfSub, #pfTab')) togglePfSub(false);
+});
 function setTabUI(t) {
   curTab = t;
   var pt = parentTab(t);
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
+  var sub = t === 'task' && taskFrom !== 'profile' ? '' : t;
+  document.querySelectorAll('#pfSub button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === sub); });
+  togglePfSub(!pfFloating() && pt === 'profile');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
   $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
@@ -3259,6 +3279,7 @@ function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach
 // ----- PC: Esc로 오른쪽 상세 닫기 -----
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && MODAL) { closeModal(); return; }
+  if (e.key === 'Escape' && $('pfSub').classList.contains('open') && pfFloating()) { togglePfSub(false); return; }
   if (e.key === 'Escape' && $('attFab').classList.contains('open')) { closeFabMenu(); return; }
   if (e.key !== 'Escape' || !isWide()) return;
   var t = e.target && e.target.tagName;
