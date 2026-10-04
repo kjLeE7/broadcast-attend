@@ -281,8 +281,15 @@ async function myGroupIds(ctx: Ctx): Promise<string[]> {
   return rows.map((r) => r.group_unit_id);
 }
 // 대상이 특정 조로 정해진 글은 그 조 사람과 조장 이상만
-function visibleToMe(row: any, rank: number, groups: string[]) {
+function visibleToMe(row: any, rank: number, groups: string[], meId?: string) {
+  if (row.target_people?.length) return rank >= RANK.GROUP_LEADER || (!!meId && row.target_people.includes(meId));
   return rank >= RANK.GROUP_LEADER || !row.target_unit_id || groups.includes(row.target_unit_id);
+}
+// 대상자로 콕 집힌 모임이면 다른 팀 사람도 그 모임은 볼 수 있음
+function inTargets(s: any, meId: string) { return !!s.target_people?.includes(meId); }
+async function requireSessionMember(ctx: Ctx, s: any) {
+  if (inTargets(s, ctx.me.id)) return;
+  await requireRank(ctx, s.team_id, RANK.MEMBER);
 }
 // 팀 + 그 위 과 (과 전체 공지용)
 async function teamAndSection(ctx: Ctx, teamId: string): Promise<string[]> {
@@ -364,7 +371,8 @@ async function getSession(ctx: Ctx, id: string) {
 }
 
 // 그 모임의 대상자: 모임 날짜에 그 팀 직책이 있던 활성 인원 (대상이 조면 그 조만)
-async function sessionMembers(ctx: Ctx, s: any, withTelegram = false) {
+async function sessionMembers(ctx: Ctx, s: any, withTelegram = false): Promise<any[]> {
+  if (s.target_people?.length) return await targetPeopleMembers(ctx, s, withTelegram);
   const day = s.session_date;
   const pos: any[] = must(await ctx.db.from("position_history")
     .select(`person_id, people(name, is_active${withTelegram ? ", telegram_user_id" : ""}), positions(name, rank)`)
@@ -394,6 +402,66 @@ async function sessionMembers(ctx: Ctx, s: any, withTelegram = false) {
   let list = [...byPerson.values()];
   if (s.target_unit_id) list = list.filter((m) => m.group_id === s.target_unit_id);
   return list.sort((a, b) => (a.group ?? "힣").localeCompare(b.group ?? "힣") || b.rank - a.rank || a.name.localeCompare(b.name));
+}
+
+// 사람으로 집은 모임의 대상자: 그 사람들의 그날 가장 높은 직책(과·팀 안), 조
+async function targetPeopleMembers(ctx: Ctx, s: any, withTelegram: boolean) {
+  const ids: string[] = s.target_people;
+  const day = s.session_date;
+  const [ppl, pos, gs] = await Promise.all([
+    ctx.db.from("people").select(`id, name, is_active${withTelegram ? ", telegram_user_id" : ""}`).in("id", ids),
+    ctx.db.from("position_history").select("person_id, positions(name, rank)").in("person_id", ids)
+      .lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`),
+    ctx.db.from("group_assignments").select("person_id, group_unit_id, org_units(name)").in("person_id", ids)
+      .lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`),
+  ]);
+  const top = new Map<string, any>();
+  for (const r of must(pos as any) ?? []) {
+    const cur = top.get(r.person_id);
+    if (!cur || (r.positions?.rank ?? 0) > cur.rank) top.set(r.person_id, { name: r.positions?.name ?? "", rank: r.positions?.rank ?? 0 });
+  }
+  const grp = new Map<string, any>();
+  for (const g of must(gs as any) ?? []) if (!grp.has(g.person_id)) grp.set(g.person_id, g);
+  return (must(ppl as any) ?? []).filter((p: any) => p.is_active).map((p: any) => ({
+    id: p.id, name: p.name, position: top.get(p.id)?.name ?? "", rank: top.get(p.id)?.rank ?? 0,
+    group: grp.get(p.id)?.org_units?.name ?? null, group_id: grp.get(p.id)?.group_unit_id ?? null,
+    telegram_user_id: p.telegram_user_id ?? null,
+  })).sort((a: any, b: any) => (a.group ?? "힣").localeCompare(b.group ?? "힣") || b.rank - a.rank || a.name.localeCompare(b.name));
+}
+
+// 모임 대상 고르기용: 과의 팀들, 팀마다 조, 사람마다 팀별 직책 서열 (직접 받은 직책만. 위에서 상속된 직책은 뺌)
+async function sectionRoster(ctx: Ctx, teamId: string) {
+  const units = await sectionUnits(ctx, teamId);
+  const day = kstToday();
+  const [unitRows, pos, groupUnits] = await Promise.all([
+    ctx.db.from("org_units").select("id, name, unit_type").in("id", units),
+    ctx.db.from("position_history").select("person_id, org_unit_id, people(name, is_active), positions(name, rank)")
+      .in("org_unit_id", units).lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`),
+    ctx.db.from("org_units").select("id, name, parent_id").in("parent_id", units).eq("unit_type", "조").is("ended_on", null).order("name"),
+  ]);
+  const U = must(unitRows as any) ?? [];
+  const section = U.find((u: any) => u.unit_type !== "팀") ?? { id: units[0], name: "방송예술과" };
+  const teams = U.filter((u: any) => u.unit_type === "팀").sort((a: any, b: any) => a.name.localeCompare(b.name));
+  const people = new Map<string, any>();
+  for (const r of must(pos as any) ?? []) {
+    if (!r.people?.is_active) continue;
+    const p = people.get(r.person_id) ?? { id: r.person_id, name: r.people.name, position: "", rank: 0, ranks: {} as Record<string, number>, group: null, group_id: null };
+    const rk = r.positions?.rank ?? 0;
+    p.ranks[r.org_unit_id] = Math.max(p.ranks[r.org_unit_id] ?? 0, rk);
+    if (rk > p.rank) { p.rank = rk; p.position = r.positions?.name ?? ""; }
+    people.set(r.person_id, p);
+  }
+  const ids = [...people.keys()];
+  const G = must(groupUnits as any) ?? [];
+  if (ids.length && G.length) {
+    const gs: any[] = must(await ctx.db.from("group_assignments").select("person_id, group_unit_id").in("person_id", ids)
+      .in("group_unit_id", G.map((g: any) => g.id)).lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`)) ?? [];
+    for (const g of gs) { const p = people.get(g.person_id); p.group_id = g.group_unit_id; p.group = G.find((x: any) => x.id === g.group_unit_id)?.name ?? null; }
+  }
+  return {
+    section, teams: teams.map((t: any) => ({ id: t.id, name: t.name, groups: G.filter((g: any) => g.parent_id === t.id).map((g: any) => ({ id: g.id, name: g.name })) })),
+    members: [...people.values()].sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name)),
+  };
 }
 
 // 공지 받을 사람: 그 단위(팀 또는 과)와 아래 단위의 직책 + 위로 문화부까지 상속된 직책. 사람마다 가장 높은 직책 하나
@@ -999,7 +1067,19 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       const g = must(await ctx.db.from("org_units").select("parent_id, unit_type").eq("id", p.target_unit_id).maybeSingle());
       if (!g || g.parent_id !== p.team_id || g.unit_type !== "조") throw new HttpError(400, "이 팀의 조가 아닙니다");
     }
+    // 대상을 사람으로 집은 경우: 전체(과)는 팀장 이상, 팀은 그 팀 사람만
+    let target_people: string[] | null = null;
+    if (Array.isArray(p.target_people)) {
+      const ids = [...new Set(p.target_people.map(String))] as string[];
+      if (!ids.length) throw new HttpError(400, "대상자를 한 명 이상 골라주세요");
+      const roster = await sectionRoster(ctx, p.team_id);
+      if (p.scope === "all") await requireRank(ctx, p.team_id, RANK.TEAM_LEADER);
+      const ok = new Set(roster.members.filter((m: any) => p.scope === "all" || m.ranks[p.team_id]).map((m: any) => m.id));
+      if (ids.some((id) => !ok.has(id))) throw new HttpError(400, "대상자 명단이 올바르지 않습니다");
+      target_people = ids;
+    }
     const s = must(await ctx.db.from("meeting_sessions").insert({
+      target_people, target_label: target_people ? String(p.target_label ?? "").slice(0, 60) || null : null,
       ...pick(p, ["meeting_type_id", "session_date", "start_time", "end_time", "place_mode"]),
       title: String(p.title ?? "").trim().slice(0, 60) || null,
       location: String(p.location ?? "").trim().slice(0, 40) || null,
@@ -1009,6 +1089,19 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     }).select(SESSION_COLS).single());
     const notify = p.notify === false ? null : await notifyMembers(ctx, s, "new");
     return { ...s, notify };
+  },
+
+  // 모임 대상 고르기: { team_id } → 과의 팀들(만들 수 있는지), 팀마다 조, 사람 명단(팀별 서열). 조장 이상
+  async "sessions.audience"(ctx) {
+    const roster = await sectionRoster(ctx, ctx.payload.team_id);
+    const ranks = await Promise.all(roster.teams.map((t: any) => rankIn(ctx, t.id)));
+    if (!ranks.some((r) => r >= RANK.GROUP_LEADER)) throw new HttpError(403, "모임은 조장 이상만 만들 수 있어요");
+    return {
+      section: roster.section,
+      can_all: ranks.some((r) => r >= RANK.TEAM_LEADER),
+      teams: roster.teams.map((t: any, i: number) => ({ ...t, can: ranks[i] >= RANK.GROUP_LEADER })),
+      members: roster.members,
+    };
   },
 
   // 모임 고치기·취소: { id, ...고칠 칸, notify? } → 조장 이상
@@ -1067,8 +1160,14 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       .order("session_date", { ascending: true }).order("start_time", { ascending: true });
     if (from) q = q.gte("session_date", from);
     if (to) q = q.lte("session_date", to);
-    const groups = await myGroupIds(ctx);
-    let list: any[] = (must(await q) ?? []).filter((s: any) => visibleToMe(s, rank, groups));
+    // 다른 팀이 만든 모임이라도 내가 대상자로 집혔으면 같이 보여줌 (예: 방송예술과 전체 모임)
+    let q2 = ctx.db.from("meeting_sessions").select(SESSION_COLS).neq("team_id", team_id).contains("target_people", [ctx.me.id]);
+    if (from) q2 = q2.gte("session_date", from);
+    if (to) q2 = q2.lte("session_date", to);
+    const [groups, mineElsewhere] = await Promise.all([myGroupIds(ctx), q2]);
+    let list: any[] = (must(await q) ?? []).filter((s: any) => visibleToMe(s, rank, groups, ctx.me.id))
+      .concat(must(mineElsewhere as any) ?? [])
+      .sort((a: any, b: any) => (a.session_date + (a.start_time ?? "")) < (b.session_date + (b.start_time ?? "")) ? -1 : 1);
     list = await autoClose(ctx, list);
     const ids = list.map((s) => s.id);
     const rows: any[] = ids.length ? must(await ctx.db.from("attendance")
@@ -1078,7 +1177,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const now = await sessionMembers(ctx, { team_id, session_date: kstToday(), target_unit_id: null });
     return list.map((s) => {
       const rs = rows.filter((r) => r.session_id === s.id);
-      const targets = s.closed_at ? null : now.filter((m) => !s.target_unit_id || m.group_id === s.target_unit_id);
+      const targets = s.closed_at ? null : s.target_people?.length ? s.target_people.map((id: string) => ({ id }))
+        : now.filter((m) => !s.target_unit_id || m.group_id === s.target_unit_id);
       const count = (k: string, v: string) => rs.filter((r) => r[k] === v).length;
       const mine = rs.find((r) => r.person_id === ctx.me.id);
       return {
@@ -1097,8 +1197,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "sessions.board"(ctx) {
     let s = await getSession(ctx, ctx.payload.session_id);
     const rank = await rankIn(ctx, s.team_id);
-    if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
-    if (!visibleToMe(s, rank, await myGroupIds(ctx))) throw new HttpError(403, "이 모임 대상이 아니에요");
+    if (rank < RANK.MEMBER && !inTargets(s, ctx.me.id)) throw new HttpError(403, "권한이 없습니다");
+    if (!visibleToMe(s, rank, await myGroupIds(ctx), ctx.me.id)) throw new HttpError(403, "이 모임 대상이 아니에요");
     [s] = await autoClose(ctx, [s]);
     const lead = rank >= RANK.GROUP_LEADER;
     const [members, rowsRes, grace] = await Promise.all([
@@ -1134,7 +1234,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // 사전 출결체크 (본인, 모임 시작 전까지): { session_id, planned_status: 참석|지각|불참, planned_reason? }
   async "attendance.plan"(ctx) {
     const s = await getSession(ctx, ctx.payload.session_id);
-    await requireRank(ctx, s.team_id, RANK.MEMBER);
+    await requireSessionMember(ctx, s);
     if (s.status === "취소") throw new HttpError(400, "취소된 모임이에요");
     if (s.closed_at || Date.now() > planDeadline(s)) throw new HttpError(400, "모임이 시작돼서 사전 체크는 끝났어요");
     if (!(await sessionMembers(ctx, s)).some((m) => m.id === ctx.me.id)) throw new HttpError(403, "이 모임 대상이 아니에요");
@@ -1211,7 +1311,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "attendance.reason"(ctx) {
     const s = await getSession(ctx, ctx.payload.session_id);
     const target = ctx.payload.person_id || ctx.me.id;
-    await requireRank(ctx, s.team_id, target === ctx.me.id ? RANK.MEMBER : RANK.GROUP_LEADER);
+    if (target === ctx.me.id) await requireSessionMember(ctx, s); else await requireRank(ctx, s.team_id, RANK.GROUP_LEADER);
     const r = must(await ctx.db.from("attendance").select("id, status").eq("session_id", s.id).eq("person_id", target).maybeSingle());
     if (!r || !["지각", "불참", "조퇴"].includes(r.status)) throw new HttpError(400, "지각·불참으로 정해진 뒤에 사유를 적을 수 있어요");
     const reason = String(ctx.payload.reason ?? "").trim().slice(0, 300) || null;

@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004m">
+  <link rel="stylesheet" href="beta.css?v=20261004n">
 </head>
 <body>
   <div class="app">
@@ -478,8 +478,10 @@
         </div>
         <label class="field-label" for="cPlace">장소</label>
         <input type="text" id="cPlace" class="b-input" maxlength="40" placeholder="예) 스담">
-        <label class="field-label" for="cTarget">대상</label>
-        <div class="select-wrap"><select id="cTarget" class="b-target"></select></div>
+        <label class="field-label">대상</label>
+        <div class="b-pick-row"><span>팀</span><div class="b-picks" id="cTeams"></div></div>
+        <div class="b-pick-row" id="cSubRow" style="display:none;"><span>조</span><div class="b-picks" id="cSubs"></div></div>
+        <div class="b-aud" id="cAud"><b>불러오는 중...</b></div>
         <label class="b-check-line"><input type="checkbox" id="cNotify" checked><span>대상자에게 텔레그램 알림 보내기</span></label>
         <button class="btn-primary" id="cBtn" onclick="createSession()">만들기</button>
         <div class="msg" id="cMsg"></div>
@@ -534,6 +536,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004b"></script>
-  <script src="beta.js?v=20261004m"></script>
+  <script src="beta.js?v=20261004n"></script>
 </body>
 </html>

@@ -605,3 +605,10 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
 .bd-wish b { font-size: 14px; }
 .bd-wish p { margin: 4px 0; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .bd-wish small { font-size: 11.5px; color: var(--muted); }
+
+/* ===== 모임 대상 명단 (이름 눌러 빼기) ===== */
+.ma-p { border: none; background: none; padding: 2px 0; font: inherit; font-size: 14px; font-weight: 700; color: var(--text); cursor: pointer; }
+.ma-p small { font-weight: 500; }
+.ma-p.off { color: var(--muted); text-decoration: line-through; opacity: .55; }
+.ma-hint { display: block; margin-top: 8px; }
+#cType:disabled { opacity: .5; }

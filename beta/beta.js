@@ -325,7 +325,7 @@ function sessionCard(s) {
     side += '<small>' + (ph === 'before' ? '체크 ' : ph === 'live' ? '확인 ' : '출석 ') + n + '/' + s.target_count + '</small>';
   }
   var tag = ph === 'live' ? ' · <em class="b-live">진행 중</em>' : '';
-  var target = s.target_unit_id ? ' · ' + esc(groupName(s.target_unit_id)) : '';
+  var target = s.target_label ? ' · ' + esc(s.target_label) : s.target_unit_id ? ' · ' + esc(groupName(s.target_unit_id)) : '';
   var selected = S.current && S.current.id === s.id;
   return '<button class="b-session' + (s.session_date < todayStr() ? ' b-past' : '') + (ph === 'cancel' ? ' b-cancel' : '') + (selected ? ' b-sel' : '') + '" onclick="openSession(\'' + esc(s.id) + '\')">' +
     '<div class="b-date' + (s.session_date === todayStr() ? ' today' : '') + '"><b>' + d.getDate() + '</b><span>' + (d.getMonth() + 1) + '월 ' + WD[d.getDay()] + '</span></div>' +
@@ -341,7 +341,66 @@ function openSessModal() {
   if (!$('cDate').value) $('cDate').value = todayStr();
   setMsg('cMsg', '');
   openModal('cModal');
+  loadSessAudience();
 }
+
+// ----- 모임 대상 고르기: 팀(전체·성우팀·아나운서팀·엔지니어팀) → 조(운영진·1조·2조·3조, 조가 있는 팀만) → 명단 (이름 누르면 빼기) -----
+var MA = { data: null, teamOf: null, key: '', subs: [], off: {} };
+var STAFF = 'staff';   // 운영진 = 그 팀 교관 이상 + 4조
+function loadSessAudience() {
+  if (MA.data && MA.teamOf === S.team.id) { renderSessPicks(); return; }
+  $('cTeams').innerHTML = ''; $('cSubRow').style.display = 'none'; $('cAud').innerHTML = '<b>불러오는 중...</b>';
+  api('sessions.audience', { team_id: S.team.id }).then(function (d) {
+    MA.data = d; MA.teamOf = S.team.id;
+    var mine = d.teams.filter(function (t) { return t.id === S.team.id && t.can; })[0] || d.teams.filter(function (t) { return t.can; })[0];
+    MA.key = mine ? mine.id : 'all'; MA.subs = []; MA.off = {};
+    renderSessPicks();
+  }).catch(function (err) { $('cAud').innerHTML = '<b>명단을 불러오지 못했어요</b>' + esc(err.message); });
+}
+function maTeam() { return MA.key === 'all' ? null : MA.data.teams.filter(function (t) { return t.id === MA.key; })[0]; }
+function maSubOpts(t) {
+  if (!t || !t.groups.length) return [];
+  return [{ key: STAFF, name: '운영진' }].concat(t.groups.filter(function (g) { return g.name !== '4조'; }).map(function (g) { return { key: g.id, name: g.name }; }));
+}
+// 지금 고른 범위의 사람들 (뺀 사람 포함)
+function maPool() {
+  var d = MA.data, t = maTeam();
+  if (!t) return d.members;
+  var inTeam = d.members.filter(function (m) { return m.ranks[t.id]; });
+  if (!MA.subs.length) return inTeam;
+  return inTeam.filter(function (m) {
+    return MA.subs.some(function (k) { return k === STAFF ? (m.ranks[t.id] >= RANK.INSTRUCTOR || m.group === '4조') : m.group_id === k; });
+  });
+}
+function maPicked() { return maPool().filter(function (m) { return !MA.off[m.id]; }); }
+function maLabel() {
+  var t = maTeam(), off = maPool().length - maPicked().length;
+  var base = !t ? MA.data.section.name + ' 전체'
+    : MA.subs.length ? t.name + ' · ' + maSubOpts(t).filter(function (o) { return MA.subs.indexOf(o.key) !== -1; }).map(function (o) { return o.name; }).join('·')
+    : t.name + ' 전체';
+  return base + (off ? ' (' + off + '명 빼고)' : '');
+}
+function renderSessPicks() {
+  var d = MA.data, chip = function (on, label, fn) { return '<button type="button" class="b-pick' + (on ? ' on' : '') + '" onclick="' + fn + '">' + esc(label) + '</button>'; };
+  $('cTeams').innerHTML = (d.can_all ? chip(MA.key === 'all', '전체', "maPickTeam('all')") : '') +
+    d.teams.filter(function (t) { return t.can; }).map(function (t) { return chip(MA.key === t.id, t.name, "maPickTeam('" + t.id + "')"); }).join('');
+  var opts = maSubOpts(maTeam());
+  $('cSubRow').style.display = opts.length ? '' : 'none';
+  $('cSubs').innerHTML = opts.map(function (o) { return chip(MA.subs.indexOf(o.key) !== -1, o.name, "maToggleSub('" + o.key + "')"); }).join('');
+  var pool = maPool(), picked = maPicked().length;
+  $('cAud').innerHTML = '<b>받는 사람 ' + picked + '명</b>' +
+    (pool.length ? '<div class="who">' + pool.map(function (m) {
+      return '<button type="button" class="ma-p' + (MA.off[m.id] ? ' off' : '') + '" onclick="maToggleOff(\'' + m.id + '\')">' + esc(m.name) +
+        ' <small>' + esc([m.position, m.group].filter(Boolean).join('·')) + '</small></button>';
+    }).join('') + '</div><small class="ma-hint">이름을 누르면 빼거나 다시 넣을 수 있어요</small>' : '<small>이 범위에는 사람이 없어요</small>');
+  // 모임 유형은 지금 보고 있는 팀 것만: 다른 팀 모임이면 제목으로
+  var other = MA.key !== 'all' && MA.key !== S.team.id;
+  $('cType').disabled = other;
+  if (other) $('cType').value = '';
+}
+function maPickTeam(k) { MA.key = k; MA.subs = []; MA.off = {}; renderSessPicks(); }
+function maToggleSub(k) { var i = MA.subs.indexOf(k); if (i === -1) MA.subs.push(k); else MA.subs.splice(i, 1); MA.off = {}; renderSessPicks(); }
+function maToggleOff(id) { if (MA.off[id]) delete MA.off[id]; else MA.off[id] = true; renderSessPicks(); }
 function fillTypeSelect() {
   var sel = $('cType'), keep = sel.value;
   sel.innerHTML = '<option value="">모임 유형을 고르세요</option>' + S.types.map(function (t) {
@@ -371,9 +430,19 @@ function createSession() {
     start_time: $('cStart').value || null,
     end_time: $('cEnd').value || null,
     location: $('cPlace').value.trim() || null,
-    target_unit_id: $('cTarget').value || null,
     notify: $('cNotify').checked
   };
+  if (!MA.data) { setMsg('cMsg', '대상 명단을 불러오는 중이에요. 잠시 뒤 다시 눌러주세요', true); return; }
+  // 팀 전체(조·빼기 없음)는 예전처럼 팀 모임, 그 밖에는 고른 사람들로
+  var whole = MA.key !== 'all' && !MA.subs.length && maPool().length === maPicked().length;
+  p.team_id = MA.key === 'all' ? S.team.id : MA.key;
+  if (!whole) {
+    p.target_people = maPicked().map(function (m) { return m.id; });
+    p.scope = MA.key === 'all' ? 'all' : 'team';
+    p.target_label = maLabel();
+    if (!p.target_people.length) { setMsg('cMsg', '받는 사람이 없어요. 대상을 다시 골라주세요', true); return; }
+  }
+  if (p.team_id !== S.team.id && !p.title) { setMsg('cMsg', '다른 팀 모임은 제목을 적어주세요', true); return; }
   if (!p.meeting_type_id && !p.title) { setMsg('cMsg', '모임 유형을 고르거나 제목을 적어주세요!', true); return; }
   if (!p.session_date) { setMsg('cMsg', '날짜를 골라주세요!', true); return; }
   if (!p.start_time) { setMsg('cMsg', '시작 시간을 넣어주세요! 지각을 판단하는 기준이 돼요.', true); return; }
@@ -382,13 +451,13 @@ function createSession() {
   api('sessions.create', p).then(function (s) {
     Object.assign(s, {
       start_ms: kstMs(s.session_date, s.start_time), end_ms: s.end_time ? kstMs(s.session_date, s.end_time) : kstMs(s.session_date, s.start_time) + 3 * 3600000,
-      target_count: targetMembersCount(s.target_unit_id), is_target: false,
+      target_count: s.target_people ? s.target_people.length : targetMembersCount(s.target_unit_id), is_target: false,
       planned: { 참석: 0, 지각: 0, 불참: 0 }, final: { 참석: 0, 지각: 0, 불참: 0, 조퇴: 0 }, mine: null
     });
-    S.sessions.push(s);
+    if (s.team_id === S.team.id) S.sessions.push(s);
     S.sessions.sort(function (a, b) { return a.session_date + (a.start_time || '') < b.session_date + (b.start_time || '') ? -1 : 1; });
     ['cTitle', 'cStart', 'cEnd', 'cPlace'].forEach(function (id) { $(id).value = ''; });
-    $('cType').value = ''; $('cTarget').value = '';
+    $('cType').value = ''; MA.subs = []; MA.off = {}; renderSessPicks();
     btn.disabled = false;
     haptic('success');
     renderList();
@@ -467,7 +536,7 @@ function renderHead() {
   var nr = s.notify_result;
   $('dHead').innerHTML = '<div class="b-dhead"><h1>' + esc(sessionName(s)) + '</h1><p>' +
     (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + WD[d.getDay()] + ')' + (timePlace(s) ? ' · ' + esc(timePlace(s)) : '') + '</p>' +
-    '<div class="b-chips">' + tag + '<span class="chip">' + (s.target_unit_id ? esc(groupName(s.target_unit_id)) : esc(S.team.name) + ' 전체') + '</span>' +
+    '<div class="b-chips">' + tag + '<span class="chip">' + (s.target_label ? esc(s.target_label) : s.target_unit_id ? esc(groupName(s.target_unit_id)) : esc(S.team.name) + ' 전체') + '</span>' +
     (M.board && M.board.grace_min ? '<span class="chip">시작 후 ' + M.board.grace_min + '분까지 참석</span>' : '') + '</div>' +
     (lead && nr ? '<div class="b-notify">📨 ' + esc(notifyText(nr)) + '</div>' : '') + '</div>';
 }
