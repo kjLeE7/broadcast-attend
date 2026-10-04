@@ -746,21 +746,21 @@ let fillMode = false, mainEl = null, stageEl = null, panelEl = null;
 function fit() {
   if (!cv) return;
   // 보통: 상자 너비에 맞춤. fill: 화면 높이까지 고려해 가장 크게 (남는 폭은 가운데 정렬)
+  // fill(동네지도 탭): 장소별 현황은 위에 가로로, 지도는 화면 폭을 다 써서 크게
   const avail = fillMode ? mainEl.clientWidth - 6 : stageEl.clientWidth;
   if (!avail || avail < 50) return;
-  let cssW = avail;
-  if (fillMode) {
-    const maxH = window.innerHeight - stageEl.getBoundingClientRect().top - 44;
-    if (maxH > 240) cssW = Math.min(avail, maxH * W / H);
-  }
+  const cssW = avail;
   const dpr = window.devicePixelRatio || 1;
   dev = cssW * dpr / W;
   cv.width = Math.round(W * dev); cv.height = Math.round(H * dev);
   cv.style.width = (cv.width / dpr) + 'px'; cv.style.height = (cv.height / dpr) + 'px';
   ctx.imageSmoothingEnabled = false;
-  if (fillMode && panelEl) panelEl.style.maxHeight = Math.max(320, stageEl.offsetHeight + 34) + 'px';
 }
-function pill(txt, cx, top, fs, col, dot, placed) {
+function pill(txt, cx, top, fs, col, dot, placed, c) {
+  const ctx0 = ctx; if (c) ctx = c;
+  try { return pillOn(txt, cx, top, fs, col, dot, placed); } finally { ctx = ctx0; }
+}
+function pillOn(txt, cx, top, fs, col, dot, placed) {
   ctx.font = `${fs}px ${DISPLAY}`;
   const tw = ctx.measureText(txt).width, pad = fs * .35, dw = dot ? fs * .55 : 0;
   const ww = tw + pad * 2 + dw, hh = fs * 1.25, x = Math.round(cx - ww / 2);
@@ -825,17 +825,87 @@ function renderPanel() {
   if (!placesEl) return;
   let html = '';
   for (const [town, ids] of ORDER) {
-    html += `<div class="tw-town"><h3>${esc(town)}</h3>`;
+    html += `<div class="tw-town"><h3>${esc(town)}</h3><div class="tw-row">`;
     for (const id of ids) { const pl = PL[id]; const here = people.filter(p => placeOf(p.seg.place).id === id);
-      html += `<div class="tw-place${here.length ? '' : ' tw-empty'}"><div class="tw-nm">${esc(pl.name)}${FLOOR_TAG[id] ? `<small>${FLOOR_TAG[id]}</small>` : ''}</div><div class="tw-ct">${here.length}</div>`;
-      if (here.length) html += `<div class="tw-chips">${here.map(p => `<button type="button" class="tw-chip${p.moving ? ' moving' : ''}" data-id="${esc(p.id)}" title="${esc(typeLabel(p.seg.type))}${p.moving ? ' · 이동 중' : ''}"><i class="tw-dot" style="--c:${typeOf(p.seg.type).c}"></i>${esc(p.name)}</button>`).join('')}</div>`;
+      const show = fillMode ? here.slice(0, 6) : here, more = here.length - show.length;
+      html += `<div class="tw-place${here.length ? '' : ' tw-empty'}${zoomId === id ? ' tw-on' : ''}" data-place="${esc(id)}" title="${esc(pl.name)} 크게 보기"><div class="tw-nm">${esc(pl.name)}${FLOOR_TAG[id] ? `<small>${FLOOR_TAG[id]}</small>` : ''}</div><div class="tw-ct">${here.length}</div>`;
+      if (here.length) html += `<div class="tw-chips">${show.map(p => `<button type="button" class="tw-chip${p.moving ? ' moving' : ''}" data-id="${esc(p.id)}" title="${esc(typeLabel(p.seg.type))}${p.moving ? ' · 이동 중' : ''}"><i class="tw-dot" style="--c:${typeOf(p.seg.type).c}"></i>${esc(p.name)}</button>`).join('')}${more > 0 ? `<span class="tw-more">+${more}</span>` : ''}</div>`;
       html += '</div>'; }
-    html += '</div>';
+    html += '</div></div>';
   }
   placesEl.innerHTML = html;
+  renderZoomList();
   if (legendEl) { const cnt = {}; for (const p of people) cnt[p.seg.type] = (cnt[p.seg.type] || 0) + 1;
     legendEl.innerHTML = Object.keys(TYPES).filter(k => cnt[k]).map(k => `<span><i class="tw-dot" style="--c:${TYPES[k].c}"></i>${esc(typeLabel(k))} <b>${cnt[k]}</b></span>`).join('') || '<span>표시할 사람이 없어요</span>'; }
 }
+
+// ---------- 장소 크게 보기: 그 방을 확대해서 보여주고 옆에 누가 무슨 일 중인지 ----------
+let zoomId = null, zoomEl = null, zcv = null, zctx = null, zPicEl = null, zListEl = null;
+function zoomRect(id) {
+  if (id === 'work') { const wb = buildings.work; return [wb.x - 4, Math.max(0, wb.top - 6), wb.ww + 8, 64 - Math.max(0, wb.top - 6)]; }
+  const r = PL[id] && PL[id].rect; if (!r) return null;
+  const x = Math.max(0, r[0] - 2), y = Math.max(0, r[1] - 2);
+  return [x, y, Math.min(W - x, r[2] + 4), Math.min(H - y, r[3] + 4)];
+}
+function placeLabel(id) {
+  const pl = PL[id]; if (!pl) return '';
+  if (id === 'outside') { const e = people.find(p => placeOf(p.seg.place).id === 'outside' && p.seg.ext); if (e) return '외부 · ' + e.seg.ext; }
+  return (pl.group === '스담' ? '스담 ' : '') + pl.name;
+}
+function openZoom(id) {
+  if (!zoomEl || !PL[id] || !zoomRect(id)) return;
+  zoomId = id; hideTip();
+  zoomEl.hidden = false;
+  zoomEl.querySelector('.tw-z-title').textContent = placeLabel(id);
+  zoomEl.querySelector('.tw-z-where').textContent = PL[id].where || '';
+  zcv.width = zcv.height = 0;   // 다음 그리기에서 크기 맞춤
+  renderPanel();
+  try { zoomEl.querySelector('.tw-z-x').focus({ preventScroll: true }); } catch (e) {}
+}
+function closeZoom() { if (!zoomId) return; zoomId = null; if (zoomEl) zoomEl.hidden = true; renderPanel(); }
+function renderZoomList() {
+  if (!zoomId || !zListEl) return;
+  zoomEl.querySelector('.tw-z-title').textContent = placeLabel(zoomId);
+  const here = people.filter(p => placeOf(p.seg.place).id === zoomId)
+    .sort((a, c) => (c.seg.lead ? 1 : 0) - (a.seg.lead ? 1 : 0) || a.seg.type.localeCompare(c.seg.type) || a.name.localeCompare(c.name));
+  zoomEl.querySelector('.tw-z-count').textContent = here.length ? here.length + '명' : '';
+  zListEl.innerHTML = here.length ? here.map(p => {
+    const s = p.seg, ty = typeOf(s.type);
+    let what = '';
+    if (ty.gated) what = s.detail && !maskDetail() ? esc(s.detail) : '<span class="tw-lock">내용은 교관 이상만</span>';
+    else if (s.title) what = esc(s.title);
+    return `<div class="tw-z-p"><i class="tw-dot" style="--c:${ty.c}"></i><div class="tw-z-pb">`
+      + `<div class="tw-z-nm"><b>${esc(p.name)}</b><small>${esc(p.team)}${p.role ? ' · ' + esc(p.role) : ''}</small></div>`
+      + `<div class="tw-z-ty">${esc(typeLabel(s.type))}${s.lead ? ' · 진행' : ''}${p.moving ? ' · 이동 중' : ''}${s.from != null ? `<span>${fmt(s.from)}–${fmt(Math.min(s.to, 1440))}</span>` : ''}</div>`
+      + (what ? `<div class="tw-z-what">${what}</div>` : '') + `</div></div>`;
+  }).join('') : '<p class="tw-z-empty">지금은 아무도 없어요</p>';
+}
+function drawZoom() {
+  if (!zoomId || !zcv) return;
+  const r = zoomRect(zoomId); if (!r) return;
+  const dpr = window.devicePixelRatio || 1, aw = zPicEl.clientWidth * dpr, ah = zPicEl.clientHeight * dpr;
+  if (aw < 20 || ah < 20) return;
+  const sc = Math.min(aw / r[2], ah / r[3]), cw = Math.floor(r[2] * sc), ch = Math.floor(r[3] * sc);
+  if (zcv.width !== cw || zcv.height !== ch) { zcv.width = cw; zcv.height = ch; zcv.style.width = cw / dpr + 'px'; zcv.style.height = ch / dpr + 'px'; }
+  zctx.imageSmoothingEnabled = false;
+  zctx.clearRect(0, 0, cw, ch);
+  zctx.drawImage(wC, r[0], r[1], r[2], r[3], 0, 0, cw, ch);
+  // 이름표: 크게 본 화면에선 다 보여줌
+  const fs = Math.max(12, Math.min(16, sc / dpr * 3.2)) * dpr, placed = [];
+  for (const p of [...people].filter(p => !p.hidden && p.x >= r[0] && p.x <= r[0] + r[2] && p.y >= r[1] && p.y <= r[1] + r[3] + 4).sort((a, c) => a.y - c.y))
+    pill(p.name, (p.x - r[0]) * sc, (p.y + 1.5 - r[1]) * sc, fs, '#f1e8d9', typeOf(p.seg.type).c, placed, zctx);
+}
+function roomAt(wx, wy) {
+  for (const id in PL) { const pl = PL[id]; if (pl.hiddenOnly) continue; const r = pl.rect; if (wx >= r[0] && wx <= r[0] + r[2] && wy >= r[1] && wy <= r[1] + r[3]) return id; }
+  return null;
+}
+function onClick(e) {
+  const r = cv.getBoundingClientRect(), wx = (e.clientX - r.left) / r.width * W, wy = (e.clientY - r.top) / r.height * H;
+  if (hoverId && byId.get(hoverId)) { openZoom(placeOf(byId.get(hoverId).seg.place).id); return; }
+  if (hoverRegion) { openZoom(hoverRegion.kind === 'work' ? 'work' : hoverRegion.place.id); return; }
+  const id = roomAt(wx, wy); if (id) openZoom(id);
+}
+function onKey(e) { if (e.key === 'Escape' && zoomId) { e.stopPropagation(); closeZoom(); } }
 
 // ---------- 툴팁 ----------
 const fmt = v => String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0');
@@ -873,7 +943,7 @@ function onMove(e) {
   hoverId = hit ? hit.id : null;
   let rg = null; if (!hit) rg = regions.find(g => wx >= g.rect[0] && wx <= g.rect[0] + g.rect[2] && wy >= g.rect[1] && wy <= g.rect[1] + g.rect[3]) || null;
   hoverRegion = rg;
-  cv.classList.toggle('tw-hover', !!(hit || rg));
+  cv.classList.toggle('tw-hover', !!(hit || rg || roomAt(wx, wy)));
   if (hit) showPersonTip(hit);
   else if (rg) { placeTip(groupTip(rg), rg.rect[0] + rg.rect[2] / 2, rg.rect[1]); tip._rg = rg.kind; tip._id = null; }
   else if (!(selId && clockT < selUntil)) hideTip();
@@ -911,6 +981,7 @@ function loop(ts) {
     ctx.clearRect(0, 0, cv.width, cv.height);
     ctx.drawImage(wC, 0, 0, W, H, 0, 0, cv.width, cv.height);
     drawText(oc);
+    drawZoom();
     if (!tip.hidden && tip._id && byId.get(tip._id)) showPersonTip(byId.get(tip._id));
   }
   requestAnimationFrame(loop);
@@ -958,6 +1029,47 @@ const CSS = `
 .tw-chip.moving{border-style:dashed;color:var(--tw-muted)}
 .tw-chip:focus-visible{outline:2px solid var(--tw-lamp);outline-offset:2px}
 .tw-note{margin:0;font-size:12px;color:var(--tw-muted);line-height:1.6}
+.tw-place[data-place]{cursor:pointer}
+.tw-place[data-place]:hover{outline:1px solid var(--tw-lamp)}
+.tw-place.tw-on{outline:2px solid var(--tw-lamp)}
+.tw-more{font-size:12px;color:var(--tw-muted);padding:1px 4px}
+/* 동네지도 탭(fill): 장소별 현황은 위에 가로로, 지도는 아래에 폭 가득 */
+.tw.tw-fill{grid-template-columns:minmax(0,1fr)}
+.tw.tw-fill .tw-stage{width:auto;justify-self:stretch}
+.tw.tw-fill .tw-legend{justify-content:flex-start}
+.tw-panel.tw-top{max-height:none;overflow:visible;padding:10px 12px}
+.tw-top .tw-places{display:flex;flex-wrap:wrap;gap:8px 16px}
+.tw-top .tw-town{display:flex;flex-direction:column;gap:4px;flex:none;min-width:0}
+.tw-top .tw-town h3{margin:0 0 0 2px}
+.tw-top .tw-row{display:flex;gap:4px}
+.tw-top .tw-place{width:132px;align-content:start;grid-template-columns:minmax(0,1fr) auto}
+.tw-top .tw-place.tw-empty{width:104px;opacity:.5}
+.tw-top .tw-nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tw-top .tw-chips{gap:3px}
+.tw-top .tw-chip{font-size:11px;padding:0 5px 0 4px}
+/* 크게 보기 */
+.tw-zoom{position:absolute;inset:0;z-index:4;background:rgba(14,12,18,.7);display:flex;align-items:center;justify-content:center;padding:2.5%;line-height:1.5}
+.tw-zoom[hidden]{display:none}
+.tw-z-box{background:var(--tw-panel);border:2px solid var(--tw-line);border-radius:6px;width:100%;height:100%;display:flex;flex-direction:column;box-shadow:0 18px 40px rgba(0,0,0,.45);min-height:0}
+.tw-z-head{display:flex;align-items:baseline;gap:10px;padding:10px 14px;border-bottom:1px solid var(--tw-line)}
+.tw-z-title{font-family:'Gowun Batang',serif;font-weight:700;font-size:22px;color:var(--tw-fg)}
+.tw-z-count{font-family:'Gowun Batang',serif;font-weight:700;font-size:18px;color:var(--tw-lamp)}
+.tw-z-where{font-size:12px;color:var(--tw-muted)}
+.tw-z-x{margin-left:auto;align-self:center;width:34px;height:34px;border-radius:4px;border:1px solid var(--tw-line);background:var(--tw-panel2);color:var(--tw-fg);font-size:15px;cursor:pointer}
+.tw-z-x:hover{border-color:var(--tw-lamp)}
+.tw-z-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.75fr) minmax(220px,1fr)}
+.tw-z-pic{min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;padding:12px;background:#0e0c12}
+.tw-z-pic canvas{image-rendering:pixelated;image-rendering:crisp-edges;border:2px solid var(--tw-line)}
+.tw-z-list{overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:6px;border-left:1px solid var(--tw-line)}
+.tw-z-p{display:flex;gap:9px;align-items:flex-start;padding:8px 10px;border-radius:4px;background:var(--tw-panel2)}
+.tw-z-p .tw-dot{margin-top:6px}
+.tw-z-pb{min-width:0}
+.tw-z-nm b{font-size:15px}
+.tw-z-nm small{margin-left:6px;font-size:11px;color:var(--tw-muted)}
+.tw-z-ty{font-size:12.5px;font-weight:600}
+.tw-z-ty span{margin-left:8px;font-weight:400;color:var(--tw-muted);font-variant-numeric:tabular-nums}
+.tw-z-what{margin-top:2px;font-size:12.5px;color:#d9cfbf}
+.tw-z-empty{margin:8px 2px;color:var(--tw-muted)}
 `;
 function ensureAssets() {
   if (!document.getElementById('tw-css')) { const st = document.createElement('style'); st.id = 'tw-css'; st.textContent = CSS; document.head.appendChild(st); }
@@ -974,17 +1086,26 @@ function mount(host, opts) {
   clockFn = opts.clock || null; maskDetail = opts.maskDetail || (() => false); loadFn = opts.load || null;
   showNames = opts.names !== false;
   fillMode = !!opts.fill;
-  host.innerHTML = `<div class="tw${opts.panel === false ? ' tw-nopanel' : ''}${fillMode ? ' tw-fill' : ''}"><div class="tw-main"><div class="tw-stage"><canvas aria-label="과원 위치 지도"></canvas><div class="tw-tip" hidden></div></div><div class="tw-legend"></div></div>`
-    + (opts.panel === false ? '' : `<aside class="tw-panel"><h2>장소별 현황</h2><div class="tw-places"></div><p class="tw-note">캐릭터나 숫자 팻말에 마우스를 올리면 자세히 보여요. 한 방에 9명 이상이면 이름표는 숨겨져요. 일정이 없는 사람은 휴게실, 직장 근무 시간인 사람은 직장 건물에 들어가 있어요.</p></aside>`) + `</div>`;
+  const NOTE = '장소(방·카드)를 누르면 크게 보여요. 캐릭터나 숫자 팻말에 마우스를 올리면 자세히 보여요. 한 방에 9명 이상이면 이름표는 숨겨져요. 일정이 없는 사람은 휴게실, 직장 근무 시간인 사람은 직장 건물에 들어가 있어요.';
+  const ZOOM = `<div class="tw-zoom" hidden><div class="tw-z-box" role="dialog" aria-modal="true"><div class="tw-z-head"><b class="tw-z-title"></b><span class="tw-z-count"></span><small class="tw-z-where"></small><button type="button" class="tw-z-x" aria-label="닫기" title="닫기 (Esc)">✕</button></div>`
+    + `<div class="tw-z-body"><div class="tw-z-pic"><canvas></canvas></div><div class="tw-z-list"></div></div></div></div>`;
+  const MAIN = `<div class="tw-main"><div class="tw-stage"><canvas aria-label="과원 위치 지도"></canvas><div class="tw-tip" hidden></div>${ZOOM}</div><div class="tw-legend"></div>${fillMode ? `<p class="tw-note">${NOTE}</p>` : ''}</div>`;
+  const PANEL = opts.panel === false ? '' : fillMode
+    ? `<aside class="tw-panel tw-top"><div class="tw-places"></div></aside>`
+    : `<aside class="tw-panel"><h2>장소별 현황</h2><div class="tw-places"></div><p class="tw-note">${NOTE}</p></aside>`;
+  host.innerHTML = `<div class="tw${opts.panel === false ? ' tw-nopanel' : ''}${fillMode ? ' tw-fill' : ''}">` + (fillMode ? PANEL + MAIN : MAIN + PANEL) + `</div>`;
   root = host.firstElementChild; cv = root.querySelector('canvas'); ctx = cv.getContext('2d'); tip = root.querySelector('.tw-tip');
   mainEl = root.querySelector('.tw-main'); stageEl = root.querySelector('.tw-stage'); panelEl = root.querySelector('.tw-panel');
   placesEl = root.querySelector('.tw-places'); legendEl = root.querySelector('.tw-legend');
+  zoomEl = root.querySelector('.tw-zoom'); zcv = zoomEl.querySelector('canvas'); zctx = zcv.getContext('2d');
+  zPicEl = zoomEl.querySelector('.tw-z-pic'); zListEl = zoomEl.querySelector('.tw-z-list'); zoomId = null;
+  zoomEl.addEventListener('click', e => { if (e.target === zoomEl || e.target.closest('.tw-z-x')) closeZoom(); });
+  document.addEventListener('keydown', onKey, true);
+  cv.addEventListener('click', onClick);
   cv.addEventListener('mousemove', onMove);
   cv.addEventListener('mouseleave', () => { hoverId = null; hoverRegion = null; cv.classList.remove('tw-hover'); hideTip(); });
-  if (placesEl) placesEl.addEventListener('click', e => { const bt = e.target.closest('.tw-chip'); if (!bt) return; const p = byId.get(bt.getAttribute('data-id')); if (!p) return;
-    selId = p.id; selUntil = clockT + 4;
-    if (p.hidden) { const pl = placeOf(p.seg.place); placeTip(personTip(p), pl.door[0], pl.door[1] - 6); tip._id = null; } else showPersonTip(p);
-    setTimeout(() => { if (hoverId == null && !hoverRegion) hideTip(); }, 3500); });
+  // 장소 카드(이름 칩 포함)를 누르면 그 장소 크게 보기
+  if (placesEl) placesEl.addEventListener('click', e => { const card = e.target.closest('[data-place]'); if (card) openZoom(card.getAttribute('data-place')); });
   roObs = new ResizeObserver(fit); roObs.observe(fillMode ? mainEl : stageEl); fit();
   window.addEventListener('resize', fit);
   viewMin = clockFn ? clockFn() : kstMinute();
@@ -997,6 +1118,8 @@ function unmount() {
   running = false; clearInterval(refreshTimer); refreshTimer = 0;
   if (roObs) { roObs.disconnect(); roObs = null; }
   window.removeEventListener('resize', fit);
+  document.removeEventListener('keydown', onKey, true);
+  zoomId = null; zoomEl = null; zcv = null; zctx = null; zPicEl = null; zListEl = null;
   root = null; cv = null; ctx = null; tip = null; placesEl = null; legendEl = null; mainEl = null; stageEl = null; panelEl = null;
 }
 window.Town = {
