@@ -1251,3 +1251,40 @@ html { scrollbar-gutter: stable; }
 .rp-off .rp-save { margin-left: auto; }
 .rp-entry .msg:empty { display: none; }
 .lk-prev canvas { max-width: 420px; }
+
+/* ===== 녹음 탭 다듬기 (2026-10-05): '녹음 한눈에'는 카드 하나 + 가는 선, 2주는 한 줄 띠, 업무가능 표는 이어진 막대 ===== */
+#recOverview .tv-panel { padding: 6px 24px; margin-bottom: 0; }
+#recOverview .tv-panel > * { padding: 18px 0; border-top: 1px solid var(--line); }
+#recOverview .tv-panel > :first-child { border-top: 0; }
+.tv-panel .tv-next { background: none; padding: 18px 0; border-radius: 0; box-shadow: none; }
+.tv-panel .tv-next:hover { box-shadow: none; }
+.tv-panel .tv-next:hover b { color: var(--accent); }
+.tv-panel .tv-done b { font-size: 16px; color: var(--muted); font-weight: 600; }
+.tv-panel .tv-done .tv-sub { font-size: 12.5px; }
+.tv-panel .tv-box { margin: 0; }
+.tv-cal { grid-template-columns: repeat(14, 1fr); gap: 2px; }
+.tv-day { background: none; border-radius: 8px; padding: 6px 0 5px; }
+.tv-day b { font-size: 14px; }
+.tv-day small.w0 { color: var(--bad); } .tv-day small.w6 { color: #4F6FA8; }
+.tv-day:nth-child(7):not(.today) { box-shadow: inset -1px 0 0 var(--line); }   /* 첫 주 | 둘째 주 */
+.tv-day.today { background: var(--accent); box-shadow: none; }
+.tv-day.today b, .tv-day.today small { color: #fff; }
+.tv-day.has:not(.today) { background: var(--accent-soft); }
+.rec-none { margin: 2px 2px 0; font-size: 13.5px; color: var(--muted); }
+@media (min-width: 1000px) {
+  #recView.split.ov #recOverview { position: static; max-height: none; overflow: visible; }   /* 고르기 전엔 따라 내려오지 않음 (아래 표와 겹치지 않게) */
+}
+
+/* 업무가능 2주: 칸 상자 대신 이어진 막대(진하기 = 되는 인원) */
+.av-grid .tgrid { gap: 0 3px; }
+.av-grid .tgrid .gc { height: 15px; border: 0; border-radius: 0; background: transparent; font-size: 10.5px; box-shadow: inset 0 1px 0 rgba(236,231,222,.6); }
+.av-grid .tgrid .gc.hr { margin-top: 0; box-shadow: inset 0 1px 0 var(--line); }
+.av-grid .tgrid .gt { transform: translateY(-1px); line-height: 15px; }
+.av-grid .tgrid .gt.hr { margin-top: 0; }
+.av-grid .tgrid .gc.on2 { background: color-mix(in srgb, var(--accent) calc(var(--a) * 100%), #E4E0CC); box-shadow: none; border-radius: 5px; margin: 0 1px; }
+.av-grid .tgrid .gc.on2.jt { border-top-left-radius: 0; border-top-right-radius: 0; }
+.av-grid .tgrid .gc.on2.jb { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.av-grid .tgrid .gc.full { outline: 0; box-shadow: inset 2px 0 0 #D9B45A; }
+.av-grid .tgrid .gc.sel { outline: 2px solid var(--text); outline-offset: -1px; border-radius: 3px; }
+.av-grid .tgrid .gc:not(.on2):hover { background: var(--card-soft); }
+.av-grid .tgrid .gh { position: sticky; top: 0; background: var(--card); z-index: 1; padding: 4px 0 8px; }

@@ -2693,7 +2693,7 @@ function renderRecList() {
   $('recOpenCount').textContent = open.length ? open.length + '건' : '';
   $('recOpen').innerHTML = open.length ? open.map(recCard).join('')
     : '<div class="empty"><b>진행 중인 녹음 요청이 없어요</b>오른쪽 아래 + 버튼으로 요청을 올려요</div>';
-  $('recPast').innerHTML = past.length ? past.map(recCard).join('') : '<div class="empty"><b>최근 지난 요청이 없어요</b></div>';
+  $('recPast').innerHTML = past.length ? past.map(recCard).join('') : '<p class="rec-none">최근 60일 동안 끝난 요청이 없어요</p>';
   renderRecOverview(open);
 }
 
@@ -2707,18 +2707,18 @@ function renderRecOverview(open) {
   var now = Date.now(), sess = [];
   open.forEach(function (r) { activeSess(r).forEach(function (s) { sess.push({ r: r, s: s }); }); });
   sess.sort(function (a, b) { return a.s.start - b.s.start; });
-  var html = '<div class="b-dhead"><h1>녹음 한눈에</h1><p>요청을 누르면 여기에 자세히 열려요</p></div>';
+  var html = '<div class="b-dhead"><h1>녹음 한눈에</h1><p>요청을 누르면 여기에 자세히 열려요</p></div><div class="card tv-panel">';
 
   var next = sess.filter(function (x) { return x.s.status !== '완료' && (x.s.end || x.s.start) >= now; })[0];
   if (next) {
     var who = next.s.people.filter(function (p) { return p.selected && p.answer === '수락'; }).map(function (p) { return p.name; });
-    html += '<button class="card tv-next" onclick="openRec(\'' + esc(next.r.id) + '\')">' +
+    html += '<button class="tv-next" onclick="openRec(\'' + esc(next.r.id) + '\')">' +
       '<span class="tv-label">다음 녹음' + (next.s.status === '조율중' ? ' · 조율 중' : '') + '</span>' +
       '<span class="tv-dday">' + ddayText(new Date(next.s.start)) + ' ' + hmMs(next.s.start) + '</span>' +
       '<b>' + esc(next.r.title || '녹음') + (next.s.title ? ' · ' + esc(next.s.title) : '') + '</b>' +
       '<span class="tv-sub">' + mdw(next.s.start) + (next.s.location ? ', ' + esc(next.s.location) : '') + (who.length ? ' · ' + esc(who.join(', ')) : '') + '</span></button>';
   } else if (open.length) {
-    html += '<div class="card tv-next tv-done"><span class="tv-label">다음 녹음</span><b>아직 잡힌 녹음 일정이 없어요</b><span class="tv-sub">요청을 눌러 가능한 시간을 찾아보세요</span></div>';
+    html += '<div class="tv-next tv-done"><span class="tv-label">다음 녹음</span><b>아직 잡힌 녹음이 없어요</b><span class="tv-sub">요청을 눌러 가능한 시간을 찾아보세요</span></div>';
   }
 
   var needs = open.map(function (r) {
@@ -2729,7 +2729,7 @@ function renderRecOverview(open) {
     if (c.c.wait) tags.push(['', '답 대기 ' + c.c.wait]);
     return { r: r, tags: tags };
   }).filter(function (x) { return x.tags.length; });
-  html += '<div class="card tv-box"><div class="tv-head"><b>손이 필요한 요청</b><span>' + (needs.length ? needs.length + '건' : '') + '</span></div>' +
+  html += '<div class="tv-box"><div class="tv-head"><b>손이 필요한 요청</b><span>' + (needs.length ? needs.length + '건' : '') + '</span></div>' +
     (needs.length ? needs.map(function (x) {
       return '<button class="tv-need" onclick="openRec(\'' + esc(x.r.id) + '\')"><span>' + esc(x.r.title || '녹음') + '</span><span class="tv-tags">' +
         x.tags.map(function (t) { return '<em class="' + t[0] + '">' + t[1] + '</em>'; }).join('') + '</span></button>';
@@ -2745,12 +2745,12 @@ function renderRecOverview(open) {
     var tip = day.map(function (x) { return hmMs(x.s.start) + ' ' + (x.r.title || '녹음'); }).concat(dues.map(function (r) { return (r.title || '녹음') + ' 마감'; })).join('\n');
     cells += '<button class="tv-day' + (i === 0 ? ' today' : '') + (go ? ' has' : '') + '"' +
       (go ? ' title="' + esc(tip) + '" onclick="openRec(\'' + esc(go.id) + '\')"' : ' disabled') + '>' +
-      '<small>' + WD[d.getDay()] + '</small><b>' + d.getDate() + '</b><span class="tv-dots">' +
+      '<small class="w' + d.getDay() + '">' + WD[d.getDay()] + '</small><b>' + d.getDate() + '</b><span class="tv-dots">' +
       day.map(function (x) { return '<i class="' + (x.s.status === '조율중' ? 'adj' : 'ok') + '"></i>'; }).join('') +
       dues.map(function () { return '<i class="due"></i>'; }).join('') + '</span></button>';
   }
-  html += '<div class="card tv-box"><div class="tv-head"><b>2주 녹음 달력</b><span><i class="tv-dot ok"></i>확정 <i class="tv-dot adj"></i>조율 중 <i class="tv-dot due"></i>마감</span></div>' +
-    '<div class="tv-cal">' + cells + '</div></div>';
+  html += '<div class="tv-box"><div class="tv-head"><b>앞으로 2주</b><span><i class="tv-dot ok"></i>확정 <i class="tv-dot adj"></i>조율 중 <i class="tv-dot due"></i>마감</span></div>' +
+    '<div class="tv-cal">' + cells + '</div></div></div>';
   $('recOverview').innerHTML = html;
 }
 
@@ -2880,10 +2880,12 @@ function renderAvail() {
       var top = s % 2 === 0;
       h += '<div class="gt' + (top ? ' hr' : '') + '">' + (top ? (s / 2) + '시' : '') + '</div>';
       for (var di = 0; di < n; di++) {
-        var key = di + '-' + s, c = (who[key] || []).length, a = c ? 0.15 + 0.85 * c / total : 0;
-        h += '<div class="gc' + (top ? ' hr' : '') + (c === total ? ' full' : '') + (AV.sel === key ? ' sel' : '') + '"' +
-          (c ? ' style="background: rgba(79,78,48,' + a.toFixed(2) + '); border-color: transparent;' + (a > 0.55 ? ' color:#fff;' : '') + '"' : '') +
-          ' onclick="avPick(\'' + key + '\')">' + (c || '') + '</div>';
+        // 같은 인원이 이어지면 한 막대로: 숫자는 막대가 시작하는 칸에만, 위아래 이어진 칸은 모서리를 붙임
+        var key = di + '-' + s, c = (who[key] || []).length, a = c ? 0.22 + 0.78 * c / total : 0;
+        var up = s > d.hours.from * 2 ? (who[di + '-' + (s - 1)] || []).length : 0, dn = (who[di + '-' + (s + 1)] || []).length;
+        h += '<div class="gc' + (top ? ' hr' : '') + (c ? ' on2' : '') + (c && up ? ' jt' : '') + (c && dn && s + 1 < d.hours.to * 2 ? ' jb' : '') + (c === total ? ' full' : '') + (AV.sel === key ? ' sel' : '') + '"' +
+          (c ? ' style="--a:' + a.toFixed(2) + ';' + (a > 0.55 ? 'color:#fff;' : '') + '"' : '') +
+          ' onclick="avPick(\'' + key + '\')">' + (c && c !== up ? c : '') + '</div>';
       }
     }
     h += '</div></div>';
