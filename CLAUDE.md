@@ -73,6 +73,10 @@
   상세는 오른쪽에서 스르륵 들어옴(✕ 버튼이나 Esc로 닫으면 다시 전체). 출결 `#attendWrap.split`, 과제 `#taskView.split`. 새 화면도 이 방식으로.
 - 캐시 때문에 `beta/index.html`의 `?v=20261003h` 같은 버전 문자열을 고칠 때마다 올려요.
 - 봇: `@BangYeah_bot`. 같은 봇에 BotFather `/newapp`으로 베타 미니앱을 따로 등록해요.
+- **봇 왼쪽 아래 메뉴 버튼**(2026-10-04): BotFather 기본값은 운영 앱(모두에게). 베타 인원은 `setChatMenuButton`으로 **그 사람 채팅에서만** 베타('방송예술과')로 바꿈.
+  앱을 켤 때(`me`) `people.bot_menu_url`이 베타 주소가 아니면 자동으로 바꿈. 한꺼번에: pg_net으로 `{action:"cron.betaMenu"}` + `x-cron-secret`.
+  텔레그램이 `user not found`라고 하면 그 사람이 봇과 대화를 시작(Start)한 적이 없는 것 → 알림도 못 받음. Start 누른 뒤 베타 앱을 한 번 열면 메뉴도 바뀜.
+  모두 베타로 넘어갈 땐 BotFather에서 기본 메뉴 주소를 베타로 바꾸면 됨. (텔레그램 채팅에 '출결'·'공지' 같은 단어를 치면 오는 답은 아직 운영 앱 Apps Script 웹훅)
   PC 브라우저 로그인(텔레그램 로그인 위젯)은 BotFather `/setdomain` → `kjlee7.github.io`가 돼 있어야 해요.
 
 ## 3. 구조
@@ -100,7 +104,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `77df667e0641b0ab70deedda1ce235fc8b877db0` (함수 버전 17, 알림 실패 이유 기록).
+- 현재 배포: SHA `7223d869568801c7071d5fbf4750a78227640607` (함수 버전 19, 봇 메뉴 버튼 베타 인원만 전환).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
