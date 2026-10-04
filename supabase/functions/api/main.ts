@@ -138,7 +138,7 @@ async function verifyLoginWidget(raw: string) {
 let botUsername = "";
 async function getBotUsername() {
   if (botUsername) return botUsername;
-  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMe`).then((x) => x.json());
+  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMe`).then((x) => x.json()).catch(() => null);
   botUsername = r?.result?.username ?? "";
   return botUsername;
 }
@@ -620,7 +620,7 @@ async function sendToMembers(members: any[], text: string, markup?: unknown) {
         }).then((x) => x.json());
         if (r?.ok) sent++;
         else { failed.push(m.name); why[m.name] = tgWhy(String(r?.description ?? "알 수 없음")); console.error("tg send", m.name, r?.error_code, r?.description); }
-      } catch (e: any) { failed.push(m.name); why[m.name] = "보내기 실패: " + String(e?.message ?? e).slice(0, 60); console.error("tg fetch", m.name, e); }
+      } catch (e: any) { failed.push(m.name); why[m.name] = "보내기 실패(네트워크)"; console.error("tg fetch", m.name, e?.name ?? "error"); }
     }));
   }
   return { sent, failed, why };
@@ -1522,8 +1522,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
         : now.filter((m) => !s.target_unit_id || m.group_id === s.target_unit_id);
       const count = (k: string, v: string) => rs.filter((r) => r[k] === v).length;
       const mine = rs.find((r) => r.person_id === ctx.me.id);
+      const own = s.team_id === team_id && rank >= RANK.GROUP_LEADER;   // 알림 결과(누가 못 받았는지)는 조장 이상만
       return {
-        ...s,
+        ...s, notify_result: own ? s.notify_result : null, remind_result: own ? s.remind_result : null,
         start_ms: sessionStart(s), end_ms: sessionEnd(s),
         target_count: targets ? targets.length : rs.length,
         is_target: targets ? targets.some((m) => m.id === ctx.me.id) : !!mine,
@@ -1563,7 +1564,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       return { id: m.id, name: m.name, position: m.position, group: m.group, me: m.id === ctx.me.id, att: v };
     });
     return {
-      session: { ...s, start_ms: sessionStart(s), end_ms: sessionEnd(s), plan_deadline: planDeadline(s) },
+      session: { ...s, notify_result: lead ? s.notify_result : null, remind_result: lead ? s.remind_result : null, start_ms: sessionStart(s), end_ms: sessionEnd(s), plan_deadline: planDeadline(s) },
       members: list,
       is_target: list.some((m) => m.me),
       can_check: lead,
@@ -2077,6 +2078,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     await requireItemMember(ctx, row);
     const content = String(p.content ?? "").trim().slice(0, 5000) || null;
     const file_url = String(p.file_url ?? "").trim().slice(0, 500) || null;
+    if (file_url && !/^https?:\/\//i.test(file_url)) throw new HttpError(400, "링크는 http:// 또는 https:// 로 시작해야 해요");
     if (!content && !file_url) throw new HttpError(400, "내용이나 링크를 넣어주세요");
     return must(await ctx.db.from("assignment_submissions").upsert(
       { assignment_id: p.assignment_id, person_id: ctx.me.id, content, file_url, submitted_at: new Date().toISOString() },
@@ -2655,6 +2657,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (Date.parse(s.scheduled_start) < Date.now()) throw new HttpError(400, "이미 시작 시간이 지났어요");
     const note = String(ctx.payload.note ?? "").trim().slice(0, 300) || null;
     if (answer === "조율" && !note) throw new HttpError(400, "조율이 필요한 내용(가능한 시간 등)을 적어주세요");
+    if (pt.answer === answer && (pt.answer_note ?? null) === note) return { ok: true, answer, selected: pt.selected, done: s.status === "예정" };   // 그대로면 알림 안 보냄
+    if (pt.answered_at && Date.now() - Date.parse(pt.answered_at) < 30000) throw new HttpError(429, "잠시 뒤에 다시 바꿔주세요");
     // 지정·엔지니어·감독은 수락하면 바로 확정. 후보는 요청자가 고르면 확정
     const selected = answer === "수락" ? (pt.role !== "녹음자" || pt.method === "지정" || pt.selected) : false;
     must(await ctx.db.from("recording_participants").update({ answer, answer_note: note, answered_at: new Date().toISOString(), selected }).eq("id", pt.id));
@@ -2946,6 +2950,8 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ ok: false, error: "POST만 허용됩니다" }, 405);
 
   try {
+    // 비밀값이 빠져 있으면 서명 검사가 무력해지므로 아예 멈춤
+    if (!BOT_TOKEN || !SUPABASE_URL || !SERVICE_KEY) { console.error("missing secrets"); return json({ ok: false, error: "서버 설정 오류" }, 500); }
     const body = await req.json().catch(() => ({}));
 
     // 로그인 전에도 쓰는 공개 기능: 로그인 버튼용 봇 아이디
@@ -2984,8 +2990,10 @@ Deno.serve(async (req) => {
       global: { headers: { "x-actor-id": me.id } },
     });
 
-    const handler = actions[body.action];
-    if (!handler) throw new HttpError(400, `알 수 없는 기능입니다: ${body.action}`);
+    // 기능 이름은 actions에 직접 적힌 것만 (constructor·toString 같은 기본 속성으로 엉뚱한 게 불리지 않게)
+    const name = typeof body.action === "string" ? body.action : "";
+    const handler = Object.hasOwn(actions, name) ? actions[name] : null;
+    if (typeof handler !== "function") throw new HttpError(400, "알 수 없는 기능입니다");
 
     const data = await handler({ db, me, payload: body.payload ?? {} });
     return json({ ok: true, data });

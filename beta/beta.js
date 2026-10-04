@@ -2048,7 +2048,7 @@ function renderTaskBoard() {
       html += '<div class="rs b-subbody" onclick="event.stopPropagation()">' +
         '<div class="b-subtime">' + dtLabel(sub.submitted_at) + ' 제출</div>' +
         (sub.content ? '<div class="b-subtext">' + esc(sub.content) + '</div>' : '') +
-        (sub.file_url ? '<a class="b-sublink" href="' + esc(sub.file_url) + '" target="_blank" rel="noopener">🔗 ' + esc(sub.file_url) + '</a>' : '') +
+        (sub.file_url && /^https?:\/\//i.test(sub.file_url) ? '<a class="b-sublink" href="' + esc(sub.file_url) + '" target="_blank" rel="noopener">🔗 ' + esc(sub.file_url) + '</a>' : '') +
         (a.needs_feedback ? '<label class="field-label">피드백' + (sub.feedback_name ? ' <span class="hint">' + esc(sub.feedback_name) + '</span>' : '') + '</label>' +
           '<textarea id="fb-' + esc(sub.id) + '" rows="3" maxlength="2000" placeholder="잘한 점, 고칠 점을 적어주세요">' + esc(sub.feedback || '') + '</textarea>' +
           '<button class="btn-primary b-small" onclick="saveFeedback(\'' + esc(sub.id) + '\')">피드백 저장</button>' +
