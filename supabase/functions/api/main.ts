@@ -2320,7 +2320,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       }
       for (const c of cis) {
         if (c.check_date !== today || !targeted(c)) continue;
-        const left = (c.items ?? []).filter((it: string) => !c.mine?.[it]);
+        // 뒤 항목을 이미 냈으면 앞 항목은 할 일에서 뺌 (예: '도착'을 눌렀으면 기상·출발도 끝)
+        const its: string[] = c.items ?? [], lastDone = Math.max(-1, ...its.map((it, i) => (c.mine?.[it] ? i : -1)));
+        const left = its.filter((it, i) => i > lastDone && !c.mine?.[it]);
         if (left.length && once("c" + c.id)) items.push({ kind: "checkin", id: c.id, team_id: c.team_id, name: c.title, left });
       }
     }
@@ -3164,14 +3166,14 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const ids = list.map((c: any) => c.id);
     let reps: any[] = [];
     if (ids.length) {
-      let q = ctx.db.from("checkin_reports").select("checkin_id, person_id, item, reported_at, note").in("checkin_id", ids);
+      let q = ctx.db.from("checkin_reports").select("checkin_id, person_id, item, reported_at, note, fixed_at").in("checkin_id", ids);
       if (rank < RANK.GROUP_LEADER) q = q.eq("person_id", ctx.me.id);
       reps = must(await q) ?? [];
     }
     const names = rank >= RANK.GROUP_LEADER ? await nameMap(ctx, reps.map((r) => r.person_id)) : new Map();
     return list.map((c: any) => {
       const mine: Record<string, any> = {};
-      for (const r of reps) if (r.checkin_id === c.id && r.person_id === ctx.me.id) mine[r.item] = { at: r.reported_at, note: r.note };
+      for (const r of reps) if (r.checkin_id === c.id && r.person_id === ctx.me.id) mine[r.item] = { at: r.reported_at, note: r.note, fixed: !!r.fixed_at };
       return {
         ...c, mine,
         reports: rank >= RANK.GROUP_LEADER
@@ -3226,14 +3228,20 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 체크인 보고: { checkin_id, item, note?(도착 예정 등) } / 잘못 눌렀을 때 취소: checkins.unreport
   async "checkins.report"(ctx) {
-    const c = must(await ctx.db.from("checkins").select("team_id, items, target_people, target_unit_id").eq("id", ctx.payload.checkin_id).maybeSingle());
+    const c = must(await ctx.db.from("checkins").select("team_id, items, target_people, target_unit_id, check_date").eq("id", ctx.payload.checkin_id).maybeSingle());
     if (!c) throw new HttpError(404, "체크인을 찾을 수 없습니다");
     await requireItemTarget(ctx, c);
     if (!c.items.includes(ctx.payload.item)) throw new HttpError(400, "이 체크인에 없는 항목입니다");
-    return must(await ctx.db.from("checkin_reports").upsert({
-      checkin_id: ctx.payload.checkin_id, person_id: ctx.me.id, item: ctx.payload.item,
-      reported_at: new Date().toISOString(), note: String(ctx.payload.note ?? "").trim().slice(0, 100) || null,
-    }, { onConflict: "checkin_id,person_id,item" }).select().single());
+    // 시간 고치기 { at: "HH:MM" }: 잘못 눌렀을 때 본인이 실제 시각으로 (그 체크인 날짜, 지금보다 늦게는 안 됨). 고친 표시 fixed_at
+    const row: any = { checkin_id: ctx.payload.checkin_id, person_id: ctx.me.id, item: ctx.payload.item, reported_at: new Date().toISOString() };
+    if (ctx.payload.at !== undefined) {
+      const hm = parseHm(String(ctx.payload.at));
+      if (!hm) throw new HttpError(400, "시간을 19:00처럼 적어주세요");
+      const at = kstMs(c.check_date, hm + ":00");
+      if (at > Date.now() + 5 * 60000) throw new HttpError(400, "지금보다 늦은 시간으로는 고칠 수 없어요");
+      row.reported_at = new Date(at).toISOString(); row.fixed_at = new Date().toISOString();
+    } else row.note = String(ctx.payload.note ?? "").trim().slice(0, 100) || null;
+    return must(await ctx.db.from("checkin_reports").upsert(row, { onConflict: "checkin_id,person_id,item" }).select().single());
   },
   async "checkins.unreport"(ctx) {
     must(await ctx.db.from("checkin_reports").delete()

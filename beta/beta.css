@@ -1341,3 +1341,17 @@ html { scrollbar-gutter: stable; }
 .fl-p { font-size: 10.5px; padding: 1px 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fl-branch { margin: 8px 0 0 calc((100% + 10px) * 2 / 7); }
 @media (max-width: 640px) { .fl-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } .fl-step:nth-child(4)::after { display: none; } .fl-branch { margin-left: 0; } }
+
+/* PC: 녹음 요청 상세는 화면 가운데 팝업 (2026-10-05) */
+.rc-dim { display: none; }
+@media (min-width: 1000px) {
+  body.rc-pop .rc-dim { display: block; position: fixed; inset: 0; z-index: 71; background: rgba(31,30,26,.42); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); animation: rcFade .18s ease both; }
+  body.rc-pop #recView #recDetail { position: fixed; z-index: 72; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(900px, calc(100vw - 80px)); max-height: calc(100vh - 64px);
+    overflow-y: auto; background: var(--bg); border-radius: 22px; padding: 28px 30px 24px; box-shadow: 0 24px 60px rgba(31,30,26,.28); animation: rcPop .22s cubic-bezier(.2,.8,.2,1) both; }
+  body.rc-pop #recDetail .back { display: none; }
+  body.rc-pop #recDetail .b-close { display: flex; position: sticky; top: 0; float: right; margin: -8px -10px 0 0; z-index: 2; }
+  body.rc-pop { overflow: hidden; }
+}
+@keyframes rcFade { from { opacity: 0; } }
+@keyframes rcPop { from { opacity: 0; transform: translate(-50%, -48%) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { body.rc-pop .rc-dim, body.rc-pop #recView #recDetail { animation: none; } }

@@ -1234,6 +1234,7 @@ var curTab = 'home';
 var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView' };
 function goTab(t) {
   if (t === curTab) return;
+  if (curTab === 'rec' && RC.current) closeRec();
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   if (curTab === 'poll' && PL.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   closeModal(); closeFabMenu();
@@ -2200,18 +2201,22 @@ function ciCard(c) {
       var m = c.mine[it];
       return '<button class="ci-btn' + (m ? ' done' : '') + '" onclick="tapCheckin(\'' + esc(c.id) + '\',\'' + it + '\')">' +
         '<span class="ci-emoji">' + CI_EMOJI[it] + '</span><span class="ci-label">' + it + '</span>' +
-        '<span class="ci-time">' + (m ? hmOf(m.at) + (m.note ? ' → ' + esc(m.note) : '') : '누르면 기록') + '</span></button>';
+        '<span class="ci-time">' + (m ? hmOf(m.at) + (m.fixed ? ' (고침)' : '') + (m.note ? ' → ' + esc(m.note) : '') : '누르면 기록') + '</span></button>';
     }).join('') + '</div>' +
     '<div class="ci-eta" id="eta-' + esc(c.id) + '" style="display:none;"><label>도착 예정 시간 <small>(모르면 비워두세요)</small></label>' +
       '<div class="ci-eta-row"><input type="time" id="etaIn-' + esc(c.id) + '"><button onclick="sendCheckin(\'' + esc(c.id) + '\',\'출발\')">출발했어요</button></div></div>' +
     '<div class="msg" id="ciMsg-' + esc(c.id) + '"></div>' +
-    '<div class="ci-tip">잘못 눌렀으면 기록된 칸을 한 번 더 눌러 지울 수 있어요</div></div>';
+    '<div class="ci-tip">잘못 눌렀으면 기록된 칸을 한 번 더 눌러 시간을 고치거나 지울 수 있어요</div></div>';
 }
 
 function tapCheckin(id, item) {
   var c = byId(C.list, id); if (!c) return;
+  // 이미 낸 칸: 시간 고치기(잘못 눌렀을 때 실제 시각으로) 또는 지우기
   if (c.mine[item]) {
-    if (confirm(item + ' 기록(' + hmOf(c.mine[item].at) + ')을 지울까요?')) unCheckin(id, item);
+    var v = prompt(item + ' ' + hmOf(c.mine[item].at) + ' 기록\n\n실제 ' + item + ' 시간으로 고치려면 적어주세요 (예: 19:00)\n비우고 확인을 누르면 기록을 지울지 물어봐요', hmOf(c.mine[item].at));
+    if (v === null) return;
+    if (!v.trim()) { if (confirm(item + ' 기록을 지울까요?')) unCheckin(id, item); return; }
+    fixCheckin(id, item, v.trim());
     return;
   }
   if (item === '출발') { var b = $('eta-' + id); b.style.display = b.style.display === 'none' ? 'block' : 'none'; return; }
@@ -2236,6 +2241,14 @@ function sendCheckin(id, item) {
   }).catch(function (err) { setMsg('ciMsg-' + id, err.message, true); haptic('error'); });
 }
 
+function fixCheckin(id, item, at) {
+  setMsg('ciMsg-' + id, '고치는 중...');
+  api('checkins.report', { checkin_id: id, item: item, at: at }).then(function (r) {
+    var c = byId(C.list, id); c.mine[item] = { at: r.reported_at, note: r.note, fixed: true };
+    haptic('success'); renderCheckins(); refreshTodos(true);
+    setMsg('ciMsg-' + id, item + ' 시간을 ' + hmOf(r.reported_at) + '(으)로 고쳤어요');
+  }).catch(function (err) { setMsg('ciMsg-' + id, err.message, true); });
+}
 function unCheckin(id, item) {
   api('checkins.unreport', { checkin_id: id, item: item }).then(function () {
     var c = byId(C.list, id);
@@ -2699,9 +2712,9 @@ function renderRecList() {
 
 // PC에서 요청을 고르기 전 오른쪽 칸: 다음 녹음 → 손이 필요한 요청 → 2주 녹음 달력
 function renderRecOverview(open) {
-  var show = isWide() && !RC.current;
+  var show = isWide();   // PC: 상세는 팝업이라 '녹음 한눈에'는 뒤에 그대로
   $('recView').classList.toggle('split', isWide());
-  $('recView').classList.toggle('ov', show);
+  $('recView').classList.toggle('ov', show && !RC.current);
   $('recOverview').style.display = show ? 'block' : 'none';
   if (!show) return;
   var now = Date.now(), sess = [];
@@ -2923,14 +2936,14 @@ function openRec(id) {
   RC.current = r;
   if (!activeSess(r).length && freeRoles(r).length && recIsOpen(r) && r.status !== '보류') RC.planOpen = true;
   var wide = isWide();
+  document.body.classList.toggle('rc-pop', wide);   // PC: 상세는 화면 가운데 팝업 (옆에서 밀고 들어오지 않음)
   $('recListWrap').style.display = wide ? 'block' : 'none';
   document.querySelector('.rec-title').style.display = wide ? '' : 'none';
   $('recAvail').style.display = wide ? '' : 'none';
   $('recView').classList.toggle('split', wide);
   renderRecList();
-  $('recOverview').style.display = 'none';
-  $('recView').classList.remove('ov');
-  $('recDetail').style.display = 'block';
+  if (!wide) { $('recOverview').style.display = 'none'; $('recView').classList.remove('ov'); }
+  $('recDetail').style.display = 'block'; $('recDetail').scrollTop = 0;
   try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
   if (!wide) window.scrollTo(0, 0);
   renderRecHead(); renderRecBoard();
@@ -2938,6 +2951,7 @@ function openRec(id) {
 }
 function closeRec() {
   RC.current = null; RC.plan = null; RC.planOpen = false;
+  document.body.classList.remove('rc-pop');
   $('recView').classList.toggle('split', isWide());
   $('recDetail').style.display = 'none';
   $('recListWrap').style.display = 'block';
@@ -2988,6 +3002,7 @@ function renderRecBoard() {
     h += '<span class="section-count">확정 ' + pr.ok + ' / ' + pr.total + (free.length && ss.length ? ' (배치 전 배역 ' + free.length + ' 포함)' : '') + '</span>';
   }
   h += '</div>';
+  if (!ss.length) h += recFlow(r, { status: '배치전', people: [], start: 0 });
   if (!ss.length && !RC.planOpen) h += '<div class="empty"><b>아직 배치를 시작하지 않았어요</b>아래 \'회차 만들기\'로 시간·장소·사람을 정해 요청을 보내요</div>';
   ss.forEach(function (s) { h += sessCard(r, s); });
   if (free.length && ss.length) h += '<div class="rc-free">배치 전 배역: ' + free.map(function (x) { return '<b>' + esc(x.name) + '</b>'; }).join(' · ') + '</div>';
@@ -4620,6 +4635,9 @@ function recFlow(r, s) {
   var chip = function (p, ok, extra) { return '<span class="fl-p r-' + (RK[p.role] || '') + (ok ? ' ok' : '') + '" title="' + esc(RK[p.role] || p.role) + '">' + esc(p.name) + (extra || '') + '</span>'; };
   var voices = ppl.filter(function (p) { return p.role === '녹음자' && p.selected; });
   var live = s.status === '조율중', done = s.status === '완료', conf = s.status === '예정' || done;
+  if (s.status === '배치전') return '<div class="fl"><div class="fl-row">' + ['배치', '요청 확인', '수락', '확정', '도착', '녹음 중', '마침'].map(function (n, i) {
+    return '<div class="fl-step ' + (i ? 'next' : 'now') + '"><div class="fl-h"><i>' + (i + 1) + '</i>' + n + '</div><div class="fl-b">' + (i ? '' : '<span class="fl-t">회차를 만들면 시작해요</span>') + '</div></div>';
+  }).join('') + '</div></div>';
   var steps = [
     ['배치', true, ppl.map(function (p) { return chip(p, true); }).join('')],
     ['요청 확인', ppl.every(function (p) { return p.seen_at || p.answer !== '대기'; }), ppl.map(function (p) { return chip(p, p.seen_at || p.answer !== '대기', p.seen_at || p.answer !== '대기' ? '' : ' <i>안 봄</i>'); }).join('')],

@@ -8,3 +8,6 @@ alter table recording_sessions
   add column started_by uuid references people(id),
   add column ended_at timestamptz,         -- 엔지니어 '녹음 마쳤습니다' (→ 회차 완료)
   add column ended_by uuid references people(id);
+
+-- 체크인 시간 고치기 (2026-10-05): 잘못 눌렀을 때 본인이 실제 시각으로 고침
+alter table checkin_reports add column fixed_at timestamptz;
