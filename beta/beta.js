@@ -224,11 +224,20 @@ window.onTgAuth = function (user) {
   $('loginBox').style.display = 'none';
   boot();
 };
-// 오른쪽 위 동그라미: 들어와 있으면 '나의 기록'으로, 아직 못 들어왔으면(PC) 로그아웃
+// 오른쪽 위 동그라미: 들어와 있으면 내 이름·직책 + 지금 할 일 상자, 아직 못 들어왔으면(PC) 로그아웃
 function onAvatar() {
-  if (S.me && S.me.teams && S.me.teams.length) { goTab('profile'); return; }
+  if (S.me && S.me.teams && S.me.teams.length) { toggleMePop(); return; }
   logout();
 }
+function toggleMePop(open) {
+  var el = $('mePop');
+  if (open === undefined) open = !el.classList.contains('open');
+  el.classList.toggle('open', open);
+  if (open) refreshTodos(true);
+}
+document.addEventListener('click', function (e) {
+  if ($('mePop').classList.contains('open') && !e.target.closest('.b-mebox')) toggleMePop(false);
+});
 function logout() {
   if (initData || !loginRaw) return;  // 미니앱에선 로그아웃 없음
   if (!confirm('로그아웃할까요? 다음에 다시 텔레그램으로 로그인해야 해요.')) return;
@@ -1240,13 +1249,11 @@ function goTask(from) {
   goTab('task');
 }
 function renderTaskSeg() {
-  var seg = taskFrom === 'profile'
-    ? [['나의 기록', "goTab('profile')", 0], ['내 과제', '', 1], ['업무가능', "goTab('weekly')", 0], ['시간취합', "goTab('poll')", 0]]
-    : [['공지', "goTab('notice')", 0], ['과제', '', 1]];
+  var seg = taskFrom === 'profile' ? [] : [['공지', "goTab('notice')", 0], ['과제', '', 1]];
   $('taskSeg').innerHTML = seg.map(function (x) {
     return '<button class="wkchip' + (x[2] ? ' active' : '') + '"' + (x[1] ? ' onclick="' + x[1] + '"' : '') + '>' + x[0] + '</button>';
   }).join('');
-  $('todoAreaTask').style.display = taskFrom === 'profile' ? '' : 'none';
+  $('taskSeg').style.display = seg.length ? '' : 'none';
   $('taskDesc').textContent = taskFrom === 'profile' ? '나에게 하달된 과제예요. 눌러서 제출해주세요' : '과제를 눌러 제출하고, 제출 현황을 봐요';
 }
 // 아래 탭 '개인': 누르면 하위 메뉴(나의 기록·내 과제·업무가능 시간·시간취합)
@@ -1259,6 +1266,7 @@ function togglePfSub(open) {
   el.classList.toggle('open', open);
 }
 function pfGo(t) {
+  toggleMePop(false);
   if (pfFloating()) togglePfSub(false);
   if (t === 'task') goTask('profile'); else goTab(t);
 }
@@ -3279,6 +3287,7 @@ function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach
 // ----- PC: Esc로 오른쪽 상세 닫기 -----
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && MODAL) { closeModal(); return; }
+  if (e.key === 'Escape' && $('mePop').classList.contains('open')) { toggleMePop(false); return; }
   if (e.key === 'Escape' && $('pfSub').classList.contains('open') && pfFloating()) { togglePfSub(false); return; }
   if (e.key === 'Escape' && $('attFab').classList.contains('open')) { closeFabMenu(); return; }
   if (e.key !== 'Escape' || !isWide()) return;
@@ -3668,7 +3677,7 @@ function refreshTodos(force) {
   TODO.wait = api('todos.list').then(function (d) { TODO.data = d; renderTodos(); })
     .catch(function () {}).then(function () { TODO.wait = null; });
 }
-// '지금 할 일'은 개인노트와 그 아래 칩 화면(내 과제·업무가능·시간취합) 모두 위에 같이 보임
+// '지금 할 일'은 오른쪽 위 동그라미를 누르면 뜨는 상자 안(#todoArea)
 function setTodoHtml(html) { document.querySelectorAll('.todo-area').forEach(function (el) { el.innerHTML = html; }); }
 function renderTodos() {
   var d = TODO.data, n = d ? d.count : 0, bd = $('todoBadge');
@@ -3697,6 +3706,7 @@ function renderTodos() {
 // 할 일을 누르면 그 화면으로
 function openTodo(i) {
   var t = TODO.data && TODO.data.items[i]; if (!t) return;
+  toggleMePop(false);
   var inTeam = function (fn) {
     if (t.team_id && S.team && t.team_id !== S.team.id && S.me.teams.some(function (x) { return x.id === t.team_id; })) return Promise.resolve(selectTeam(t.team_id)).then(fn);
     return Promise.resolve(fn());
