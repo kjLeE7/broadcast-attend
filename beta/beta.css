@@ -315,7 +315,7 @@ body.town-mode .app { max-width: none; }
 body, body * { font-family: var(--font-body) !important; }
 
 /* 고운바탕을 쓰는 곳: 화면 제목, 상세 제목, 구역 제목, 카드 제목, 로고 */
-.page-title, .page-title *, .hero-title, .b-dhead h1, .section-head h2, .b-card-title,
+.page-title, .page-title *, .hero-title, .b-dhead h1, .b-modal-head h1, .section-head h2, .b-card-title,
 .b-info b, .b-toggle b, .ann-title, .pf-who > b, .pf-type-top b, .pf-it b,
 .brand-title, .logo, .pf-avatar, .b-month b, .poll-banner b,
 .tw-panel h2, .tw-t-name {
@@ -364,13 +364,13 @@ body, body * { font-family: var(--font-body) !important; }
 
   /* 오른쪽에서 스르륵 */
   .b-attend.split #detailView, #taskView.split #taskDetail { animation: b-slidein .26s ease both; }
-  .b-attend.split .b-close, #taskView.split .b-close, #noticeView.split .b-close {
+  .b-attend.split .b-close, #taskView.split .b-close {
     display: flex; align-items: center; justify-content: center;
     position: absolute; top: 4px; right: 6px; z-index: 2;
     width: 36px; height: 36px; border: none; border-radius: 99px;
     background: var(--card); color: var(--muted); font-size: 15px; box-shadow: var(--shadow); cursor: pointer;
   }
-  .b-attend.split .b-close:hover, #taskView.split .b-close:hover, #noticeView.split .b-close:hover { color: var(--text); }
+  .b-attend.split .b-close:hover, #taskView.split .b-close:hover { color: var(--text); }
   .b-attend.split #dHead h1, #taskView.split #tdHead h1, #taskView.split #tdHead .b-cat { margin-right: 44px; }
 }
 @keyframes b-slidein { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
@@ -477,9 +477,53 @@ body, body * { font-family: var(--font-body) !important; }
 .b-aud small { color: var(--muted); font-size: 12px; }
 @media (min-width: 1000px) {
   .b-fab { right: 36px; bottom: 36px; }
-  #noticeView.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
-  #noticeView.split #annList { grid-template-columns: minmax(0, 1fr); }
-  #noticeView.split #annEdit { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 2px 4px 8px; animation: b-slidein .26s ease both; }
-  #noticeView.split #annEdit .back { display: none; }
-  #noticeView.split #annEdit .b-dhead h1 { margin-right: 44px; }
+}
+
+/* ===== 만들기 버튼(FAB) + 팝업 (공지 쓰기·체크인 만들기·모임 만들기·과제 내기) =====
+   + 버튼을 누르면 PC는 화면 가운데, 폰은 아래에서 올라오는 팝업. ✕ · 바깥 누르기 · Esc로 닫힘 */
+.b-fab { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.b-fab.open .fab svg { transform: rotate(45deg); }
+.b-fab .fab-menu { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
+.b-fab.open .fab-menu { pointer-events: auto; }
+.b-fab.open .fab-item { opacity: 1; transform: none; }
+.b-fab { pointer-events: none; }            /* 접힌 메뉴 자리가 아래 카드 클릭을 막지 않게 */
+.b-fab > .fab { pointer-events: auto; }
+.b-fabdim { position: fixed; inset: 0; z-index: 25; background: rgba(244,241,236,.6); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+.b-fabdim.show { opacity: 1; pointer-events: auto; }
+/* PC에서 모임·과제 상세가 오른쪽에 열려 있으면 + 버튼은 잠깐 숨김(상세를 가리지 않게) */
+.b-attend.split #attFab, .b-attend.split #attFabDim, #taskView.split #hwFab { display: none !important; }
+
+.b-modal { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 24px;
+  visibility: hidden; pointer-events: none; transition: visibility 0s linear .24s; }
+.b-modal.show { visibility: visible; pointer-events: auto; transition-delay: 0s; }
+.b-modal-dim { position: absolute; inset: 0; background: rgba(31,30,26,.42); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  opacity: 0; transition: opacity .22s ease; }
+.b-modal.show .b-modal-dim { opacity: 1; }
+.b-modal-box { position: relative; width: 100%; max-width: 520px; max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px);
+  display: flex; flex-direction: column; background: var(--card); border-radius: 24px; box-shadow: 0 24px 64px rgba(31,30,26,.24);
+  opacity: 0; transform: translateY(14px) scale(.97); transition: opacity .22s ease, transform .24s cubic-bezier(.2,.8,.2,1); }
+.b-modal.show .b-modal-box { opacity: 1; transform: none; }
+.b-modal-head { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 22px 22px 14px; border-bottom: 1px solid var(--line); }
+.b-modal-head h1 { margin: 0 0 5px; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+.b-modal-head p { margin: 0; color: var(--muted); font-size: 13.5px; }
+.b-modal-x { flex: none; width: 36px; height: 36px; border: none; border-radius: 99px; background: var(--card-soft); color: var(--muted);
+  font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.b-modal-x:hover { color: var(--text); background: var(--line); }
+.b-modal-body { padding: 6px 22px 22px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.b-modal-body .msg:empty { display: none; }
+body.modal-open { overflow: hidden; }
+body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
+
+/* 폰: 아래에서 올라오는 시트 모양 (키보드가 올라와도 가려지지 않게 높이는 화면의 92%까지) */
+@media (max-width: 999px) {
+  .b-modal { align-items: flex-end; padding: 0; }
+  .b-modal-box { max-width: 560px; max-height: 92vh; max-height: 92dvh; border-radius: 24px 24px 0 0; transform: translateY(100%); opacity: 1; }
+  .b-modal-box::before { content: ''; position: absolute; top: 8px; left: 50%; width: 38px; height: 4px; margin-left: -19px; border-radius: 99px; background: var(--line); }
+  .b-modal-head { padding-top: 24px; }
+  .b-modal-body { padding-bottom: calc(22px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .b-modal-box, .b-modal-dim { transition: none; }
 }

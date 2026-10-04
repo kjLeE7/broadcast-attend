@@ -258,9 +258,11 @@ function showList() {
   $('reportView').style.display = 'none';
   $('listView').style.display = 'block';
   $('attendWrap').classList.remove('split');
-  var lead = S.team.rank >= RANK.GROUP_LEADER;
-  $('createCard').style.display = lead ? 'block' : 'none';
-  $('ciCreateCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
+  var lead = S.team.rank >= RANK.GROUP_LEADER, inst = S.team.rank >= RANK.INSTRUCTOR;
+  $('attFabSess').style.display = lead ? '' : 'none';
+  $('attFabCi').style.display = inst ? '' : 'none';
+  $('attFab').style.display = lead || inst ? '' : 'none';
+  closeFabMenu();
   if (lead) fillTypeSelect();
   renderList();
   renderCheckins();
@@ -327,11 +329,11 @@ function sessionCard(s) {
 // ---------------------------------------------------------------------
 // 모임 만들기 (조장 이상) — 만들면 대상자에게 봇 알림
 // ---------------------------------------------------------------------
-function toggleCreate() {
-  var f = $('createForm'), open = f.style.display === 'none';
-  f.style.display = open ? 'block' : 'none';
-  $('createChev').classList.toggle('open', open);
-  if (open && !$('cDate').value) $('cDate').value = todayStr();
+function openSessModal() {
+  fillTypeSelect();
+  if (!$('cDate').value) $('cDate').value = todayStr();
+  setMsg('cMsg', '');
+  openModal('cModal');
 }
 function fillTypeSelect() {
   var sel = $('cType'), keep = sel.value;
@@ -384,7 +386,7 @@ function createSession() {
     haptic('success');
     renderList();
     setMsg('cMsg', '만들었어요!' + (s.notify ? '\n' + notifyText(s.notify) : ''));
-    setTimeout(function () { setMsg('cMsg', ''); toggleCreate(); }, s.notify && s.notify.failed.length ? 6000 : 1500);
+    setTimeout(function () { setMsg('cMsg', ''); closeModal('cModal'); }, s.notify && s.notify.failed.length ? 6000 : 1500);
     // 대상 인원·내 대상 여부는 서버 기준으로 다시
     refreshSessions();
   }).catch(function (err) { setMsg('cMsg', err.message, true); haptic('error'); btn.disabled = false; });
@@ -843,6 +845,7 @@ var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
+  closeModal(); closeFabMenu();
   setTabUI(t);
   $('stateBox').style.display = 'none';
   S.current = null; stopBoardTimer();
@@ -1211,11 +1214,53 @@ var A = { list: null, current: null, subs: null, openSub: null };   // 과제
 var C = { list: [], open: null };                     // 체크인
 S.groups = [];
 
-function toggleBox(formId, chevId) {
-  var f = $(formId), open = f.style.display === 'none';
-  f.style.display = open ? 'block' : 'none';
-  $(chevId).classList.toggle('open', open);
-  if (open && formId === 'ciForm' && !$('ciDate').value) $('ciDate').value = todayStr();
+// ----- 만들기 팝업: FAB(+)로 열고 ✕·바깥 누르기·Esc·텔레그램 뒤로가기로 닫음 -----
+var MODAL = null;
+function openModal(id) {
+  if (MODAL && MODAL !== id) closeModal();
+  closeFabMenu();
+  var m = $(id);
+  m.classList.add('show'); m.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  MODAL = id;
+  m.querySelector('.b-modal-body').scrollTop = 0;
+  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+  // PC에서만 첫 칸에 커서 (폰은 키보드가 바로 올라와 가려서 안 함)
+  if (isWide()) setTimeout(function () {
+    var f = m.querySelector('.b-modal-body input[type=text], .b-modal-body select, .b-modal-body textarea');
+    if (f) try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); }
+  }, 60);
+}
+// id를 주면 그 팝업이 열려 있을 때만 닫음 (저장 뒤 잠깐 기다렸다 닫을 때 다른 팝업을 닫지 않게)
+function closeModal(id) {
+  if (!MODAL || (id && MODAL !== id)) return;
+  var m = $(MODAL);
+  m.classList.remove('show'); m.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
+  MODAL = null;
+  try { if (tg && tg.BackButton && !S.current && !A.current) tg.BackButton.hide(); } catch (e) {}
+}
+// 출결 FAB: 만들 수 있는 게 하나면 바로 팝업, 둘이면 작은 메뉴를 펼침
+function attFabTap() {
+  var items = ['attFabCi', 'attFabSess'].filter(function (id) { return $(id).style.display !== 'none'; });
+  if (items.length === 1) { items[0] === 'attFabCi' ? openCiModal() : openSessModal(); return; }
+  var open = !$('attFab').classList.contains('open');
+  $('attFab').classList.toggle('open', open);
+  $('attFabDim').classList.toggle('show', open);
+}
+function closeFabMenu() {
+  if (!$('attFab')) return;
+  $('attFab').classList.remove('open');
+  $('attFabDim').classList.remove('show');
+}
+function openCiModal() {
+  if (!$('ciDate').value) $('ciDate').value = todayStr();
+  setMsg('ciMsg', '');
+  openModal('ciModal');
+}
+function openHwModal() {
+  setMsg('hwMsg', '');
+  openModal('hwModal');
 }
 function fillTargets() {
   var h = '<option value="">팀 전체</option>' + S.groups.map(function (g) {
@@ -1355,7 +1400,7 @@ function createCheckin() {
     btn.disabled = false; haptic('success');
     setMsg('ciMsg', '만들었어요! 대상자에게 체크인 버튼이 보여요.');
     renderCheckins();
-    setTimeout(function () { setMsg('ciMsg', ''); toggleBox('ciForm', 'ciChev'); }, 1200);
+    setTimeout(function () { setMsg('ciMsg', ''); closeModal('ciModal'); }, 1200);
   }).catch(function (err) { setMsg('ciMsg', err.message, true); btn.disabled = false; });
 }
 
@@ -1372,7 +1417,7 @@ function deleteCheckin(id) {
 // =====================================================================
 function loadNotices() {
   if (!S.team) return;
-  $('annFab').style.display = annTeams().length && $('annEdit').style.display === 'none' ? 'block' : 'none';
+  $('annFab').style.display = annTeams().length ? '' : 'none';
   if (N.list) { renderNotices(); return; }
   $('annList').innerHTML = '<div class="empty"><b>불러오는 중...</b></div>';
   api('notices.list', { team_id: S.team.id }).then(function (l) { N.list = l; renderNotices(); })
@@ -1410,26 +1455,15 @@ function annTeams() {
     .concat(mine.map(function (t) { return { key: t.id, name: t.name, team_id: t.id, scope: 'team' }; }));
 }
 function openAnnEdit() {
-  var teams = annTeams(), wide = isWide();
+  var teams = annTeams();
   var cur = teams.filter(function (t) { return t.key === S.team.id; })[0] || teams[0];
   N.f = { key: cur.key, pos: [], grp: '' };
   N.aud = N.aud || {};
   setMsg('annMsg', '');
-  $('annFab').style.display = 'none';
-  $('annMain').style.display = wide ? 'block' : 'none';
-  $('noticeView').classList.toggle('split', wide);
-  $('annEdit').style.display = 'block';
-  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
-  if (!wide) window.scrollTo(0, 0);
+  openModal('annModal');
   annPickTeam(cur.key);
 }
-function closeAnnEdit() {
-  $('noticeView').classList.remove('split');
-  $('annEdit').style.display = 'none';
-  $('annMain').style.display = 'block';
-  $('annFab').style.display = annTeams().length ? 'block' : 'none';
-  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
-}
+function closeAnnEdit() { closeModal('annModal'); }
 function annPickTeam(key) {
   N.f = { key: key, pos: [], grp: '' };
   renderAnnPicks();
@@ -1519,7 +1553,7 @@ function deleteNotice(id) {
 // =====================================================================
 function loadTasks() {
   if (!S.team) return;
-  $('hwCreateCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
+  $('hwFab').style.display = S.team.rank >= RANK.INSTRUCTOR ? '' : 'none';
   if (A.current) { openTask(A.current.id); return; }
   $('taskDetail').style.display = 'none';
   $('taskList').style.display = 'block';
@@ -1574,7 +1608,7 @@ function createTask() {
     btn.disabled = false; haptic('success');
     setMsg('hwMsg', '과제를 냈어요!');
     renderTasks();
-    setTimeout(function () { setMsg('hwMsg', ''); toggleBox('hwForm', 'hwChev'); }, 1000);
+    setTimeout(function () { setMsg('hwMsg', ''); closeModal('hwModal'); }, 1000);
   }).catch(function (err) { setMsg('hwMsg', err.message, true); btn.disabled = false; });
 }
 
@@ -1718,13 +1752,14 @@ function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach
 
 // ----- PC: Esc로 오른쪽 상세 닫기 -----
 document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && MODAL) { closeModal(); return; }
+  if (e.key === 'Escape' && $('attFab').classList.contains('open')) { closeFabMenu(); return; }
   if (e.key !== 'Escape' || !isWide()) return;
   var t = e.target && e.target.tagName;
   if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
   if (curTab === 'attend' && $('attendWrap').classList.contains('split')) showList();
   else if (curTab === 'task' && $('taskView').classList.contains('split')) closeTask();
   else if (curTab === 'profile' && $('profileView').classList.contains('split')) closePfEdit();
-  else if (curTab === 'notice' && $('noticeView').classList.contains('split')) closeAnnEdit();
 });
 
 // ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
@@ -2037,9 +2072,9 @@ document.addEventListener('visibilitychange', function () {
 // 텔레그램 뒤로가기 버튼: 모임·과제 상세에서 누르면 목록으로
 if (tg && tg.BackButton) {
   tg.BackButton.onClick(function () {
-    if (curTab === 'task' && A.current) closeTask();
+    if (MODAL) closeModal();
+    else if (curTab === 'task' && A.current) closeTask();
     else if (curTab === 'profile' && $('pfEdit').style.display === 'block') closePfEdit();
-    else if (curTab === 'notice' && $('annEdit').style.display === 'block') closeAnnEdit();
     else if (S.current) showList();
   });
   var _open = openSession, _list = showList;
