@@ -110,14 +110,14 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `421a9ac60927bc661111196a52827f1d8bd8be72` (함수 버전 22, 모임 대상 칩·사람 지정).
+- 현재 배포: SHA `b7cbe2a7c18292bc99ef2f13b63227ac993e7133` (함수 버전 23, 모임 내용·개인 양식).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
 `sessions.create/update/delete/list/board/close/remind/audience`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
-`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`,
+`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
 `dashboard.load`, `dashboard.scene`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
@@ -207,6 +207,14 @@
    팀 전체(조·빼기 없음)면 예전처럼 팀 모임. 그 밖엔 `meeting_sessions.target_people`(사람 id 배열) + `target_label`(표시 글자)로 저장.
    전체 모임은 지금 팀 소속으로 만들어지고, 다른 팀 사람은 `sessions.list`에서 `target_people`에 내가 있으면 같이 보임. `sessionMembers`는 target_people이 있으면 그 사람들.
    다른 팀 모임은 그 팀의 모임 유형을 못 골라서 제목 필수.
+10. **장소·양식·내용** (2026-10-04, 함수 버전 23)
+   - 장소는 드롭다운(`#cPlaceSel`): 스담·회의실·사무실·연구실·거울방·코드원 스튜디오·SMC·과천성전 10층·과천성전 9층·벽산 편집실·기타.
+     목록은 index.html에 직접 적혀 있음(바꾸려면 거기). 기타면 직접 입력 칸(`#cPlace`)이 스르륵(`.b-slide.open`). `getPlace()`/`setPlace(v)`.
+     저장은 예전처럼 `location` 글자 그대로(동네지도 `places.aliases` 글자 맞추기와 같이 감).
+   - 내용: `meeting_sessions.description`(2000자). 상세 화면 제목 아래 카드, 새 모임 알림에 300자까지.
+   - 내 양식: `user_templates`(사람·kind·name 유일, data jsonb, 종류마다 20개). 모임은 kind `session`.
+     날짜 빼고 유형·제목·시간·장소·내용·알림·대상(팀 key·조 subs·뺀 사람 off)을 저장. 팝업 맨 위 칩을 누르면 채움(`useSessTpl`), ×로 지움.
+     대상은 명단이 온 뒤 맞춤(`MA.pending` → `applyPendingTarget`), 지금 고를 수 없는 팀이면 건너뜀. 개인용(다른 사람과 공유 안 됨).
 8. **사전체크 알림** (2026-10-04, 함수 버전 16)
    - 만들 때: 대상자 전원에게 알림(1번, 원래 있던 것).
    - 자동: 시작 **72시간 전·24시간 전**에 사전체크 안 한 사람(사전·최종 출결 둘 다 없음)에게만. pg_cron 작업 `session-reminders`가 **10분마다**
