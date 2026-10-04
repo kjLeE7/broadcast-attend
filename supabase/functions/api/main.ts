@@ -755,7 +755,7 @@ async function sectionItems(ctx: Ctx, sec: any, from: number, to: number, canDet
     ctx.db.from("staff_schedules").select("id, unit_id, title, category, place, organizer_id, organizer_role, starts_at, ends_at")
       .in("unit_id", unitIds).gte("starts_at", iso[0]).lt("starts_at", iso[1]),
   ]);
-  const M = must(sess as any) ?? [], R = (must(recs as any) ?? []).filter((r: any) => r.status !== "취소");
+  const M = must(sess as any) ?? [], R = (must(recs as any) ?? []).filter((r: any) => ["예정", "완료", "재녹음필요"].includes(r.status));   // 조율 중인 회차는 아직 안 보임
   const D = (must(duty as any) ?? []).filter((d: any) => !d.recording_session_id), S = must(staff as any) ?? [];
   const names = await nameMap(ctx, [...D.map((d: any) => d.owner_id), ...S.map((s: any) => s.organizer_id), ...M.map((m: any) => m.created_by)]);
   const DK: Record<string, string> = { "녹음": "녹음", "사회": "사회·촬영·편집", "촬영": "사회·촬영·편집", "음향편집": "사회·촬영·편집" };
@@ -797,18 +797,26 @@ async function teamHeadcounts(ctx: Ctx, kids: any[]) {
   return out;
 }
 
-// ----- 녹음 요청: 받기 → 후보(성우·엔지니어·감독) → 가능한 시간·장소 → 확정 -----
+// ----- 녹음 요청: 받기 → 배역 → 회차(시간·장소·사람 제안) → 각자 수락/조율 → 모두 확정되면 녹음 일정 -----
 // 녹음 관계자 = 과 안 세 팀 어디서든 교관 이상 (내 업무가 아니어도 서로 공유)
+// 회차(recording_sessions) 상태: 조율중(제안을 보내고 답을 기다림) → 예정(모두 확정) → 완료 / 취소
+// 사람(recording_participants): answer 대기·수락·조율·미선정, selected = 이 회차에 실제로 들어가는 사람
 const REC_ROLE: Record<string, string> = { voice: "녹음자", engineer: "엔지니어", director: "감독자" };
+const REC_ROLE_KO: Record<string, string> = { "녹음자": "성우", "엔지니어": "엔지니어", "감독자": "감독" };
 const REC_STATUS = ["접수", "캐스팅중", "일정확정", "녹음완료", "편집완료", "전달완료", "보류", "취소"];
+const REC_ACTIVE = ["조율중", "예정"];
+const SLOT_MS = 30 * 60000;
 function msLabel(ms: number) {
   const d = new Date(ms + 9 * HOUR);
   const wd = ["일", "월", "화", "수", "목", "금", "토"][d.getUTCDay()];
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${wd}) ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 }
+function hmLabel(ms: number) { return msLabel(ms).slice(-5); }
 function overlaps(list: [number, number][] | undefined, s: number, e: number) {
   return !!list?.some(([a, b]) => a < e && s < b);
 }
+// 예상 녹음 시간(분) → 잡는 칸 수(30분 단위, 10분 내외도 30분 한 칸)
+function recSlots(dur: number) { return Math.max(1, Math.ceil((dur || 30) / 30)); }
 // 이 팀이 속한 과에서 녹음 관계자인지 확인하고 과 정보를 돌려줌
 async function recSection(ctx: Ctx, teamId: string) {
   const sec = await sectionOf(ctx, teamId);
@@ -819,6 +827,16 @@ async function recRequest(ctx: Ctx, id: string) {
   const row = must(await ctx.db.from("recording_requests").select("*").eq("id", id).maybeSingle());
   if (!row) throw new HttpError(404, "녹음 요청을 찾을 수 없습니다");
   return { row, sec: await recSection(ctx, row.team_id) };
+}
+// 배역이 없는 예전 요청이면 필요한 성우 수만큼 만들어 둠
+async function recRoles(ctx: Ctx, row: any) {
+  let roles: any[] = must(await ctx.db.from("recording_roles").select("id, name, sort_order, session_id, pref_method, pref_people").eq("request_id", row.id).order("sort_order")) ?? [];
+  if (!roles.length) {
+    const n = Math.max(1, row.voices_needed ?? 1);
+    roles = must(await ctx.db.from("recording_roles").insert(Array.from({ length: n }, (_, i) => ({ request_id: row.id, name: n === 1 ? "성우" : `배역${i + 1}`, sort_order: i })))
+      .select("id, name, sort_order, session_id, pref_method, pref_people")) ?? [];
+  }
+  return roles;
 }
 // 과 사람들 + 녹음 역할: 성우 = 성우팀 소속, 엔지니어 = 엔지니어팀 소속, 감독 = 어느 팀이든 교관 이상
 async function recPeople(ctx: Ctx, sec: any) {
@@ -839,16 +857,8 @@ async function withTelegram(ctx: Ctx, ids: string[]) {
 function recButton(id: string) {
   return { inline_keyboard: [[{ text: "녹음 요청 보기", web_app: { url: `${MINIAPP_URL}?rec=${id}` } }]] };
 }
-// 성우 need명 + 엔지니어 1 + 감독 1을 서로 다른 사람으로 고를 수 있으면 그 조합
-function recPick(V: number[], E: number[], D: number[], need: number) {
-  const e = E.find((x) => !D.includes(x) && !V.includes(x)) ?? E.find((x) => !V.includes(x)) ?? E[0];
-  if (e === undefined) return null;
-  const Ds = D.filter((x) => x !== e);
-  const d = Ds.find((x) => !V.includes(x)) ?? Ds[0];
-  if (d === undefined) return null;
-  const vs = V.filter((x) => x !== e && x !== d);
-  if (vs.length < need) return null;
-  return { voice: vs.slice(0, need), engineer: [e], director: [d] };
+function askButton(pid: string) {
+  return { inline_keyboard: [[{ text: "수락 / 조율 응답하기", web_app: { url: `${MINIAPP_URL}?ask=${pid}` } }]] };
 }
 // 장소 글자 → 장소 코드 (긴 별칭부터)
 function placeMatcher(rows: any[]) {
@@ -857,6 +867,92 @@ function placeMatcher(rows: any[]) {
   for (const p of rows) for (const a of [p.name, ...(p.aliases ?? [])]) if (norm(a)) list.push([norm(a), p.code]);
   list.sort((a, b) => b[0].length - a[0].length);
   return (loc: any) => { const n = norm(loc); if (!n) return null; for (const [a, c] of list) if (n.includes(a)) return c; return null; };
+}
+// 이 사람이 이 회차에서 무엇을 맡는지 (알림 글)
+function partLabel(p: any, roleName?: string) {
+  const ko = REC_ROLE_KO[p.role] ?? p.role;
+  if (p.role === "녹음자") return `성우${roleName ? ` · 배역 '${roleName}'` : ""}${p.method ? ` (${p.method})` : ""}`;
+  if (p.role === "엔지니어" && p.starts_at) return `${ko} ${hmLabel(Date.parse(p.starts_at))}~${hmLabel(Date.parse(p.ends_at))} (교대)`;
+  return ko;
+}
+// 한 회차 불러오기 (참여자·배역 포함)
+async function recSessionFull(ctx: Ctx, sid: string) {
+  const s = must(await ctx.db.from("recording_sessions")
+    .select("id, team_id, request_id, title, scheduled_start, scheduled_end, location, status, created_by, confirmed_at, recording_participants(*)")
+    .eq("id", sid).maybeSingle());
+  if (!s) throw new HttpError(404, "녹음 회차를 찾을 수 없습니다");
+  return s;
+}
+// 제안 받은 사람에게 알림 (사람마다 버튼이 달라서 한 명씩)
+async function recAsk(ctx: Ctx, req: any, s: any, parts: any[], roleNames: Map<string, string>, lead = "🎙 <b>녹음 요청이 왔어요</b>") {
+  const people = await withTelegram(ctx, [...new Set(parts.map((p) => p.person_id))]);
+  const tg = new Map(people.map((p: any) => [p.id, p]));
+  let sent = 0; const failed: string[] = []; const why: Record<string, string> = {};
+  for (const p of parts) {
+    const m = tg.get(p.person_id); if (!m) continue;
+    const st = Date.parse(s.scheduled_start), en = Date.parse(s.scheduled_end);
+    const text = [
+      lead,
+      `<b>${escHtml(req.title ?? "녹음")}</b>${req.request_code ? " · " + escHtml(req.request_code) : ""}`,
+      `맡을 일: ${escHtml(partLabel(p, roleNames.get(p.role_id)))}`,
+      `${msLabel(st)}~${hmLabel(en)} · ${escHtml(s.location ?? "")}`,
+      `요청 ${escHtml(ctx.me.name)}`,
+      ``, `아래 버튼을 눌러 수락 또는 조율을 골라주세요 🙏`,
+    ].join("\n");
+    const r = await sendToMembers([m], text, askButton(p.id));
+    sent += r.sent; failed.push(...r.failed); Object.assign(why, r.why);
+  }
+  const ids = parts.map((p) => p.id);
+  if (ids.length) await ctx.db.from("recording_participants").update({ notified_at: new Date().toISOString() }).in("id", ids);
+  return { sent, failed, why };
+}
+// 요청 상태를 회차들에 맞춰 정리: 모든 배역이 예정/완료 회차에 들어가면 '일정확정'(다 완료면 '녹음완료'), 하나라도 진행 중이면 '캐스팅중', 아무것도 없으면 '접수'
+async function recSyncStatus(ctx: Ctx, reqId: string) {
+  const req = must(await ctx.db.from("recording_requests").select("id, status").eq("id", reqId).single());
+  if (["보류", "취소", "편집완료", "전달완료"].includes(req.status)) return req.status;
+  const roles: any[] = must(await ctx.db.from("recording_roles").select("session_id").eq("request_id", reqId)) ?? [];
+  const sids = [...new Set(roles.map((r) => r.session_id).filter(Boolean))];
+  const ss: any[] = sids.length ? must(await ctx.db.from("recording_sessions").select("id, status").in("id", sids)) ?? [] : [];
+  const st = new Map(ss.map((s) => [s.id, s.status]));
+  const each = roles.map((r) => (r.session_id ? st.get(r.session_id) : null));
+  let next = "접수";
+  if (each.length && each.every((x) => x === "완료")) next = "녹음완료";
+  else if (each.length && each.every((x) => x === "예정" || x === "완료")) next = "일정확정";
+  else if (each.some((x) => x === "조율중" || x === "예정" || x === "완료")) next = "캐스팅중";
+  if (next !== req.status) await ctx.db.from("recording_requests").update({ status: next }).eq("id", reqId);
+  return next;
+}
+// 다 모였는지 확인 → 모두 확정이면 회차를 '예정'으로, 뽑히지 않은 후보는 '미선정', 확정 알림
+async function recFinalize(ctx: Ctx, sid: string) {
+  const s = await recSessionFull(ctx, sid);
+  if (s.status !== "조율중") return { done: s.status === "예정" };
+  const roles: any[] = must(await ctx.db.from("recording_roles").select("id, name").eq("session_id", sid)) ?? [];
+  const P: any[] = s.recording_participants ?? [];
+  const ok = (p: any) => p.answer === "수락" && p.selected;
+  const voicesOk = roles.every((r) => P.some((p) => p.role === "녹음자" && p.role_id === r.id && ok(p)));
+  const eng = P.filter((p) => p.role === "엔지니어"), dir = P.filter((p) => p.role === "감독자");
+  const done = roles.length > 0 && voicesOk && eng.length > 0 && eng.every(ok) && dir.length > 0 && dir.every(ok);
+  if (!done) return { done: false };
+  must(await ctx.db.from("recording_sessions").update({ status: "예정", confirmed_at: new Date().toISOString() }).eq("id", sid));
+  const req = must(await ctx.db.from("recording_requests").select("id, title, request_code").eq("id", s.request_id).single());
+  const losers = P.filter((p) => p.role === "녹음자" && !p.selected && ["대기", "수락"].includes(p.answer));
+  if (losers.length) {
+    must(await ctx.db.from("recording_participants").update({ answer: "미선정", answered_at: new Date().toISOString() }).in("id", losers.map((p) => p.id)));
+    await sendToMembers(await withTelegram(ctx, losers.map((p) => p.person_id)),
+      `🎙 <b>${escHtml(req.title ?? "녹음")}</b>\n이번 녹음은 다른 분이 맡게 됐어요. 응답해 주셔서 감사해요 🙏`);
+  }
+  const names = await nameMap(ctx, P.map((p) => p.person_id));
+  const roleName = new Map(roles.map((r) => [r.id, r.name]));
+  const sel = P.filter((p) => p.selected);
+  const line = (role: string) => sel.filter((p) => p.role === role).map((p) => escHtml((names.get(p.person_id) ?? "") + (p.role_id && roleName.get(p.role_id) ? `(${roleName.get(p.role_id)})` : "") +
+    (p.starts_at ? ` ${hmLabel(Date.parse(p.starts_at))}~${hmLabel(Date.parse(p.ends_at))}` : ""))).join(", ");
+  const st = Date.parse(s.scheduled_start), en = Date.parse(s.scheduled_end);
+  const text = [`✅ <b>녹음이 확정됐어요</b>`, `<b>${escHtml(req.title ?? "녹음")}</b>${req.request_code ? " · " + escHtml(req.request_code) : ""}${s.title ? " · " + escHtml(s.title) : ""}`,
+    `${msLabel(st)}~${hmLabel(en)} · ${escHtml(s.location ?? "")}`, `성우 ${line("녹음자")}`, `엔지니어 ${line("엔지니어")}`, `감독 ${line("감독자")}`].join("\n");
+  const ids = new Set(sel.map((p) => p.person_id)); if (s.created_by) ids.add(s.created_by);
+  await sendToMembers(await withTelegram(ctx, [...ids]), text, { inline_keyboard: [[{ text: "방송예술과 열기", web_app: { url: MINIAPP_URL } }]] });
+  await recSyncStatus(ctx, s.request_id);
+  return { done: true };
 }
 
 // ----- 생일: 오늘 생일 + 일주일 안 생일 (월·일만, 나이는 안 보냄) -----
@@ -1125,20 +1221,20 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
     // 2) 실무 녹음: 내가 녹음자·엔지니어·감독자로 들어간 녹음 (제목·코드만, 대본은 NAS)
     const parts: any[] = await safe("녹음", async () => must(await ctx.db.from("recording_participants")
-      .select("role, castings(role_name), recording_sessions!inner(id, scheduled_start, scheduled_end, location, status, retake_of, recording_requests(title, request_code, request_dept))")
-      .eq("person_id", ctx.me.id)
+      .select("role, recording_roles(name), recording_sessions!inner(id, scheduled_start, scheduled_end, location, status, retake_of, recording_requests(title, request_code, request_dept))")
+      .eq("person_id", ctx.me.id).eq("selected", true).in("recording_sessions.status", ["예정", "완료", "재녹음필요"])
       .gte("recording_sessions.scheduled_start", fromTs).lt("recording_sessions.scheduled_start", nextTs)) ?? [], [] as any[]);
     const recs = parts.map((r) => ({
       start: r.recording_sessions.scheduled_start, end: r.recording_sessions.scheduled_end,
       location: r.recording_sessions.location, status: r.recording_sessions.status, retake: !!r.recording_sessions.retake_of,
       title: r.recording_sessions.recording_requests?.title ?? null, code: r.recording_sessions.recording_requests?.request_code ?? null,
       dept: r.recording_sessions.recording_requests?.request_dept ?? null,
-      role: r.role, cast: r.castings?.role_name ?? null,
+      role: r.role, cast: r.recording_roles?.name ?? null,
     })).sort((a, b) => (a.start < b.start ? -1 : 1));
     const recAll = await safe("녹음 누적", async () => {
       const r = await ctx.db.from("recording_participants")
         .select("id, recording_sessions!inner(status)", { count: "exact", head: true })
-        .eq("person_id", ctx.me.id).eq("recording_sessions.status", "완료");
+        .eq("person_id", ctx.me.id).eq("selected", true).eq("recording_sessions.status", "완료");
       if (r.error) throw r.error;
       return r.count ?? 0;
     }, 0);
@@ -1297,7 +1393,17 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
         if (left.length && once("c" + c.id)) items.push({ kind: "checkin", id: c.id, team_id: c.team_id, name: c.title, left });
       }
     }
-    const order: Record<string, number> = { reason: 0, weekly: 1, checkin: 2, plan: 3, task: 4, notice: 5 };
+    // 녹음 요청에 아직 답하지 않은 것 (조율 중인 회차, 시작 전)
+    const asks: any[] = must(await ctx.db.from("recording_participants")
+      .select("id, role, recording_sessions!inner(id, status, scheduled_start, location, recording_requests(title))")
+      .eq("person_id", me).eq("answer", "대기").eq("recording_sessions.status", "조율중")
+      .gt("recording_sessions.scheduled_start", new Date(now).toISOString())) ?? [];
+    for (const a of asks) {
+      const st = Date.parse(a.recording_sessions.scheduled_start);
+      items.push({ kind: "recask", id: a.id, name: a.recording_sessions.recording_requests?.title ?? "녹음", role: REC_ROLE_KO[a.role] ?? a.role,
+        start: st, place: a.recording_sessions.location ?? "", urgent: st - now < 48 * HOUR });
+    }
+    const order: Record<string, number> = { reason: 0, recask: 1, weekly: 2, checkin: 3, plan: 4, task: 5, notice: 6 };
     items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0) || order[x.kind] - order[y.kind]);
     return { count: items.length, items };
   },
@@ -2180,7 +2286,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   },
 
   // ----- 녹음 요청 (세 팀 교관 이상이 함께 봄) -----
-  // { team_id } → 과의 녹음 요청 (진행 중 전부 + 지난 60일) + 잡힌 녹음 일정
+  // { team_id } → 과의 녹음 요청 (진행 중 전부 + 지난 60일) + 배역 + 회차(사람·응답)
   async "rec.list"(ctx) {
     const sec = await recSection(ctx, ctx.payload.team_id);
     const rows: any[] = must(await ctx.db.from("recording_requests")
@@ -2188,24 +2294,34 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       .in("team_id", sec.teamIds).order("received_at", { ascending: false }).limit(300)) ?? [];
     const old = Date.now() - 60 * 86400000;
     const list = rows.filter((r) => !["녹음완료", "편집완료", "전달완료", "취소"].includes(r.status) || Date.parse(r.received_at) >= old);
-    const sess: any[] = list.length ? must(await ctx.db.from("recording_sessions")
-      .select("id, request_id, scheduled_start, scheduled_end, location, status, recording_participants(person_id, role)")
-      .in("request_id", list.map((r) => r.id)).neq("status", "취소").order("scheduled_start", { ascending: false })) ?? [] : [];
-    const names = await nameMap(ctx, [...list.map((r) => r.received_by), ...sess.flatMap((s) => (s.recording_participants ?? []).map((p: any) => p.person_id))]);
-    return list.map((r) => {
-      const s = sess.find((x) => x.request_id === r.id);
-      return {
-        ...r, received_by_name: names.get(r.received_by) ?? "",
-        session: s ? {
-          id: s.id, start: Date.parse(s.scheduled_start), end: s.scheduled_end ? Date.parse(s.scheduled_end) : null, location: s.location ?? "", status: s.status,
-          people: (s.recording_participants ?? []).map((p: any) => ({ id: p.person_id, name: names.get(p.person_id) ?? "", role: p.role })),
-        } : null,
-      };
-    });
+    const ids = list.map((r) => r.id);
+    const [rl, ss] = ids.length ? await Promise.all([
+      ctx.db.from("recording_roles").select("id, request_id, name, sort_order, session_id, pref_method, pref_people").in("request_id", ids).order("sort_order"),
+      ctx.db.from("recording_sessions").select("id, request_id, title, scheduled_start, scheduled_end, location, status, created_by, confirmed_at, recording_participants(*)")
+        .in("request_id", ids).neq("status", "취소").order("scheduled_start"),
+    ]) : [{ data: [], error: null }, { data: [], error: null }];
+    const roles: any[] = must(rl as any) ?? [], sess: any[] = must(ss as any) ?? [];
+    const names = await nameMap(ctx, [...list.map((r) => r.received_by), ...sess.map((s) => s.created_by),
+      ...sess.flatMap((s) => (s.recording_participants ?? []).map((p: any) => p.person_id))]);
+    const people = (await recPeople(ctx, sec)).map((m: any) => ({ id: m.id, name: m.name, team: m.team, position: m.position, voice: m.voice, engineer: m.engineer, director: m.director }));
+    const requests = list.map((r) => ({
+      ...r, received_by_name: names.get(r.received_by) ?? "",
+      roles: roles.filter((x) => x.request_id === r.id).map((x) => ({ id: x.id, name: x.name, session_id: x.session_id, pref_method: x.pref_method, pref_people: x.pref_people ?? [] })),
+      sessions: sess.filter((s) => s.request_id === r.id).map((s) => ({
+        id: s.id, title: s.title ?? "", start: Date.parse(s.scheduled_start), end: s.scheduled_end ? Date.parse(s.scheduled_end) : null,
+        location: s.location ?? "", status: s.status, by: names.get(s.created_by) ?? "", confirmed_at: s.confirmed_at,
+        people: (s.recording_participants ?? []).map((p: any) => ({
+          id: p.id, person_id: p.person_id, name: names.get(p.person_id) ?? "", role: p.role, role_id: p.role_id, method: p.method,
+          answer: p.answer, note: p.answer_note ?? "", answered_at: p.answered_at, selected: p.selected,
+          from: p.starts_at ? Date.parse(p.starts_at) : null, to: p.ends_at ? Date.parse(p.ends_at) : null,
+        })),
+      })),
+    }));
+    return { requests, people };
   },
 
-  // 녹음 요청 받기: { team_id, title, due_at, duration_min, voices_needed, request_code?, request_dept?, requester_name?, volume_desc?, note? }
-  // → 세 팀 교관 이상 모두에게 봇 알림 (내 업무가 아니어도 공유)
+  // 녹음 요청 받기: { team_id, title, due_at, duration_min, roles:[배역 이름…], request_dept?, requester_name?, volume_desc?, note? }
+  // 요청 코드는 자동(R+연월일-순번). 세 팀 교관 이상 모두에게 봇 알림 (내 업무가 아니어도 공유)
   async "rec.create"(ctx) {
     const p = ctx.payload;
     const sec = await recSection(ctx, p.team_id);
@@ -2214,34 +2330,54 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (!title) throw new HttpError(400, "녹음 제목을 적어주세요");
     const due = Date.parse(p.due_at ?? "");
     if (!due) throw new HttpError(400, "마감 기한을 넣어주세요");
-    const dur = Math.max(30, Math.min(480, Math.round(Number(p.duration_min ?? 120) / 30) * 30));
-    const need = Math.max(1, Math.min(10, Math.round(Number(p.voices_needed ?? 1))));
+    const dur = [10, 30, 60, 90, 120].includes(Number(p.duration_min)) ? Number(p.duration_min) : 60;
+    // 배역: [{ name, method?: 지정|후보, people?: [id] }] (문자열만 와도 됨)
+    const rawRoles: any[] = (Array.isArray(p.roles) ? p.roles : []).slice(0, 10).map((x: any) => (typeof x === "string" ? { name: x } : x ?? {}));
+    const nRoles = Math.max(1, rawRoles.length);
+    const names = Array.from({ length: nRoles }, (_, i) => String(rawRoles[i]?.name ?? "").trim().slice(0, 40) || (nRoles === 1 ? "성우" : `배역${i + 1}`));
+    const voices = new Set((await recPeople(ctx, sec)).filter((m: any) => m.voice).map((m: any) => m.id));
+    const prefs = Array.from({ length: nRoles }, (_, i) => {
+      const r = rawRoles[i] ?? {}, method = ["지정", "후보"].includes(r.method) ? r.method : null;
+      const ppl = [...new Set((Array.isArray(r.people) ? r.people : []).map(String))].filter((id) => voices.has(id)).slice(0, 5) as string[];
+      if (!method || !ppl.length) return { pref_method: null, pref_people: [] };
+      if (method === "지정" && ppl.length !== 1) throw new HttpError(400, `'${names[i]}' 배역은 지정이라 한 명만 골라주세요`);
+      return { pref_method: method, pref_people: ppl };
+    });
     const txt = (v: any, n: number) => String(v ?? "").trim().slice(0, n) || null;
-    const ins = await ctx.db.from("recording_requests").insert({
-      team_id: p.team_id, title, request_code: txt(p.request_code, 40), request_dept: txt(p.request_dept, 60),
-      requester_name: txt(p.requester_name, 40), volume_desc: txt(p.volume_desc, 300), note: txt(p.note, 1000),
-      due_at: new Date(due).toISOString(), duration_min: dur, voices_needed: need, received_by: ctx.me.id, status: "접수",
-    }).select("*").single();
-    if (ins.error?.code === "23505") throw new HttpError(409, "같은 요청 코드가 이미 있어요");
-    const row = must(ins);
+    const prefix = "R" + kstToday().slice(2).replace(/-/g, "");
+    let row: any = null;
+    for (let tries = 0; tries < 3 && !row; tries++) {
+      const { count } = await ctx.db.from("recording_requests").select("id", { count: "exact", head: true }).like("request_code", prefix + "-%");
+      const code = `${prefix}-${String((count ?? 0) + 1 + tries).padStart(2, "0")}`;
+      const ins = await ctx.db.from("recording_requests").insert({
+        team_id: p.team_id, title, request_code: code, request_dept: txt(p.request_dept, 60),
+        requester_name: txt(p.requester_name, 40), volume_desc: txt(p.volume_desc, 300), note: txt(p.note, 1000),
+        due_at: new Date(due).toISOString(), duration_min: dur, voices_needed: nRoles, received_by: ctx.me.id, status: "접수",
+      }).select("*").single();
+      if (ins.error?.code === "23505") continue;
+      row = must(ins);
+    }
+    if (!row) throw new HttpError(409, "요청 코드를 만들지 못했어요. 다시 시도해주세요");
+    const roles = must(await ctx.db.from("recording_roles").insert(names.map((n, i) => ({ request_id: row.id, name: n, sort_order: i, ...prefs[i] })))
+      .select("id, name, session_id, pref_method, pref_people")) ?? [];
 
     const staff = (await recPeople(ctx, sec)).filter((m: any) => m.rank >= RANK.INSTRUCTOR && m.id !== ctx.me.id);
     const text = [
       `🎙 <b>새 녹음 요청</b>`,
-      `<b>${escHtml(title)}</b>${row.request_code ? " · " + escHtml(row.request_code) : ""}`,
+      `<b>${escHtml(title)}</b> · ${escHtml(row.request_code)}`,
       `마감 ${msLabel(due)}`,
       [row.request_dept, row.requester_name].filter(Boolean).length ? `요청 ${escHtml([row.request_dept, row.requester_name].filter(Boolean).join(" · "))}` : "",
       row.volume_desc ? `분량 ${escHtml(row.volume_desc)}` : "",
-      `성우 ${need}명 · 약 ${dur % 60 ? (dur / 60).toFixed(1) : dur / 60}시간`,
+      `배역 ${escHtml(names.join(", "))} · 예상 ${dur === 10 ? "10분 내외" : dur >= 120 ? "2시간 이상" : dur % 60 ? (dur / 60).toFixed(1) + "시간" : dur / 60 + "시간"}`,
       `접수 ${escHtml(ctx.me.name)}`,
     ].filter(Boolean).join("\n");
     const notify = await sendToMembers(await withTelegram(ctx, staff.map((m: any) => m.id)), text, recButton(row.id));
     const result = { at: new Date().toISOString(), sent: notify.sent, failed: notify.failed, why: notify.why };
     await ctx.db.from("recording_requests").update({ notify_result: result }).eq("id", row.id);
-    return { ...row, notify_result: result, received_by_name: ctx.me.name, session: null };
+    return { ...row, notify_result: result, received_by_name: ctx.me.name, roles, sessions: [] };
   },
 
-  // 고치기·상태 바꾸기: { id, title?, due_at?, duration_min?, voices_needed?, request_code?, request_dept?, requester_name?, volume_desc?, note?, status? }
+  // 고치기·상태 바꾸기: { id, title?, due_at?, duration_min?, request_dept?, requester_name?, volume_desc?, note?, status? }
   async "rec.update"(ctx) {
     const p = ctx.payload;
     await recRequest(ctx, p.id);
@@ -2249,24 +2385,29 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const txt = (v: any, n: number) => String(v ?? "").trim().slice(0, n) || null;
     if ("title" in p) { up.title = String(p.title ?? "").trim().slice(0, 100); if (!up.title) throw new HttpError(400, "녹음 제목을 적어주세요"); }
     if ("due_at" in p) { const d = Date.parse(p.due_at ?? ""); if (!d) throw new HttpError(400, "마감 기한을 넣어주세요"); up.due_at = new Date(d).toISOString(); }
-    if ("duration_min" in p) up.duration_min = Math.max(30, Math.min(480, Math.round(Number(p.duration_min) / 30) * 30));
-    if ("voices_needed" in p) up.voices_needed = Math.max(1, Math.min(10, Math.round(Number(p.voices_needed))));
-    for (const [k, n] of [["request_code", 40], ["request_dept", 60], ["requester_name", 40], ["volume_desc", 300], ["note", 1000]] as [string, number][]) {
+    if ("duration_min" in p && [10, 30, 60, 90, 120].includes(Number(p.duration_min))) up.duration_min = Number(p.duration_min);
+    for (const [k, n] of [["request_dept", 60], ["requester_name", 40], ["volume_desc", 300], ["note", 1000]] as [string, number][]) {
       if (k in p) up[k] = txt(p[k], n);
     }
     if ("status" in p) { if (!REC_STATUS.includes(p.status)) throw new HttpError(400, "상태가 올바르지 않습니다"); up.status = p.status; }
-    const r = await ctx.db.from("recording_requests").update(up).eq("id", p.id).select("*").single();
-    if (r.error?.code === "23505") throw new HttpError(409, "같은 요청 코드가 이미 있어요");
-    return must(r);
+    const r = must(await ctx.db.from("recording_requests").update(up).eq("id", p.id).select("*").single());
+    if (p.status === "접수") return { ...r, status: await recSyncStatus(ctx, p.id) };   // 보류를 풀면 회차에 맞춰 정리
+    return r;
   },
 
-  // 가능한 시간·장소·후보: { id }
-  // 오늘부터 마감까지(최대 28일), 업무가능 시간(30분 칸)을 낸 사람 중 녹음 시간 내내 비는 사람.
-  // 이미 잡힌 녹음(참여자·장소)과 겹치면 뺌. 성우 N명 + 엔지니어 1 + 감독 1을 서로 다른 사람으로 고를 수 있고, 녹음 장소가 하나라도 비면 '가능'.
+  // 가능한 시간·장소·후보: { id, role_ids? } (role_ids = 이번 회차에 녹음할 배역, 없으면 아직 회차가 없는 배역 전부)
+  // 오늘부터 마감까지(최대 28일), 업무가능 시간(30분 칸)으로 녹음 시간 내내 비는 사람.
+  // 엔지니어는 한 명이 끝까지 못 하면 두 명 교대도 찾아 봄. 이미 잡힌·조율 중인 녹음과 겹치는 사람·장소는 뺌.
   async "rec.plan"(ctx) {
     const { row, sec } = await recRequest(ctx, ctx.payload.id);
-    const now = Date.now(), SLOT = 30 * 60000;
-    const dur = row.duration_min ?? 120, need = row.voices_needed ?? 1, durS = Math.ceil(dur / 30);
+    const roles = await recRoles(ctx, row);
+    const active: any[] = must(await ctx.db.from("recording_sessions").select("id").eq("request_id", row.id).in("status", [...REC_ACTIVE, "완료"])) ?? [];
+    const activeIds = new Set(active.map((s) => s.id));
+    const free = roles.filter((r: any) => !r.session_id || !activeIds.has(r.session_id));
+    const want = Array.isArray(ctx.payload.role_ids) ? roles.filter((r: any) => ctx.payload.role_ids.includes(r.id)) : free;
+    const k = Math.max(1, want.length);
+    const now = Date.now();
+    const dur = row.duration_min ?? 60, durS = recSlots(dur);
     const due = row.due_at ? Date.parse(row.due_at) : now + 14 * 86400000;
     const hours = await weeklyHours(ctx);
     const today = kstToday(), dueDay = new Date(due + 9 * HOUR).toISOString().slice(0, 10);
@@ -2278,8 +2419,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const winFrom = kstMs(today), winTo = Math.max(due, winFrom + 86400000);
     const [av, rs, pl, du] = await Promise.all([
       ids.length && dates.length ? ctx.db.from("availability").select("person_id, avail_date, slots").in("person_id", ids).in("avail_date", dates) : none,
-      ctx.db.from("recording_sessions").select("id, request_id, scheduled_start, scheduled_end, location, status, recording_requests(title), recording_participants(person_id)")
-        .eq("status", "예정").gte("scheduled_start", new Date(winFrom - 12 * HOUR).toISOString()).lt("scheduled_start", new Date(winTo).toISOString()),
+      ctx.db.from("recording_sessions").select("id, request_id, status, scheduled_start, scheduled_end, location, recording_requests(title), recording_participants(person_id, answer, selected, starts_at, ends_at)")
+        .in("status", REC_ACTIVE).gte("scheduled_start", new Date(winFrom - 12 * HOUR).toISOString()).lt("scheduled_start", new Date(winTo).toISOString()),
       ctx.db.from("places").select("code, name, aliases, can_record").eq("is_active", true).order("sort_order"),
       ctx.db.from("duties").select("title, place, starts_at, ends_at").eq("duty_type", "녹음").is("recording_session_id", null).in("unit_id", sec.unitIds)
         .gte("starts_at", new Date(winFrom - 12 * HOUR).toISOString()).lt("starts_at", new Date(winTo).toISOString()),
@@ -2294,137 +2435,335 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     }
     const busyP = new Map<string, [number, number][]>(), busyPl = new Map<string, [number, number][]>();
     const busy: any[] = [];
-    const add = (m: Map<string, [number, number][]>, k: string, s: number, e: number) => { if (!m.has(k)) m.set(k, []); m.get(k)!.push([s, e]); };
+    const add = (m: Map<string, [number, number][]>, key: string, s: number, e: number) => { if (!m.has(key)) m.set(key, []); m.get(key)!.push([s, e]); };
     for (const s of must(rs as any) ?? []) {
-      if (s.request_id === row.id) continue;
+      if (s.request_id === row.id && s.status === "조율중") continue;   // 같은 요청의 조율 중 회차는 다시 짤 수 있게
       const st = Date.parse(s.scheduled_start), en = s.scheduled_end ? Date.parse(s.scheduled_end) : st + 2 * HOUR;
-      for (const pp of s.recording_participants ?? []) add(busyP, pp.person_id, st, en);
+      for (const pp of s.recording_participants ?? []) {
+        if (pp.selected || (s.status === "조율중" && ["대기", "수락"].includes(pp.answer)))
+          add(busyP, pp.person_id, pp.starts_at ? Date.parse(pp.starts_at) : st, pp.ends_at ? Date.parse(pp.ends_at) : en);
+      }
       const code = match(s.location);
       if (code) add(busyPl, code, st, en);
-      if (code && recPlaces.some((p: any) => p.code === code) && en > now) busy.push({ place: code, start: st, end: en, title: s.recording_requests?.title ?? "녹음" });
+      if (code && recPlaces.some((p: any) => p.code === code) && en > now) busy.push({ place: code, start: st, end: en, title: s.recording_requests?.title ?? "녹음", status: s.status });
     }
     for (const d of must(du as any) ?? []) {
       const code = match(d.place); if (!code) continue;
       const st = Date.parse(d.starts_at), en = d.ends_at ? Date.parse(d.ends_at) : st + 2 * HOUR;
       add(busyPl, code, st, en);
-      if (recPlaces.some((p: any) => p.code === code) && en > now) busy.push({ place: code, start: st, end: en, title: d.title ?? "녹음" });
+      if (recPlaces.some((p: any) => p.code === code) && en > now) busy.push({ place: code, start: st, end: en, title: d.title ?? "녹음", status: "예정" });
     }
 
     const idx = new Map<string, number>(ids.map((id: string, i: number) => [id, i]));
     const stat = people.map(() => ({ free: 0, fit: 0 }));
-    // 마감 전까지 비는 시간(칸 수)
     for (const [pid, byDate] of avail) {
       const i = idx.get(pid)!;
-      for (const [d, set] of byDate) for (const k of set) {
-        const t = kstMs(d) + k * SLOT;
-        if (t >= now && t + SLOT <= due && !overlaps(busyP.get(pid), t, t + SLOT)) stat[i].free++;
+      for (const [d, set] of byDate) for (const s of set) {
+        const t = kstMs(d) + s * SLOT_MS;
+        if (t >= now && t + SLOT_MS <= due && !overlaps(busyP.get(pid), t, t + SLOT_MS)) stat[i].free++;
       }
     }
+    // 그 칸에 비어 있는지 (사람)
+    const freeAt = (pid: string, d: string, s: number) => {
+      const set = avail.get(pid)?.get(d); if (!set || !set.has(s)) return false;
+      const t = kstMs(d) + s * SLOT_MS; return !overlaps(busyP.get(pid), t, t + SLOT_MS);
+    };
     const slots: any[] = [];
     for (const d of dates) {
       const base = kstMs(d);
       for (let s = hours.from * 2; s + durS <= hours.to * 2; s++) {
-        const st = base + s * SLOT, en = st + dur * 60000;
-        if (st < now + SLOT || en > due) continue;
+        const st = base + s * SLOT_MS, en = st + durS * SLOT_MS;
+        if (st < now + SLOT_MS || en > due) continue;
         const V: number[] = [], E: number[] = [], D: number[] = [];
+        const pre: Record<number, number> = {}, suf: Record<number, number> = {};
         people.forEach((p: any, i: number) => {
-          const set = avail.get(p.id)?.get(d); if (!set) return;
-          for (let k = s; k < s + durS; k++) if (!set.has(k)) return;
-          if (overlaps(busyP.get(p.id), st, en)) return;
-          stat[i].fit++;
-          if (p.voice) V.push(i); if (p.engineer) E.push(i); if (p.director) D.push(i);
+          let a = 0; while (a < durS && freeAt(p.id, d, s + a)) a++;
+          if (a === durS) {
+            stat[i].fit++;
+            if (p.voice) V.push(i); if (p.engineer) E.push(i); if (p.director) D.push(i);
+          } else if (p.engineer && durS > 1) {
+            let b = 0; while (b < durS && freeAt(p.id, d, s + durS - 1 - b)) b++;
+            if (a) pre[i] = a; if (b) suf[i] = b;
+          }
         });
+        // 엔지니어: 한 명이 끝까지, 안 되면 앞·뒤 두 명 교대
+        let shift: any = null;
+        if (!E.length) {
+          for (const a of Object.keys(pre).map(Number)) {
+            for (const b of Object.keys(suf).map(Number)) {
+              if (a !== b && pre[a] + suf[b] >= durS) { shift = { a, b, at: st + pre[a] * SLOT_MS }; break; }
+            }
+            if (shift) break;
+          }
+        }
         const freePl = recPlaces.filter((p: any) => !overlaps(busyPl.get(p.code), st, en)).map((p: any) => p.code);
-        const pick = recPick(V, E, D, need);
-        if (pick && freePl.length && slots.length < 400) slots.push({ start: st, end: en, v: V, e: E, d: D, places: freePl, pick });
+        if (!freePl.length || (!E.length && !shift)) continue;
+        // 미리 정해 둔 배역(지정·후보)에 들어갈 사람은 엔지니어·감독으로 먼저 쓰지 않음
+        const reserved = new Set<number>(want.flatMap((r: any) => (r.pref_people ?? []).map((id: string) => idx.get(id)).filter((x: any) => x !== undefined)));
+        const engs = E.length ? [E.find((x) => !D.includes(x) && !V.includes(x)) ?? E.find((x) => !reserved.has(x) && !V.includes(x)) ?? E.find((x) => !reserved.has(x)) ?? E[0]] : [shift.a, shift.b];
+        const Ds = D.filter((x) => !engs.includes(x));
+        const dir = Ds.find((x) => !V.includes(x)) ?? Ds.find((x) => !reserved.has(x)) ?? Ds[0];
+        if (dir === undefined) continue;
+        // 배역 채우기: 지정 → 그 사람이 비어야 함, 후보 → 후보 중 비는 사람(여럿이면 모두 후보로), 미정 → 남은 사람
+        const used = new Set<number>([...engs, dir]);
+        const cast: any[] = []; let fail = false;
+        for (const r of want) {
+          const pref = (r.pref_people ?? []).map((id: string) => idx.get(id)).filter((x: any) => x !== undefined) as number[];
+          if (r.pref_method === "지정" && pref.length) {
+            if (!V.includes(pref[0]) || used.has(pref[0])) { fail = true; break; }
+            used.add(pref[0]); cast.push({ role_id: r.id, method: "지정", people: [pref[0]] });
+          } else if (r.pref_method === "후보" && pref.length) {
+            const ok = pref.filter((x) => V.includes(x) && !used.has(x));
+            if (!ok.length) { fail = true; break; }
+            ok.forEach((x) => used.add(x)); cast.push({ role_id: r.id, method: "후보", people: ok });
+          } else cast.push({ role_id: r.id, method: "지정", people: [] });
+        }
+        if (fail) continue;
+        for (const c of cast) if (!c.people.length) {
+          const x = V.find((v) => !used.has(v));
+          if (x === undefined) { fail = true; break; }
+          used.add(x); c.people = [x];
+        }
+        if (fail) continue;
+        if (slots.length < 400) slots.push({
+          start: st, end: en, v: V, e: E, d: D, places: freePl,
+          shift: shift ? { a: shift.a, b: shift.b, at: shift.at } : null,
+          pick: { cast, engineer: engs, director: dir, split: shift ? shift.at : null },
+        });
       }
     }
     return {
-      request: row, due, duration_min: dur, need, hours, dates,
+      request: row, due, duration_min: dur, minutes: durS * 30, need: k, hours, dates,
+      roles: roles.map((r: any) => ({ id: r.id, name: r.name, session_id: r.session_id, busy: !!r.session_id && activeIds.has(r.session_id), pref_method: r.pref_method, pref_people: r.pref_people ?? [] })),
+      want: want.map((r: any) => r.id),
       people: people.map((p: any, i: number) => ({ ...p, free_h: stat[i].free / 2, fit: stat[i].fit, submitted: avail.has(p.id) })),
       places: recPlaces.map((p: any) => ({ code: p.code, name: p.name })),
       busy: busy.sort((a, b) => a.start - b.start), slots,
     };
   },
 
-  // 확정: { id, start(ms), place(장소 코드), voice:[id], engineer:[id], director:[id] } → 녹음 일정 + 참여자, 참여자·녹음 관계자에게 알림
-  async "rec.schedule"(ctx) {
+  // 회차 제안 보내기: { id, start(ms), place(장소 코드), cast:[{ role_id, method:"지정"|"후보", people:[id…] }],
+  //                    engineers:[id] (1~2명), split?(ms, 2명이면 교대 시각), director:id }
+  // → 회차(조율중) + 사람(대기) 저장, 한 사람씩 '수락/조율 응답하기' 알림
+  async "rec.propose"(ctx) {
     const p = ctx.payload;
     const { row, sec } = await recRequest(ctx, p.id);
+    if (["보류", "취소"].includes(row.status)) throw new HttpError(400, `${row.status}된 요청이에요`);
     const st = Number(p.start);
-    if (!st || st % (30 * 60000) !== 0) throw new HttpError(400, "시작 시간이 올바르지 않습니다");
+    if (!st || st % SLOT_MS !== 0) throw new HttpError(400, "시작 시간이 올바르지 않습니다");
     if (st < Date.now()) throw new HttpError(400, "이미 지난 시간이에요");
-    const en = st + (row.duration_min ?? 120) * 60000;
-    const roles: Record<string, string[]> = {};
-    for (const k of ["voice", "engineer", "director"]) roles[k] = [...new Set((Array.isArray(p[k]) ? p[k] : []).map(String))] as string[];
-    if (!roles.voice.length || !roles.engineer.length || !roles.director.length) throw new HttpError(400, "성우·엔지니어·감독을 한 명 이상씩 골라주세요");
+    const en = st + recSlots(row.duration_min) * SLOT_MS;
+    const roles = await recRoles(ctx, row);
+    const active: any[] = must(await ctx.db.from("recording_sessions").select("id").eq("request_id", row.id).in("status", [...REC_ACTIVE, "완료"])) ?? [];
+    const activeIds = new Set(active.map((s) => s.id));
+    const cast: any[] = Array.isArray(p.cast) ? p.cast : [];
+    if (!cast.length) throw new HttpError(400, "녹음할 배역을 골라주세요");
     const people = await recPeople(ctx, sec);
-    const byId = new Map(people.map((x: any) => [x.id, x]));
-    for (const k of ["voice", "engineer", "director"]) {
-      if (roles[k].some((id) => !(byId.get(id) as any)?.[k])) throw new HttpError(400, "역할에 맞지 않는 사람이 있어요");
+    const pm = new Map(people.map((x: any) => [x.id, x]));
+    const nm = (id: string) => (pm.get(id) as any)?.name ?? "";
+    for (const c of cast) {
+      const r = roles.find((x: any) => x.id === c.role_id);
+      if (!r) throw new HttpError(400, "배역이 올바르지 않습니다");
+      if (r.session_id && activeIds.has(r.session_id)) throw new HttpError(409, `'${r.name}' 배역은 이미 다른 회차에 들어가 있어요`);
+      c.people = [...new Set((Array.isArray(c.people) ? c.people : []).map(String))];
+      if (!["지정", "후보"].includes(c.method)) throw new HttpError(400, "지정·후보를 골라주세요");
+      if (!c.people.length) throw new HttpError(400, `'${r.name}' 배역에 사람을 골라주세요`);
+      if (c.method === "지정" && c.people.length !== 1) throw new HttpError(400, `'${r.name}' 배역은 지정이라 한 명만 골라주세요`);
+      if (c.people.length > 5) throw new HttpError(400, "후보는 다섯 명까지예요");
+      if (c.people.some((id: string) => !(pm.get(id) as any)?.voice)) throw new HttpError(400, "성우팀이 아닌 사람이 있어요");
     }
-    const exist = must(await ctx.db.from("recording_sessions").select("id").eq("request_id", row.id).eq("status", "예정").limit(1));
-    if (exist?.length) throw new HttpError(409, "이미 잡힌 녹음 일정이 있어요. 먼저 그 일정을 취소해주세요");
+    const engs = [...new Set((Array.isArray(p.engineers) ? p.engineers : []).map(String))] as string[];
+    if (engs.length < 1 || engs.length > 2) throw new HttpError(400, "엔지니어를 한 명 또는 두 명(교대) 골라주세요");
+    if (engs.some((id) => !(pm.get(id) as any)?.engineer)) throw new HttpError(400, "엔지니어팀이 아닌 사람이 있어요");
+    let split = 0;
+    if (engs.length === 2) {
+      split = Number(p.split);
+      if (!split || split % SLOT_MS !== 0 || split <= st || split >= en) throw new HttpError(400, "교대 시각을 골라주세요");
+    }
+    const dir = String(p.director ?? "");
+    if (!(pm.get(dir) as any)?.director) throw new HttpError(400, "감독(교관 이상)을 골라주세요");
     const P = must(await ctx.db.from("places").select("code, name, aliases, can_record").eq("is_active", true)) ?? [];
     const place = P.find((x: any) => x.code === p.place && x.can_record);
     if (!place) throw new HttpError(400, "녹음 장소를 골라주세요");
-    // 겹치는 녹음 (장소·사람)
+    // 장소·확정된 사람이 겹치는지
     const match = placeMatcher(P);
-    const others: any[] = must(await ctx.db.from("recording_sessions").select("scheduled_start, scheduled_end, location, recording_participants(person_id)")
-      .eq("status", "예정").lt("scheduled_start", new Date(en).toISOString()).gte("scheduled_start", new Date(st - 12 * HOUR).toISOString())) ?? [];
-    const all = [...roles.voice, ...roles.engineer, ...roles.director];
+    const others: any[] = must(await ctx.db.from("recording_sessions").select("id, scheduled_start, scheduled_end, location, recording_participants(person_id, selected)")
+      .in("status", REC_ACTIVE).lt("scheduled_start", new Date(en).toISOString()).gte("scheduled_start", new Date(st - 12 * HOUR).toISOString())) ?? [];
+    const all = [...cast.flatMap((c) => c.people), ...engs, dir];
     const clash = new Set<string>();
     for (const o of others) {
       const os = Date.parse(o.scheduled_start), oe = o.scheduled_end ? Date.parse(o.scheduled_end) : os + 2 * HOUR;
       if (!(os < en && st < oe)) continue;
       if (match(o.location) === place.code) throw new HttpError(409, `${place.name}에 그 시간 다른 녹음이 있어요`);
-      for (const pp of o.recording_participants ?? []) if (all.includes(pp.person_id)) clash.add((byId.get(pp.person_id) as any)?.name ?? "");
+      for (const pp of o.recording_participants ?? []) if (pp.selected && all.includes(pp.person_id)) clash.add(nm(pp.person_id));
     }
-    if (clash.size) throw new HttpError(409, `${[...clash].join(", ")}님은 그 시간에 다른 녹음이 있어요`);
+    if (clash.size) throw new HttpError(409, `${[...clash].join(", ")}님은 그 시간에 확정된 다른 녹음이 있어요`);
 
+    const { count } = await ctx.db.from("recording_sessions").select("id", { count: "exact", head: true }).eq("request_id", row.id).neq("status", "취소");
     const sess = must(await ctx.db.from("recording_sessions").insert({
-      team_id: row.team_id, request_id: row.id, scheduled_start: new Date(st).toISOString(), scheduled_end: new Date(en).toISOString(),
-      location: place.name, status: "예정", created_by: ctx.me.id,
+      team_id: row.team_id, request_id: row.id, title: `${(count ?? 0) + 1}회차`, scheduled_start: new Date(st).toISOString(), scheduled_end: new Date(en).toISOString(),
+      location: place.name, status: "조율중", created_by: ctx.me.id,
     }).select("*").single());
-    const parts = (["voice", "engineer", "director"] as const).flatMap((k) => roles[k].map((pid) => ({ session_id: sess.id, person_id: pid, role: REC_ROLE[k] })));
-    must(await ctx.db.from("recording_participants").insert(parts));
-    must(await ctx.db.from("recording_requests").update({ status: "일정확정" }).eq("id", row.id));
-
-    const nm = (ids: string[]) => ids.map((id) => (byId.get(id) as any)?.name ?? "").join(", ");
-    const text = [
-      `🎙 <b>녹음 일정이 잡혔어요</b>`,
-      `<b>${escHtml(row.title ?? "녹음")}</b>${row.request_code ? " · " + escHtml(row.request_code) : ""}`,
-      `${msLabel(st)}~${msLabel(en).slice(-5)} · ${escHtml(place.name)}`,
-      `성우 ${escHtml(nm(roles.voice))}`, `엔지니어 ${escHtml(nm(roles.engineer))}`, `감독 ${escHtml(nm(roles.director))}`,
-    ].join("\n");
-    // 교관 이상은 '녹음 요청 보기' 버튼, 그 밖의 참여자는 글만 (녹음 탭은 교관 이상만 보여서)
-    const staffIds = new Set(people.filter((m: any) => m.rank >= RANK.INSTRUCTOR).map((m: any) => m.id));
-    const rest = all.filter((id) => !staffIds.has(id) && id !== ctx.me.id);
-    staffIds.delete(ctx.me.id);
-    const [n1, n2] = await Promise.all([
-      sendToMembers(await withTelegram(ctx, [...staffIds]), text, recButton(row.id)),
-      sendToMembers(await withTelegram(ctx, [...new Set(rest)]), text + "\n\n일정에 맞춰 와 주세요 🙏"),
-    ]);
-    const notify = { sent: n1.sent + n2.sent, failed: [...n1.failed, ...n2.failed], why: { ...n1.why, ...n2.why } };
+    const rows: any[] = [];
+    for (const c of cast) for (const pid of c.people) rows.push({ session_id: sess.id, person_id: pid, role: "녹음자", role_id: c.role_id, method: c.method, answer: "대기", selected: false });
+    engs.forEach((pid, i) => rows.push({
+      session_id: sess.id, person_id: pid, role: "엔지니어", answer: "대기", selected: false,
+      starts_at: engs.length === 2 ? new Date(i === 0 ? st : split).toISOString() : null,
+      ends_at: engs.length === 2 ? new Date(i === 0 ? split : en).toISOString() : null,
+    }));
+    rows.push({ session_id: sess.id, person_id: dir, role: "감독자", answer: "대기", selected: false });
+    const parts = must(await ctx.db.from("recording_participants").insert(rows).select("*"));
+    must(await ctx.db.from("recording_roles").update({ session_id: sess.id }).in("id", cast.map((c) => c.role_id)));
+    await recSyncStatus(ctx, row.id);
+    const roleNames = new Map(roles.map((r: any) => [r.id, r.name]));
+    const notify = await recAsk(ctx, row, sess, parts, roleNames as Map<string, string>);
     return { session_id: sess.id, notify };
   },
 
-  // 잡힌 녹음 끝내기·취소: { session_id, status: "완료" | "취소" }
+  // 내게 온 녹음 요청 한 건 보기: { participant_id } → 본인(또는 녹음 관계자)
+  async "rec.ask"(ctx) {
+    const pt = must(await ctx.db.from("recording_participants").select("*").eq("id", ctx.payload.participant_id).maybeSingle());
+    if (!pt) throw new HttpError(404, "녹음 요청을 찾을 수 없어요. 취소됐을 수 있어요");
+    const s = await recSessionFull(ctx, pt.session_id);
+    if (pt.person_id !== ctx.me.id) await recSection(ctx, s.team_id);
+    const req = must(await ctx.db.from("recording_requests").select("id, title, request_code, request_dept, volume_desc, note, due_at").eq("id", s.request_id).single());
+    const role = pt.role_id ? must(await ctx.db.from("recording_roles").select("name").eq("id", pt.role_id).maybeSingle()) : null;
+    const names = await nameMap(ctx, [s.created_by, ...(s.recording_participants ?? []).map((x: any) => x.person_id)]);
+    const mates = (s.recording_participants ?? []).filter((x: any) => x.id !== pt.id && x.answer !== "미선정").map((x: any) => ({
+      name: names.get(x.person_id) ?? "", role: REC_ROLE_KO[x.role] ?? x.role, answer: x.answer, selected: x.selected,
+    }));
+    return {
+      id: pt.id, mine: pt.person_id === ctx.me.id, role: pt.role, role_ko: REC_ROLE_KO[pt.role] ?? pt.role, role_name: role?.name ?? null, method: pt.method,
+      answer: pt.answer, note: pt.answer_note ?? "", selected: pt.selected,
+      from: pt.starts_at ? Date.parse(pt.starts_at) : null, to: pt.ends_at ? Date.parse(pt.ends_at) : null,
+      session: { id: s.id, title: s.title ?? "", status: s.status, start: Date.parse(s.scheduled_start), end: Date.parse(s.scheduled_end), location: s.location ?? "", by: names.get(s.created_by) ?? "" },
+      request: { title: req.title, code: req.request_code, dept: req.request_dept, volume: req.volume_desc, note: req.note },
+      mates,
+    };
+  },
+
+  // 수락·조율: { participant_id, answer: "수락"|"조율", note? } → 본인만. 요청자에게 알림, 다 모이면 확정
+  async "rec.answer"(ctx) {
+    const { participant_id, answer } = ctx.payload;
+    if (!["수락", "조율"].includes(answer)) throw new HttpError(400, "수락 또는 조율을 골라주세요");
+    const pt = must(await ctx.db.from("recording_participants").select("*").eq("id", participant_id).maybeSingle());
+    if (!pt) throw new HttpError(404, "녹음 요청을 찾을 수 없어요. 취소됐을 수 있어요");
+    if (pt.person_id !== ctx.me.id) throw new HttpError(403, "본인만 응답할 수 있어요");
+    if (pt.answer === "미선정") throw new HttpError(400, "이번 녹음은 다른 분이 맡게 됐어요");
+    const s = await recSessionFull(ctx, pt.session_id);
+    if (!REC_ACTIVE.includes(s.status)) throw new HttpError(400, s.status === "취소" ? "취소된 녹음이에요" : "이미 끝난 녹음이에요");
+    if (Date.parse(s.scheduled_start) < Date.now()) throw new HttpError(400, "이미 시작 시간이 지났어요");
+    const note = String(ctx.payload.note ?? "").trim().slice(0, 300) || null;
+    if (answer === "조율" && !note) throw new HttpError(400, "조율이 필요한 내용(가능한 시간 등)을 적어주세요");
+    // 지정·엔지니어·감독은 수락하면 바로 확정. 후보는 요청자가 고르면 확정
+    const selected = answer === "수락" ? (pt.role !== "녹음자" || pt.method === "지정" || pt.selected) : false;
+    must(await ctx.db.from("recording_participants").update({ answer, answer_note: note, answered_at: new Date().toISOString(), selected }).eq("id", pt.id));
+    if (answer === "조율" && s.status === "예정") {   // 확정된 뒤에 조율이 생기면 다시 조율 중으로
+      must(await ctx.db.from("recording_sessions").update({ status: "조율중", confirmed_at: null }).eq("id", s.id));
+      await recSyncStatus(ctx, s.request_id);
+    }
+    const req = must(await ctx.db.from("recording_requests").select("id, title").eq("id", s.request_id).single());
+    const role = pt.role_id ? must(await ctx.db.from("recording_roles").select("name").eq("id", pt.role_id).maybeSingle()) : null;
+    if (s.created_by && s.created_by !== ctx.me.id) {
+      const head = answer === "수락" ? `👍 <b>${escHtml(ctx.me.name)}</b>님이 수락했어요` : `⚠️ <b>${escHtml(ctx.me.name)}</b>님이 조율이 필요하대요`;
+      await sendToMembers(await withTelegram(ctx, [s.created_by]),
+        [head, `${escHtml(req.title ?? "녹음")} · ${escHtml(partLabel(pt, role?.name))}`, `${msLabel(Date.parse(s.scheduled_start))} · ${escHtml(s.location ?? "")}`,
+          note ? `💬 ${escHtml(note)}` : "", answer === "수락" && pt.role === "녹음자" && pt.method === "후보" ? "후보라서 요청 화면에서 '이 사람으로'를 눌러 정해 주세요" : ""].filter(Boolean).join("\n"),
+        recButton(req.id));
+    }
+    const fin = await recFinalize(ctx, s.id);
+    return { ok: true, answer, selected, done: fin.done };
+  },
+
+  // 후보 중 한 명으로 정하기: { participant_id } → 수락한 후보만. 같은 배역 다른 후보는 선택 해제
+  async "rec.select"(ctx) {
+    const pt = must(await ctx.db.from("recording_participants").select("*").eq("id", ctx.payload.participant_id).maybeSingle());
+    if (!pt || pt.role !== "녹음자") throw new HttpError(404, "후보를 찾을 수 없습니다");
+    const s = await recSessionFull(ctx, pt.session_id);
+    await recSection(ctx, s.team_id);
+    if (s.status !== "조율중") throw new HttpError(400, "조율 중인 회차에서만 바꿀 수 있어요");
+    if (pt.answer !== "수락") throw new HttpError(400, "수락한 사람만 정할 수 있어요");
+    must(await ctx.db.from("recording_participants").update({ selected: false }).eq("session_id", s.id).eq("role", "녹음자").eq("role_id", pt.role_id));
+    must(await ctx.db.from("recording_participants").update({ selected: true }).eq("id", pt.id));
+    return { ok: true, done: (await recFinalize(ctx, s.id)).done };
+  },
+
+  // 사람 더하기(후보 추가·사람 바꾸기): { session_id, kind: voice|engineer|director, person_id, role_id?, method? } → 알림
+  async "rec.addPerson"(ctx) {
+    const p = ctx.payload;
+    const s = await recSessionFull(ctx, p.session_id);
+    const sec = await recSection(ctx, s.team_id);
+    if (s.status !== "조율중") throw new HttpError(400, "조율 중인 회차에서만 사람을 더할 수 있어요");
+    const role = REC_ROLE[p.kind];
+    if (!role) throw new HttpError(400, "역할이 올바르지 않습니다");
+    const who = (await recPeople(ctx, sec)).find((x: any) => x.id === p.person_id);
+    if (!who || !(who as any)[p.kind]) throw new HttpError(400, "이 역할에 맞지 않는 사람이에요");
+    let roleName: string | undefined;
+    if (role === "녹음자") {
+      const r = must(await ctx.db.from("recording_roles").select("id, name, session_id").eq("id", p.role_id).maybeSingle());
+      if (!r || r.session_id !== s.id) throw new HttpError(400, "배역이 올바르지 않습니다");
+      roleName = r.name;
+    }
+    const ins = await ctx.db.from("recording_participants").insert({
+      session_id: s.id, person_id: who.id, role, role_id: role === "녹음자" ? p.role_id : null,
+      method: role === "녹음자" ? (p.method === "지정" ? "지정" : "후보") : null, answer: "대기", selected: false,
+    }).select("*").single();
+    if (ins.error?.code === "23505") throw new HttpError(409, "이미 들어가 있는 사람이에요");
+    const pt = must(ins);
+    const req = must(await ctx.db.from("recording_requests").select("*").eq("id", s.request_id).single());
+    const notify = await recAsk(ctx, req, s, [pt], new Map(roleName ? [[p.role_id, roleName]] : []));
+    return { ok: true, notify };
+  },
+
+  // 사람 빼기: { participant_id } → 조율 중인 회차에서. 대기·수락이던 사람에게는 '요청 취소' 알림
+  async "rec.removePerson"(ctx) {
+    const pt = must(await ctx.db.from("recording_participants").select("*").eq("id", ctx.payload.participant_id).maybeSingle());
+    if (!pt) throw new HttpError(404, "사람을 찾을 수 없습니다");
+    const s = await recSessionFull(ctx, pt.session_id);
+    await recSection(ctx, s.team_id);
+    if (s.status !== "조율중") throw new HttpError(400, "조율 중인 회차에서만 뺄 수 있어요");
+    must(await ctx.db.from("recording_participants").delete().eq("id", pt.id));
+    if (["대기", "수락"].includes(pt.answer) && pt.person_id !== ctx.me.id) {
+      const req = must(await ctx.db.from("recording_requests").select("title").eq("id", s.request_id).single());
+      await sendToMembers(await withTelegram(ctx, [pt.person_id]),
+        `🎙 <b>${escHtml(req.title ?? "녹음")}</b>\n${msLabel(Date.parse(s.scheduled_start))} 녹음 요청이 취소됐어요. 응답하지 않으셔도 돼요`);
+    }
+    return { ok: true, done: (await recFinalize(ctx, s.id)).done };
+  },
+
+  // 아직 답이 없는 사람에게 다시 알림: { session_id } → 10분에 한 번
+  async "rec.remind"(ctx) {
+    const s = await recSessionFull(ctx, ctx.payload.session_id);
+    await recSection(ctx, s.team_id);
+    if (s.status !== "조율중") throw new HttpError(400, "조율 중인 회차가 아니에요");
+    const wait = (s.recording_participants ?? []).filter((p: any) => p.answer === "대기");
+    if (!wait.length) throw new HttpError(400, "아직 답하지 않은 사람이 없어요");
+    const last = Math.max(0, ...wait.map((p: any) => (p.notified_at ? Date.parse(p.notified_at) : 0)));
+    if (Date.now() - last < 10 * 60000) throw new HttpError(429, "알림은 10분에 한 번만 보낼 수 있어요");
+    const req = must(await ctx.db.from("recording_requests").select("*").eq("id", s.request_id).single());
+    const roles: any[] = must(await ctx.db.from("recording_roles").select("id, name").eq("request_id", req.id)) ?? [];
+    return { notify: await recAsk(ctx, req, s, wait, new Map(roles.map((r) => [r.id, r.name])), "🔔 <b>녹음 요청에 아직 답이 없어요</b>") };
+  },
+
+  // 회차 끝내기·취소: { session_id, status: "완료" | "취소" }
   async "rec.sessionStatus"(ctx) {
     const { session_id, status } = ctx.payload;
     if (!["완료", "취소"].includes(status)) throw new HttpError(400, "상태가 올바르지 않습니다");
-    const s = must(await ctx.db.from("recording_sessions").select("id, request_id, scheduled_start, location, status, recording_participants(person_id)").eq("id", session_id).maybeSingle());
-    if (!s) throw new HttpError(404, "녹음 일정을 찾을 수 없습니다");
-    const { row } = await recRequest(ctx, s.request_id);
+    const s = await recSessionFull(ctx, session_id);
+    await recSection(ctx, s.team_id);
+    if (status === "완료" && s.status !== "예정") throw new HttpError(400, "확정된 회차만 완료할 수 있어요");
     must(await ctx.db.from("recording_sessions").update({ status }).eq("id", s.id));
-    must(await ctx.db.from("recording_requests").update({ status: status === "완료" ? "녹음완료" : "접수" }).eq("id", row.id));
     let notify = null;
-    if (status === "취소" && Date.parse(s.scheduled_start) > Date.now()) {
-      const ids = (s.recording_participants ?? []).map((x: any) => x.person_id).filter((id: string) => id !== ctx.me.id);
-      notify = await sendToMembers(await withTelegram(ctx, ids),
-        `🎙 <b>녹음 일정이 취소됐어요</b>\n<b>${escHtml(row.title ?? "녹음")}</b>\n${msLabel(Date.parse(s.scheduled_start))} · ${escHtml(s.location ?? "")}`, recButton(row.id));
+    if (status === "취소") {
+      must(await ctx.db.from("recording_roles").update({ session_id: null }).eq("session_id", s.id));
+      if (Date.parse(s.scheduled_start) > Date.now()) {
+        const req = must(await ctx.db.from("recording_requests").select("title").eq("id", s.request_id).single());
+        const ids = (s.recording_participants ?? []).filter((x: any) => x.answer !== "미선정" && x.person_id !== ctx.me.id).map((x: any) => x.person_id);
+        notify = await sendToMembers(await withTelegram(ctx, [...new Set(ids)] as string[]),
+          `🎙 <b>녹음이 취소됐어요</b>\n<b>${escHtml(req.title ?? "녹음")}</b>${s.title ? " · " + escHtml(s.title) : ""}\n${msLabel(Date.parse(s.scheduled_start))} · ${escHtml(s.location ?? "")}`);
+      }
     }
-    return { ok: true, notify };
+    return { ok: true, status: await recSyncStatus(ctx, s.request_id), notify };
   },
 
   // ----- 홈 월 달력 -----
@@ -2495,7 +2834,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
         .select("id, team_id, title, session_date, start_time, end_time, location, target_unit_id, status, created_by, meeting_types(name, default_location)")
         .in("team_id", teamIds).eq("session_date", today).neq("status", "취소") : none,
       teamIds.length ? ctx.db.from("recording_sessions")
-        .select("id, team_id, scheduled_start, scheduled_end, location, status, recording_requests(title, request_code), recording_participants(person_id, role)")
+        .select("id, team_id, scheduled_start, scheduled_end, location, status, recording_requests(title, request_code), recording_participants(person_id, role, selected, starts_at, ends_at)")
         .in("team_id", teamIds).gte("scheduled_start", dayIso[0]).lt("scheduled_start", dayIso[1]) : none,
       ctx.db.from("duties").select("id, duty_type, title, owner_id, place, starts_at, ends_at, recording_session_id")
         .in("unit_id", unitIds).gte("starts_at", dayIso[0]).lt("starts_at", dayIso[1]),
@@ -2530,11 +2869,13 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
     // 1) 녹음: 참여자 모두. 녹음 제목·코드는 교관 이상만
     for (const r of must(recs as any) ?? []) {
-      if (r.status === "취소") continue;
+      if (!["예정", "완료", "재녹음필요"].includes(r.status)) continue;   // 조율 중·취소는 안 보임
       const st = Date.parse(r.scheduled_start), en = r.scheduled_end ? Date.parse(r.scheduled_end) : st + 2 * HOUR;
       const req = r.recording_requests, base = req ? [req.title, req.request_code].filter(Boolean).join(" · ") : "녹음";
       for (const pt of r.recording_participants ?? []) {
-        push(pt.person_id, toMin(st), toMin(en), where(r.location), "녹음", "",
+        if (!pt.selected) continue;   // 확정된 사람만 (엔지니어 교대면 자기 시간만)
+        const ps = pt.starts_at ? Date.parse(pt.starts_at) : st, pe = pt.ends_at ? Date.parse(pt.ends_at) : en;
+        push(pt.person_id, toMin(ps), toMin(pe), where(r.location), "녹음", "",
           canDetail ? [base, pt.role].filter(Boolean).join(" · ") : "");
       }
     }

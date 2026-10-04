@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004s">
+  <link rel="stylesheet" href="beta.css?v=20261004t">
 </head>
 <body>
   <div class="app">
@@ -605,22 +605,19 @@
         <input type="text" id="rcTitle" class="b-input" maxlength="100" placeholder="예) 추수감사 영상 내레이션">
         <label class="field-label" for="rcDue">마감 기한 <span class="hint">이때까지 녹음을 마쳐야 해요</span></label>
         <input type="datetime-local" id="rcDue">
-        <div class="rc-two">
-          <div>
-            <label class="field-label" for="rcDur">녹음 시간</label>
-            <select id="rcDur" class="b-input">
-              <option value="30">30분</option><option value="60">1시간</option><option value="90">1시간 30분</option>
-              <option value="120" selected>2시간</option><option value="180">3시간</option><option value="240">4시간</option>
-            </select>
-          </div>
-          <div>
-            <label class="field-label" for="rcNeed">필요한 성우</label>
-            <select id="rcNeed" class="b-input">
-              <option value="1" selected>1명</option><option value="2">2명</option><option value="3">3명</option>
-              <option value="4">4명</option><option value="5">5명</option><option value="6">6명</option>
-            </select>
-          </div>
+        <label class="field-label">예상 녹음시간</label>
+        <div class="b-picks rc-durs" id="rcDurs">
+          <button type="button" class="b-pick" data-v="10">10분 내외</button><button type="button" class="b-pick" data-v="30">30분</button>
+          <button type="button" class="b-pick on" data-v="60">1시간</button><button type="button" class="b-pick" data-v="90">1시간 30분</button>
+          <button type="button" class="b-pick" data-v="120">2시간 이상</button>
         </div>
+        <label class="field-label" for="rcNeed">필요한 성우</label>
+        <select id="rcNeed" class="b-input" onchange="rcRolesDraw()">
+          <option value="1" selected>1명</option><option value="2">2명</option><option value="3">3명</option>
+          <option value="4">4명</option><option value="5">5명</option><option value="6">6명</option>
+        </select>
+        <!-- 배역마다 이름 + 지정/후보/미정 + 사람 (1명이면 '성우' 한 줄) -->
+        <div id="rcRoles"></div>
         <div class="rc-two">
           <div>
             <label class="field-label" for="rcDept">요청 부서 <span class="hint">(선택)</span></label>
@@ -631,8 +628,6 @@
             <input type="text" id="rcWho" class="b-input" maxlength="40" placeholder="이름">
           </div>
         </div>
-        <label class="field-label" for="rcCode">요청 코드 <span class="hint">(선택) 같은 코드는 한 번만</span></label>
-        <input type="text" id="rcCode" class="b-input" maxlength="40" placeholder="예) 2026-1004-01">
         <label class="field-label" for="rcVol">분량 <span class="hint">(선택)</span></label>
         <input type="text" id="rcVol" class="b-input" maxlength="300" placeholder="예) A4 2장 · 약 5분">
         <label class="field-label" for="rcNote">메모 <span class="hint">(선택)</span></label>
@@ -644,8 +639,20 @@
     </div>
   </div>
 
+  <!-- 녹음 요청 응답 (받은 사람: 수락 / 조율) -->
+  <div class="b-modal" id="askModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="askModalT">
+      <div class="b-modal-head">
+        <div><h1 id="askModalT">녹음 요청</h1><p>가능하면 수락, 어려우면 조율을 눌러주세요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body" id="askBody"><div class="skeleton row-skel"></div></div>
+    </div>
+  </div>
+
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261004v"></script>
+  <script src="beta.js?v=20261004w"></script>
 </body>
 </html>
