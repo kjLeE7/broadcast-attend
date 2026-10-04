@@ -100,7 +100,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `4143408d5e3d7860e901263b85f96f06384a7b33` (함수 버전 16, 모임 사전체크 알림).
+- 현재 배포: SHA `77df667e0641b0ab70deedda1ce235fc8b877db0` (함수 버전 17, 알림 실패 이유 기록).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -180,7 +180,8 @@
    - 자동: 시작 **72시간 전·24시간 전**에 사전체크 안 한 사람(사전·최종 출결 둘 다 없음)에게만. pg_cron 작업 `session-reminders`가 **10분마다**
      pg_net으로 문지기에 `{action:"cron.reminders"}` + 헤더 `x-cron-secret`을 보냄. 비밀값은 vault `cron_secret`, 확인은 `check_cron_secret()`(service_role만).
      그 시점보다 늦게 만든 모임은 그 알림을 건너뜀(만들 때 알림이 이미 감). 날짜·시작 시간을 바꾸면 `reminded_72h_at/24h_at`을 비워 새 시간 기준으로 다시.
-   - 수동: 모임 상세 '🔔 사전체크 알림' 상자(교관 이상, 시작 전만) → `sessions.remind`. 10분에 한 번. 상자에 미체크 명단·자동 알림 예정/보냄·마지막 수동 알림 결과.
+   - 수동: 모임 상세 '🔔 사전체크 알림' 상자(교관 이상, 시작 전만) → `sessions.remind`. 10분에 한 번.
+     누른 사람도 미체크면 같이 받음. 못 받은 사람은 `remind_result.why`에 이유(봇 대화 시작 안 함·차단 등), 원문은 함수 로그 "tg send". 상자에 미체크 명단·자동 알림 예정/보냄·마지막 수동 알림 결과.
    - 칸: `meeting_sessions.reminded_72h_at`, `reminded_24h_at`, `reminded_manual_at`, `remind_result`.
    - 자동 알림이 안 가면: `select * from cron.job_run_details order by start_time desc limit 5;`, `select * from net._http_response order by id desc limit 5;`, 함수 로그 순서로 봄.
 - `attendance.status`는 **최종** 결과, `planned_status`는 **사전** 체크. 예전 `saveMine/saveFor/update/list`는 없앴음.
