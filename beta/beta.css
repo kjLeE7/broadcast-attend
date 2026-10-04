@@ -509,7 +509,7 @@ body, body * { font-family: var(--font-body) !important; }
   opacity: 0; pointer-events: none; transition: opacity .2s ease; }
 .b-fabdim.show { opacity: 1; pointer-events: auto; }
 /* PC에서 모임·과제 상세가 오른쪽에 열려 있으면 + 버튼은 잠깐 숨김(상세를 가리지 않게) */
-.b-attend.split #attFab, .b-attend.split #attFabDim, #taskView.split #hwFab, #recView.split #recFab, #pollView.split #pollFab { display: none !important; }
+.b-attend.split #attFab, .b-attend.split #attFabDim, #taskView.split #hwFab, #recView.split:not(.ov) #recFab, #pollView.split #pollFab { display: none !important; }
 
 .b-modal { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 24px;
   visibility: hidden; pointer-events: none; transition: visibility 0s linear .24s; }
@@ -945,3 +945,43 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
 .tp-row > span { color: var(--muted); }
 .tp-note { display: block; margin: 6px 2px 4px; font-size: 12px; color: var(--muted); }
 #plGrid, #plResGrid { overflow-x: auto; }
+
+/* ===== 녹음: PC에서 요청을 고르기 전 오른쪽 '녹음 한눈에' ===== */
+#recOverview .card { margin-bottom: 12px; }
+.tv-next { display: block; width: 100%; text-align: left; border: none; cursor: pointer; font-family: inherit; color: var(--text); padding: 22px 24px; }
+.tv-next:hover { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
+.tv-label { display: block; font-size: 13px; color: var(--muted); font-weight: 600; }
+.tv-dday { display: block; font-size: 40px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; margin: 4px 0 6px; color: var(--accent); }
+.tv-next b { display: block; font-size: 18px; line-height: 1.35; }
+.tv-sub { display: block; font-size: 13.5px; color: var(--muted); margin-top: 4px; }
+.tv-done { cursor: default; }
+.tv-done:hover { box-shadow: var(--shadow); }
+.tv-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.tv-head b { font-size: 15px; }
+.tv-head span { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.tv-need { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; border: none; border-top: 1px solid var(--line); background: none; font-family: inherit; color: var(--text); padding: 11px 0; cursor: pointer; text-align: left; }
+.tv-need:first-of-type { border-top: 0; }
+.tv-need > span:first-child { font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-need:hover > span:first-child { color: var(--accent); }
+.tv-tags { display: flex; gap: 4px; flex-shrink: 0; }
+.tv-tags em { font-style: normal; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 99px; background: var(--card-soft); color: var(--muted); }
+.tv-tags em.bad { background: #F3DCD6; color: var(--bad); }
+.tv-tags em.warn { background: #F4E7CF; color: var(--warn); }
+.tv-empty { font-size: 13.5px; color: var(--muted); margin: 2px 0 0; }
+.tv-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.tv-day { border: none; background: var(--card-soft); border-radius: 10px; padding: 7px 0 6px; font-family: inherit; color: var(--text); display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.tv-day small { font-size: 10.5px; color: var(--muted); }
+.tv-day b { font-size: 15px; font-weight: 700; }
+.tv-dots { display: flex; gap: 3px; height: 6px; }
+.tv-dots i, .tv-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.tv-dot { margin-left: 6px; }
+.tv-dots i.ok, .tv-dot.ok { background: var(--ok); }
+.tv-dots i.adj, .tv-dot.adj { background: var(--warn); }
+.tv-dots i.due, .tv-dot.due { background: var(--bad); }
+.tv-day.has { cursor: pointer; background: var(--accent-soft); }
+.tv-day.has:hover { box-shadow: 0 0 0 1.5px var(--accent); }
+.tv-day.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.tv-day:disabled { cursor: default; }
+@media (min-width: 1000px) {
+  #recView.split #recOverview { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 2px 4px 8px; }
+}

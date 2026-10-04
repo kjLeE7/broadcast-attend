@@ -2440,6 +2440,64 @@ function renderRecList() {
   $('recOpen').innerHTML = open.length ? open.map(recCard).join('')
     : '<div class="empty"><b>진행 중인 녹음 요청이 없어요</b>오른쪽 아래 + 버튼으로 요청을 올려요</div>';
   $('recPast').innerHTML = past.length ? past.map(recCard).join('') : '<div class="empty"><b>최근 지난 요청이 없어요</b></div>';
+  renderRecOverview(open);
+}
+
+// PC에서 요청을 고르기 전 오른쪽 칸: 다음 녹음 → 손이 필요한 요청 → 2주 녹음 달력
+function renderRecOverview(open) {
+  var show = isWide() && !RC.current;
+  $('recView').classList.toggle('split', isWide());
+  $('recView').classList.toggle('ov', show);
+  $('recOverview').style.display = show ? 'block' : 'none';
+  if (!show) return;
+  var now = Date.now(), sess = [];
+  open.forEach(function (r) { activeSess(r).forEach(function (s) { sess.push({ r: r, s: s }); }); });
+  sess.sort(function (a, b) { return a.s.start - b.s.start; });
+  var html = '<div class="b-dhead"><h1>녹음 한눈에</h1><p>요청을 누르면 여기에 자세히 열려요</p></div>';
+
+  var next = sess.filter(function (x) { return x.s.status !== '완료' && (x.s.end || x.s.start) >= now; })[0];
+  if (next) {
+    var who = next.s.people.filter(function (p) { return p.selected && p.answer === '수락'; }).map(function (p) { return p.name; });
+    html += '<button class="card tv-next" onclick="openRec(\'' + esc(next.r.id) + '\')">' +
+      '<span class="tv-label">다음 녹음' + (next.s.status === '조율중' ? ' · 조율 중' : '') + '</span>' +
+      '<span class="tv-dday">' + ddayText(new Date(next.s.start)) + ' ' + hmMs(next.s.start) + '</span>' +
+      '<b>' + esc(next.r.title || '녹음') + (next.s.title ? ' · ' + esc(next.s.title) : '') + '</b>' +
+      '<span class="tv-sub">' + mdw(next.s.start) + (next.s.location ? ', ' + esc(next.s.location) : '') + (who.length ? ' · ' + esc(who.join(', ')) : '') + '</span></button>';
+  } else if (open.length) {
+    html += '<div class="card tv-next tv-done"><span class="tv-label">다음 녹음</span><b>아직 잡힌 녹음 일정이 없어요</b><span class="tv-sub">요청을 눌러 가능한 시간을 찾아보세요</span></div>';
+  }
+
+  var needs = open.map(function (r) {
+    var c = recProgress(r), tags = [];
+    if (c.c.adj) tags.push(['bad', '조율 필요 ' + c.c.adj]);
+    if (c.c.pick) tags.push(['warn', '고르기 ' + c.c.pick]);
+    if (c.free) tags.push(['warn', '배치 전 ' + c.free]);
+    if (c.c.wait) tags.push(['', '답 대기 ' + c.c.wait]);
+    return { r: r, tags: tags };
+  }).filter(function (x) { return x.tags.length; });
+  html += '<div class="card tv-box"><div class="tv-head"><b>손이 필요한 요청</b><span>' + (needs.length ? needs.length + '건' : '') + '</span></div>' +
+    (needs.length ? needs.map(function (x) {
+      return '<button class="tv-need" onclick="openRec(\'' + esc(x.r.id) + '\')"><span>' + esc(x.r.title || '녹음') + '</span><span class="tv-tags">' +
+        x.tags.map(function (t) { return '<em class="' + t[0] + '">' + t[1] + '</em>'; }).join('') + '</span></button>';
+    }).join('') : '<p class="tv-empty">' + (open.length ? '모든 요청이 순조롭게 흘러가고 있어요' : '진행 중인 요청이 없어요') + '</p>') + '</div>';
+
+  // 오늘부터 2주: 녹음 회차(확정·조율 중)와 마감
+  var start = new Date(), cells = ''; start.setHours(0, 0, 0, 0);
+  for (var i = 0; i < 14; i++) {
+    var d = new Date(start.getTime() + i * 86400000);
+    var day = sess.filter(function (x) { return sameDay(x.s.start, d); });
+    var dues = open.filter(function (r) { return r.due_at && sameDay(r.due_at, d); });
+    var go = (day[0] && day[0].r) || dues[0];
+    var tip = day.map(function (x) { return hmMs(x.s.start) + ' ' + (x.r.title || '녹음'); }).concat(dues.map(function (r) { return (r.title || '녹음') + ' 마감'; })).join('\n');
+    cells += '<button class="tv-day' + (i === 0 ? ' today' : '') + (go ? ' has' : '') + '"' +
+      (go ? ' title="' + esc(tip) + '" onclick="openRec(\'' + esc(go.id) + '\')"' : ' disabled') + '>' +
+      '<small>' + WD[d.getDay()] + '</small><b>' + d.getDate() + '</b><span class="tv-dots">' +
+      day.map(function (x) { return '<i class="' + (x.s.status === '조율중' ? 'adj' : 'ok') + '"></i>'; }).join('') +
+      dues.map(function () { return '<i class="due"></i>'; }).join('') + '</span></button>';
+  }
+  html += '<div class="card tv-box"><div class="tv-head"><b>2주 녹음 달력</b><span><i class="tv-dot ok"></i>확정 <i class="tv-dot adj"></i>조율 중 <i class="tv-dot due"></i>마감</span></div>' +
+    '<div class="tv-cal">' + cells + '</div></div>';
+  $('recOverview').innerHTML = html;
 }
 
 // ----- 요청 올리기 팝업: 예상 녹음시간 · 배역(지정/후보/미정) -----
@@ -2523,6 +2581,8 @@ function openRec(id) {
   $('recListWrap').style.display = wide ? 'block' : 'none';
   $('recView').classList.toggle('split', wide);
   renderRecList();
+  $('recOverview').style.display = 'none';
+  $('recView').classList.remove('ov');
   $('recDetail').style.display = 'block';
   try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
   if (!wide) window.scrollTo(0, 0);
@@ -2531,7 +2591,7 @@ function openRec(id) {
 }
 function closeRec() {
   RC.current = null; RC.plan = null; RC.planOpen = false;
-  $('recView').classList.remove('split');
+  $('recView').classList.toggle('split', isWide());
   $('recDetail').style.display = 'none';
   $('recListWrap').style.display = 'block';
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
@@ -2907,7 +2967,7 @@ document.addEventListener('keydown', function (e) {
   if (curTab === 'attend' && $('attendWrap').classList.contains('split')) showList();
   else if (curTab === 'task' && $('taskView').classList.contains('split')) closeTask();
   else if (curTab === 'profile' && $('profileView').classList.contains('split')) closePfEdit();
-  else if (curTab === 'rec' && $('recView').classList.contains('split')) closeRec();
+  else if (curTab === 'rec' && RC.current) closeRec();
   else if (curTab === 'poll' && $('pollView').classList.contains('split')) closePoll();
 });
 
