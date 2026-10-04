@@ -115,22 +115,26 @@
             1234567890,          -- ★ 텔레그램 번호 (숫자만)
             (select id from org_units where name = '총회'), true)
     returning id
+  ),
+  ph as (
+    insert into position_history (person_id, position_code, org_unit_id, started_on)
+    select p.id,
+           (select code from positions where name = '팀원'),     -- ★ 직책: 팀원·조장·교관·부팀장·팀장·부과장·과장·서무·문화부장
+           (select id from org_units where name = '성우팀'),     -- ★ 소속: 성우팀·아나운서팀·엔지니어팀, 팀 없으면 방송예술과(세 팀 모두 권한)
+           current_date
+    from p returning id
+  ),
+  g as (
+    insert into group_assignments (person_id, group_unit_id)
+    select p.id, u.id from p join org_units u on u.name = '2조'   -- ★ 1조~4조, 조 없으면 '없음'
+    returning id
   )
-  insert into position_history (person_id, position_code, org_unit_id, started_on)
-  select p.id,
-         (select code from positions where name = '팀원'),     -- ★ 직책: 팀원·조장·교관·부팀장·팀장·부과장·과장·서무·문화부장
-         (select id from org_units where name = '성우팀'),     -- ★ 소속: 성우팀·아나운서팀·엔지니어팀, 팀 없으면 방송예술과(세 팀 모두 권한)
-         current_date
-  from p;
-
-  -- 조가 있으면(팀원·조장)
-  insert into group_assignments (person_id, group_unit_id)
-  values ((select id from people where telegram_user_id = 1234567890),   -- ★ 번호
-          (select id from org_units where name = '2조'));                -- ★ 1조~4조
+  select (select count(*) from ph) as 직책, (select count(*) from g) as 조;
 
   -- 확인
   select * from v_people_current order by name;
   ```
+  결과 '직책 1'이면 됨. '조 0'은 조가 안 들어간 것(조 없는 사람이면 정상, 있어야 하면 조 이름 오타).
   오류: `duplicate key` = 이미 등록된 번호. `null value … violates` = 이름·소속 글자가 틀림(띄어쓰기까지 똑같이).
 
 ### 프로필 '나의 기록' (2026-10-04, 탭 맨 끝 + 오른쪽 위 동그라미)
