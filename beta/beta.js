@@ -2631,6 +2631,7 @@ function freeRoles(r) {
 }
 
 function loadRec() {
+  if (!STF.data) loadStatForm().then(function () { if (RC.current && statCan()) renderRecBoard(); });
   if (!S.team || !recAllowed()) return Promise.resolve();
   if (!RC.list) $('recOpen').innerHTML = '<div class="skeleton row-skel"></div>';
   loadAvail();
@@ -2998,7 +2999,7 @@ function sessCard(r, s) {
     '<div class="rb-rows">' + rbRow('ok', '장소', '<span class="rp a-ok"><b>' + esc(s.location) + '</b><i>확보</i></span>', '');
   sessRoles(r, s).forEach(function (x) {
     var ps = s.people.filter(function (p) { return p.role === '녹음자' && p.role_id === x.id; });
-    h += rbRow(live ? roleState(s, x.id) : 'ok', esc(x.name), ps.map(function (p) { return rpChip(p, live); }).join(''), live ? addBtn(s, 'voice', x.id) : '') + notes(ps) + chooser(s, 'voice', x.id, ps);
+    h += rbRow(live ? roleState(s, x.id) : 'ok', esc(x.name), ps.map(function (p) { return rpChip(p, live) + statBtn(s, p); }).join(''), live ? addBtn(s, 'voice', x.id) : '') + notes(ps) + chooser(s, 'voice', x.id, ps);
   });
   ['엔지니어', '감독자'].forEach(function (role) {
     var ps = s.people.filter(function (p) { return p.role === role; }), kind = role === '감독자' ? 'director' : 'engineer';
@@ -3042,6 +3043,7 @@ $('rdSession').addEventListener('click', function (e) {
   var msg = function (t, err) { if (sid) setMsg('rbMsg-' + sid, t, err); };
   var done = function (txt) { return function (x) { haptic('success'); if (txt) alertMsg(txt + (x && x.done ? '\n모두 확정돼서 녹음이 확정됐어요!' : '')); RC.adding = null; loadRec(); }; };
   var fail = function (err) { msg(err.message, true); };
+  if (act === 'stat') { openStatGrant({ person_id: b.getAttribute('data-person'), source_type: '녹음', source_id: sid, title: (RC.current.title || '') + ' · ' + (b.getAttribute('data-stitle') || '') }); return; }
   if (act === 'plan') { RC.planOpen = true; RC.want = null; RC.plan = null; renderRecBoard(); loadRecPlan(); return; }
   if (act === 'add') { RC.adding = { sid: sid, kind: b.getAttribute('data-kind'), role: b.getAttribute('data-role') }; renderRecBoard(); return; }
   if (act === 'addx') { RC.adding = null; renderRecBoard(); return; }
@@ -3888,6 +3890,7 @@ function loadProfile() {
   else api('profile.get').then(function (d) { P.info = d; renderPfCard(); })
     .catch(function (err) { $('pfCard').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
   loadPfReport();
+  loadStats();
 }
 
 function pfAge(b) {
@@ -4084,4 +4087,150 @@ function renderPfReport() {
   }
 
   $('pfReport').innerHTML = h + '<div class="pf-grid">' + cols + '</div>';
+}
+
+// =====================================================================
+// 성우 스탯: 나의 기록 맨 위 육각형 차트 + 받은 피드백, 교관 이상 '스탯 주기'
+// 레벨은 서버가 지급 내역에서 계산해서 줌 (stats.get). 차트는 SVG로 직접 그림
+// =====================================================================
+var STAT = { data: null, pick: null };
+var STF = { data: null, at: 0 };     // 스탯 주기 팝업 재료 (stats.form): 내가 줄 수 있는 팀·축·사람
+function loadStatForm() {
+  if (STF.data && Date.now() - STF.at < 300000) return Promise.resolve(STF.data);
+  return api('stats.form').then(function (d) { STF.data = d; STF.at = Date.now(); return d; }).catch(function () { return null; });
+}
+function statCan() { return !!(STF.data && STF.data.teams.length); }
+// 녹음 현황판: 녹음 완료된 회차의 들어간 성우 옆 '⭐ 스탯' (줄 수 있는 사람에게만)
+function statBtn(s, p) {
+  if (s.status !== '완료' || !p.selected || !statCan() || (S.me && p.person_id === S.me.profile.id)) return '';
+  return '<button type="button" class="rp-stat" data-act="stat" data-person="' + esc(p.person_id) + '" data-stitle="' + esc(s.title || '') + '">⭐ 스탯</button>';
+}
+function loadStats() {
+  api('stats.get').then(function (d) { STAT.data = d; renderStats(true); }).catch(function () { $('statArea').innerHTML = ''; });
+  loadStatForm().then(function () { if (STAT.data) renderStats(false); });
+}
+function statSeenKey() { return 'statSeen:' + (S.me ? S.me.profile.id : ''); }
+function renderStats(first) {
+  var d = STAT.data, el = $('statArea');
+  if (!d || !d.team_id) { el.innerHTML = statCan() ? '<div class="st-give-only"><button type="button" class="ghost-btn" onclick="openStatGrant({})">⭐ 스탯 주기</button></div>' : ''; return; }
+  // 레벨업 반짝임: 이 기기에서 지난번에 본 레벨보다 오른 축 (처음 보면 반짝임 없이 기억만)
+  var seen = null; try { seen = JSON.parse(localStorage.getItem(statSeenKey()) || 'null'); } catch (e) {}
+  var up = {};
+  if (first) {
+    d.axes.forEach(function (a) { if (seen && seen[a.id] && a.level > seen[a.id]) up[a.id] = 1; });
+    var now = {}; d.axes.forEach(function (a) { now[a.id] = a.level; });
+    try { localStorage.setItem(statSeenKey(), JSON.stringify(now)); } catch (e) {}
+  }
+  var grew = d.axes.filter(function (a) { return a.level > a.prev_level; }).length;
+  el.innerHTML = '<div class="section-head"><h2>나의 성장</h2><span class="section-count">' +
+      (grew ? '이번 달 ' + grew + '개 축 레벨업' : '축을 누르면 다음 레벨까지 남은 XP') + '</span>' +
+      (statCan() ? '<button type="button" class="ghost-btn st-give" onclick="openStatGrant({})">⭐ 스탯 주기</button>' : '') + '</div>' +
+    '<div class="card st-card"><div class="st-chart' + (first ? ' grow' : '') + '">' + statSvg(d, up) + '</div>' +
+      '<div class="st-legend"><span><i class="now"></i>지금</span><span><i class="prev"></i>지난달 말</span></div>' +
+      '<div class="st-pick" id="statPick">' + statPickText() + '</div></div>' +
+    '<div class="section-head b-gap"><h2>받은 피드백</h2><span class="section-count">' + d.feedback.length + '개</span></div>' +
+    (d.feedback.length ? '<div class="st-fb">' + d.feedback.map(function (f) {
+      return '<div class="card st-fbrow"><div class="st-fbtop"><b>' + esc(f.title || f.source_type) + '</b><small>' + mdOf(f.at) + ' · ' + esc(f.by) + '</small></div>' +
+        '<div class="st-xps">' + f.items.map(function (i) { return '<span>' + esc(i.name) + ' +' + i.xp + '</span>'; }).join('') + '</div>' +
+        '<p>' + esc(f.comment) + '</p></div>';
+    }).join('') + '</div>' : '<div class="empty"><b>아직 받은 피드백이 없어요</b>실무를 마치면 교관님이 스탯을 올려줘요</div>');
+}
+function statPickText() {
+  var a = STAT.data && STAT.data.axes[STAT.pick];
+  if (!a) return '';
+  return '<b>' + esc(a.name) + ' Lv.' + a.level + '</b> · ' + (a.need ? '다음 레벨까지 ' + (a.need - a.into) + ' XP' : '최고 레벨이에요') +
+    (a.description ? '<small>' + esc(a.description) + '</small>' : '');
+}
+function statAxis(i) { STAT.pick = STAT.pick === i ? null : i; $('statPick').innerHTML = statPickText(); document.querySelectorAll('.st-lab').forEach(function (g) { g.classList.toggle('on', +g.getAttribute('data-i') === STAT.pick); }); }
+// 활성 축 개수만큼 꼭짓점인 레이더. 반지름 = 레벨(다음 레벨까지 모은 만큼 소수로) / 최대 레벨
+function statSvg(d, up) {
+  var n = d.axes.length, R = 92, max = d.max_level || 10;
+  if (n < 3) return '';
+  var pt = function (i, r) { var t = -Math.PI / 2 + 2 * Math.PI * i / n; return [r * Math.cos(t), r * Math.sin(t)]; };
+  var poly = function (f) { return d.axes.map(function (a, i) { return pt(i, f(a)).map(function (v) { return v.toFixed(1); }).join(','); }).join(' '); };
+  var val = function (a) { return R * Math.min(1, (a.level + (a.need ? a.into / a.need : 0)) / max); };
+  var h = '<svg viewBox="-150 -138 300 276" role="img" aria-label="스탯 차트">';
+  for (var k = 2; k <= max; k += 2) h += '<polygon class="st-ring" points="' + poly(function () { return R * k / max; }) + '"/>';
+  d.axes.forEach(function (a, i) { var p = pt(i, R); h += '<line class="st-ring" x1="0" y1="0" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) + '"/>'; });
+  h += '<polygon class="st-prev" points="' + poly(function (a) { return R * a.prev_level / max; }) + '"/>';
+  h += '<g class="st-now"><polygon points="' + poly(val) + '"/>' + d.axes.map(function (a, i) {
+    var p = pt(i, val(a)); return '<circle class="' + (up[a.id] ? 'lvup' : '') + '" cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3.5"/>';
+  }).join('') + '</g>';
+  d.axes.forEach(function (a, i) {
+    var p = pt(i, R + 26), anchor = Math.abs(p[0]) < 8 ? 'middle' : p[0] > 0 ? 'start' : 'end';
+    if (anchor !== 'middle') p[0] += p[0] > 0 ? -10 : 10;
+    h += '<g class="st-lab' + (up[a.id] ? ' lvup' : '') + (STAT.pick === i ? ' on' : '') + '" data-i="' + i + '" onclick="statAxis(' + i + ')" text-anchor="' + anchor + '">' +
+      '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] - 2).toFixed(1) + '">' + esc(a.name) + '</text>' +
+      '<text class="lv" x="' + p[0].toFixed(1) + '" y="' + (p[1] + 13).toFixed(1) + '">Lv.' + a.level + (a.level > a.prev_level ? ' ▲' : '') + '</text></g>';
+  });
+  return h + '</svg>';
+}
+
+// ----- 스탯 주기 팝업 { person_id?, source_type?, source_id?, title? } -----
+var SG = null;
+function openStatGrant(o) {
+  SG = { o: o, items: {}, team: null, existing: null };
+  $('statModalT').textContent = '⭐ 스탯 주기';
+  $('statBody').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  openModal('statModal');
+  STF.at = 0;
+  Promise.all([loadStatForm(), o.source_id ? api('stats.form', { person_id: o.person_id, source_id: o.source_id }) : null]).then(function (r) {
+    var f = r[0]; if (!f || !f.teams.length) { $('statBody').innerHTML = '<div class="empty"><b>스탯을 줄 수 있는 팀이 없어요</b>교관 이상만 줄 수 있어요</div>'; return; }
+    SG.team = f.teams.filter(function (t) { return !o.person_id || t.people.some(function (p) { return p.id === o.person_id; }); })[0];
+    if (!SG.team) { $('statBody').innerHTML = '<div class="empty"><b>이 사람에게는 줄 수 없어요</b>내 팀 사람에게만 줄 수 있어요</div>'; return; }
+    SG.max = f.max_xp;
+    SG.existing = r[1] && r[1].existing;
+    if (SG.existing) { SG.items = SG.existing.items; $('statModalT').textContent = '⭐ 준 스탯 고치기'; }
+    SG.person = o.person_id || '';
+    SG.src = o.source_type || '수업';
+    renderStatGrant();
+  });
+}
+function renderStatGrant() {
+  var t = SG.team, o = SG.o, sum = 0;
+  Object.keys(SG.items).forEach(function (k) { sum += SG.items[k] || 0; });
+  var who = t.people.filter(function (p) { return p.id === SG.person; })[0];
+  var h = '';
+  if (o.person_id) h += '<div class="sg-who"><b>' + esc(who ? who.name : '') + '</b>' + (o.title ? '<small>🎙 ' + esc(o.title) + '</small>' : '') + '</div>';
+  else h += '<label class="field-label">누구에게</label><div class="b-chips sg-people">' + t.people.map(function (p) {
+    return '<button type="button" class="b-pick' + (p.id === SG.person ? ' on' : '') + '" onclick="SG.person=\'' + esc(p.id) + '\';renderStatGrant()">' + esc(p.name) + '<small> ' + esc(p.position || '') + '</small></button>';
+  }).join('') + '</div>' +
+    '<label class="field-label">어떤 자리에서</label><div class="b-chips">' + ['수업', '스터디', '기타'].map(function (x) {
+      return '<button type="button" class="b-pick' + (SG.src === x ? ' on' : '') + '" onclick="SG.src=\'' + x + '\';renderStatGrant()">' + x + '</button>';
+    }).join('') + '</div>';
+  h += '<label class="field-label">올려줄 스탯 <span class="hint">합계 ' + sum + ' / ' + SG.max + ' XP</span></label><div class="sg-axes">' + t.axes.map(function (a) {
+    var v = SG.items[a.id] || 0;
+    return '<div class="sg-axis"><span>' + esc(a.name) + '</span><div class="seg">' + [0, 1, 2, 3].map(function (x) {
+      return '<button type="button" class="' + (v === x ? 'on' : '') + (x ? '' : ' z') + '" onclick="sgSet(\'' + a.id + '\',' + x + ')">' + (x ? '+' + x : '–') + '</button>';
+    }).join('') + '</div></div>';
+  }).join('') + '</div>' +
+    '<label class="field-label" for="sgComment">한 줄 코멘트 <span class="hint">꼭 적어주세요</span></label>' +
+    '<input type="text" id="sgComment" class="b-input" maxlength="200" placeholder="예) 후반부 톤 유지 좋았음" value="' + esc(($('sgComment') && $('sgComment').value) || (SG.existing ? SG.existing.comment : '')) + '">' +
+    '<button class="btn-primary" id="sgBtn" onclick="saveStatGrant()">' + (SG.existing ? '고친 내용 저장' : '스탯 주기') + '</button>' +
+    (SG.existing ? '<button type="button" class="ghost-btn b-danger sg-revoke" onclick="revokeStatGrant()">이 지급 취소하기</button>' : '') +
+    '<div class="msg" id="sgMsg"></div>';
+  $('statBody').innerHTML = h;
+}
+function sgSet(id, x) {
+  var c = $('sgComment') && $('sgComment').value;
+  SG.items[id] = x; renderStatGrant();
+  if (c !== undefined) $('sgComment').value = c;
+}
+function saveStatGrant() {
+  if (!SG.person) { setMsg('sgMsg', '누구에게 줄지 골라주세요', true); return; }
+  var btn = $('sgBtn'); btn.disabled = true; setMsg('sgMsg', '저장하는 중...');
+  var comment = $('sgComment').value;
+  var req = SG.existing ? api('stats.update', { id: SG.existing.id, items: SG.items, comment: comment })
+    : api('stats.grant', { team_id: SG.team.team_id, person_id: SG.person, source_type: SG.src, source_id: SG.o.source_id || null, items: SG.items, comment: comment });
+  req.then(function (r) {
+    haptic('success');
+    var nf = r.notify;
+    setMsg('sgMsg', SG.existing ? '고쳤어요' : nf && !nf.sent ? '저장했어요. 다만 그분이 봇과 대화를 시작하지 않아서 알림은 못 갔어요' : '스탯을 올려줬어요! 알림도 보냈어요', !!(nf && !nf.sent));
+    setTimeout(function () { closeModal('statModal'); }, nf && !nf.sent ? 3000 : 1000);
+  }).catch(function (err) { btn.disabled = false; setMsg('sgMsg', err.message, true); });
+}
+function revokeStatGrant() {
+  if (!SG.existing || !confirm('이 지급을 취소할까요? 받은 사람의 스탯에서 빠져요')) return;
+  api('stats.revoke', { id: SG.existing.id }).then(function () { haptic('success'); closeModal('statModal'); })
+    .catch(function (err) { setMsg('sgMsg', err.message, true); });
 }

@@ -1356,6 +1356,68 @@ async function setWebhookHere(admin: any) {
 // ---------------------------------------------------------------------
 // 기능(action) 목록
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// 성우 스탯: 교관이 실무 뒤 팀원에게 축별 경험치(XP)를 줌. 레벨은 저장 안 하고 지급 내역에서 계산
+// ---------------------------------------------------------------------
+const STAT_SOURCES = ["녹음", "수업", "스터디", "기타"];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function statSettings(ctx: Ctx) {
+  const rows: any[] = must(await ctx.db.from("app_settings").select("key,value").in("key", ["stat_grant_min_level", "stat_max_xp_per_grant", "stat_level"])) ?? [];
+  const v = new Map(rows.map((r) => [r.key, r.value]));
+  const lv = v.get("stat_level") ?? {};
+  return { min: Number(v.get("stat_grant_min_level") ?? 30), maxXp: Number(v.get("stat_max_xp_per_grant") ?? 12), factor: Number(lv.factor ?? 3), maxLevel: Number(lv.max ?? 10) };
+}
+// XP → 레벨 (다음 레벨 필요 XP = 현재 레벨 × factor). into = 이번 레벨에서 모은 XP, need = 다음 레벨까지 필요한 XP (최대 레벨이면 0)
+function statLevel(xp: number, factor: number, maxLevel: number) {
+  let level = 1, rest = xp;
+  while (level < maxLevel && rest >= level * factor) { rest -= level * factor; level++; }
+  return { level, into: rest, need: level < maxLevel ? level * factor : 0 };
+}
+// 스탯 축이 있는 팀 중 그 사람이 속한 첫 팀
+// ponytail: 팀 하나만 (지금 축은 성우팀뿐). 다른 팀에도 축을 만들면 팀별로 여러 개 돌려주기
+async function statTeamOf(ctx: Ctx, personId: string) {
+  const axes: any[] = must(await ctx.db.from("stat_axes").select("team_id").eq("is_active", true)) ?? [];
+  for (const t of [...new Set(axes.map((a) => a.team_id as string))]) {
+    if ((await unitAudience(ctx, t)).some((p: any) => p.id === personId)) return t;
+  }
+  return null;
+}
+// 주는 사람 확인: 그 팀에서 기준 서열 이상 + 받는 사람이 그 팀 사람 + 본인 아님. 받는 사람·주는 사람 정보 반환
+async function statGrantCheck(ctx: Ctx, teamId: string, personId: string, min: number) {
+  if (!UUID_RE.test(String(teamId)) || !UUID_RE.test(String(personId))) throw new HttpError(400, "사람을 다시 골라주세요");
+  if ((await rankIn(ctx, teamId)) < min) throw new HttpError(403, "권한이 없습니다");
+  if (personId === ctx.me.id) throw new HttpError(400, "본인에게는 줄 수 없어요");
+  const aud = await unitAudience(ctx, teamId);
+  const target = aud.find((p: any) => p.id === personId);
+  if (!target) throw new HttpError(403, "이 팀 사람에게만 줄 수 있어요");
+  return { target, me: aud.find((p: any) => p.id === ctx.me.id) };
+}
+// { 축id: xp } → 행 목록. 활성 축만, 축당 1~3, 합계는 설정값까지
+async function statItems(ctx: Ctx, teamId: string, items: any, maxXp: number) {
+  if (!items || typeof items !== "object") throw new HttpError(400, "올려줄 스탯을 골라주세요");
+  const axes: any[] = must(await ctx.db.from("stat_axes").select("id,name").eq("team_id", teamId).eq("is_active", true)) ?? [];
+  const nameOf = new Map(axes.map((a) => [a.id, a.name]));
+  const rows = Object.entries(items).filter(([, x]) => Number(x) > 0).map(([axis_id, x]) => {
+    const xp = Number(x);
+    if (!nameOf.has(axis_id) || !Number.isInteger(xp) || xp > 3) throw new HttpError(400, "스탯은 축마다 +1~+3이에요");
+    return { axis_id, xp };
+  });
+  if (!rows.length) throw new HttpError(400, "올려줄 스탯을 하나 이상 골라주세요");
+  if (rows.reduce((a, r) => a + r.xp, 0) > maxXp) throw new HttpError(400, `한 번에 ${maxXp} XP까지 줄 수 있어요`);
+  return { rows, label: rows.slice().sort((a, b) => b.xp - a.xp).map((r) => `${nameOf.get(r.axis_id)} +${r.xp}`).join(", ") };
+}
+function statComment(v: any) {
+  const c = String(v ?? "").trim().slice(0, 200);
+  if (!c) throw new HttpError(400, "한 줄 코멘트를 적어주세요");
+  return c;
+}
+// 녹음 회차 제목 (요청 제목 · 회차). 대본 내용은 없음 — 제목만
+async function recSessionTitles(ctx: Ctx, ids: string[]) {
+  if (!ids.length) return new Map<string, string>();
+  const rows: any[] = must(await ctx.db.from("recording_sessions").select("id, title, recording_requests(title)").in("id", ids)) ?? [];
+  return new Map(rows.map((r) => [r.id, [r.recording_requests?.title, r.title].filter(Boolean).join(" · ")]));
+}
+
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 내 정보 + 내가 접근할 수 있는 팀 목록(팀 선택 탭용)
@@ -1463,6 +1525,127 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       must(await ctx.db.from("people_private").upsert(row, { onConflict: "person_id" }));
     }
     return await actions["profile.get"](ctx);
+  },
+
+  // ----- 성우 스탯 -----
+  // 스탯 보기 { person_id? }: 본인 것은 누구나, 다른 사람 것은 그 팀에서 기준 서열(교관) 이상만
+  async "stats.get"(ctx) {
+    const pid = ctx.payload?.person_id || ctx.me.id;
+    if (!UUID_RE.test(String(pid))) throw new HttpError(400, "사람을 다시 골라주세요");
+    const st = await statSettings(ctx);
+    const team = await statTeamOf(ctx, pid);
+    if (pid !== ctx.me.id && (!team || (await rankIn(ctx, team)) < st.min)) throw new HttpError(403, "권한이 없습니다");
+    if (!team) return { team_id: null };
+    const [axes, totals, grants] = await Promise.all([
+      ctx.db.from("stat_axes").select("id,key,name,description").eq("team_id", team).eq("is_active", true).order("sort").then(must),
+      ctx.db.from("v_stat_xp").select("axis_id,xp").eq("person_id", pid).then(must),
+      ctx.db.from("stat_grants").select("id,granted_by,source_type,source_id,comment,created_at,people!stat_grants_granted_by_fkey(name),stat_grant_items(axis_id,xp)")
+        .eq("person_id", pid).eq("team_id", team).is("revoked_at", null).order("created_at", { ascending: false }).then(must),
+    ]);
+    // 지난달 모양 = 이번 달 1일(한국 시간) 전까지 받은 XP
+    const monthStart = Date.parse(kstToday().slice(0, 8) + "01T00:00:00+09:00");
+    const now = new Map<string, number>((totals ?? []).map((t: any) => [t.axis_id, t.xp]));
+    const prev = new Map<string, number>();
+    for (const g of grants ?? []) {
+      if (Date.parse(g.created_at) >= monthStart) continue;
+      for (const i of g.stat_grant_items) prev.set(i.axis_id, (prev.get(i.axis_id) ?? 0) + i.xp);
+    }
+    const titles = await recSessionTitles(ctx, (grants ?? []).filter((g: any) => g.source_type === "녹음" && g.source_id).map((g: any) => g.source_id));
+    const axisName = new Map((axes ?? []).map((a: any) => [a.id, a.name]));
+    return {
+      team_id: team, max_level: st.maxLevel,
+      axes: (axes ?? []).map((a: any) => {
+        const xp = now.get(a.id) ?? 0, pxp = prev.get(a.id) ?? 0;
+        return { id: a.id, key: a.key, name: a.name, description: a.description, xp, ...statLevel(xp, st.factor, st.maxLevel), prev_level: statLevel(pxp, st.factor, st.maxLevel).level, prev_xp: pxp };
+      }),
+      feedback: (grants ?? []).map((g: any) => ({
+        id: g.id, at: g.created_at, source_type: g.source_type, title: g.source_id ? titles.get(g.source_id) ?? null : null,
+        by: g.people?.name ?? "", comment: g.comment,
+        items: g.stat_grant_items.map((i: any) => ({ name: axisName.get(i.axis_id) ?? "", xp: i.xp })).filter((i: any) => i.name),
+      })),
+    };
+  },
+  // 스탯 주기 팝업에 필요한 것: 내가 줄 수 있는 팀(축·사람). { person_id, source_id } 가 있으면 그 실무에서 내가 이미 준 것
+  async "stats.form"(ctx) {
+    const st = await statSettings(ctx);
+    const axes: any[] = must(await ctx.db.from("stat_axes").select("id,team_id,name").eq("is_active", true).order("sort")) ?? [];
+    const teams = [];
+    for (const t of [...new Set(axes.map((a) => a.team_id as string))]) {
+      if ((await rankIn(ctx, t)) < st.min) continue;
+      const aud = await unitAudience(ctx, t);
+      teams.push({
+        team_id: t, axes: axes.filter((a) => a.team_id === t).map((a) => ({ id: a.id, name: a.name })),
+        people: aud.filter((p: any) => p.id !== ctx.me.id).map((p: any) => ({ id: p.id, name: p.name, position: p.position })),
+      });
+    }
+    let existing = null;
+    const { person_id, source_id } = ctx.payload ?? {};
+    if (UUID_RE.test(String(person_id)) && UUID_RE.test(String(source_id))) {
+      const g = must(await ctx.db.from("stat_grants").select("id,comment,stat_grant_items(axis_id,xp)")
+        .eq("granted_by", ctx.me.id).eq("person_id", person_id).eq("source_id", source_id).is("revoked_at", null).maybeSingle());
+      if (g) existing = { id: g.id, comment: g.comment, items: Object.fromEntries(g.stat_grant_items.map((i: any) => [i.axis_id, i.xp])) };
+    }
+    return { max_xp: st.maxXp, teams, existing };
+  },
+  // 스탯 주기 { team_id, person_id, source_type, source_id?, items: {축id: 1~3}, comment }
+  // 녹음이면 완료된 회차 + 그 회차에 들어간 사람만. 같은 실무에서 같은 사람에게 1번만 (그다음은 고치기)
+  async "stats.grant"(ctx) {
+    const p = ctx.payload ?? {};
+    const st = await statSettings(ctx);
+    const { target, me } = await statGrantCheck(ctx, p.team_id, p.person_id, st.min);
+    if (!STAT_SOURCES.includes(p.source_type)) throw new HttpError(400, "어떤 실무인지 골라주세요");
+    let sourceId: string | null = null, title = "";
+    if (p.source_type === "녹음") {
+      if (!UUID_RE.test(String(p.source_id))) throw new HttpError(400, "녹음 회차를 다시 골라주세요");
+      const s = must(await ctx.db.from("recording_sessions").select("id,status").eq("id", p.source_id).maybeSingle());
+      if (!s || s.status !== "완료") throw new HttpError(400, "녹음을 마친 회차에만 줄 수 있어요");
+      const part: any[] = must(await ctx.db.from("recording_participants").select("id").eq("session_id", s.id).eq("person_id", target.id).eq("selected", true).limit(1)) ?? [];
+      if (!part.length) throw new HttpError(400, "이 회차에 들어간 사람이 아니에요");
+      sourceId = s.id;
+      title = (await recSessionTitles(ctx, [s.id])).get(s.id) ?? "";
+    }
+    const comment = statComment(p.comment);
+    const { rows, label } = await statItems(ctx, p.team_id, p.items, st.maxXp);
+    await rateLimit(ctx, "stat_grant", 60, 60);
+    const ins = await ctx.db.from("stat_grants").insert({
+      team_id: p.team_id, person_id: target.id, granted_by: ctx.me.id, source_type: p.source_type, source_id: sourceId, comment,
+    }).select("id").single();
+    if (ins.error?.code === "23505") throw new HttpError(409, "이 실무에서 이미 스탯을 줬어요. 고치기로 바꿔주세요");
+    const g = must(ins);
+    const it = await ctx.db.from("stat_grant_items").insert(rows.map((r) => ({ grant_id: g.id, ...r })));
+    if (it.error) { await ctx.db.from("stat_grants").delete().eq("id", g.id); throw it.error; }
+    const person = must(await ctx.db.from("people").select("name, telegram_user_id").eq("id", target.id).single());
+    const who = `${ctx.me.name}${me?.position ? " " + me.position : ""}님`;
+    const notify = await sendToMembers([person],
+      `⭐ <b>${escHtml(who)}이 스탯을 올려줬어요</b>\n${escHtml(label)}${title ? `\n🎙 ${escHtml(title)}` : ` (${p.source_type})`}\n“${escHtml(comment)}”`,
+      appButton("나의 기록 보기", "?go=profile"));
+    return { id: g.id, notify };
+  },
+  // 스탯 고치기 { id, items, comment }: 준 사람 본인만 (지금도 기준 서열 이상일 때)
+  async "stats.update"(ctx) {
+    const p = ctx.payload ?? {};
+    if (!UUID_RE.test(String(p.id))) throw new HttpError(400, "다시 골라주세요");
+    const st = await statSettings(ctx);
+    const g = must(await ctx.db.from("stat_grants").select("id,team_id,granted_by,revoked_at").eq("id", p.id).maybeSingle());
+    if (!g || g.revoked_at) throw new HttpError(404, "없거나 취소된 기록이에요");
+    if (g.granted_by !== ctx.me.id) throw new HttpError(403, "준 사람만 고칠 수 있어요");
+    await requireRank(ctx, g.team_id, st.min);
+    const comment = statComment(p.comment);
+    const { rows } = await statItems(ctx, g.team_id, p.items, st.maxXp);
+    must(await ctx.db.from("stat_grant_items").delete().eq("grant_id", g.id));
+    must(await ctx.db.from("stat_grant_items").insert(rows.map((r) => ({ grant_id: g.id, ...r }))));
+    must(await ctx.db.from("stat_grants").update({ comment }).eq("id", g.id));
+    return { id: g.id };
+  },
+  // 지급 취소 { id }: 준 사람 본인 또는 그 팀 팀장 이상. 지우지 않고 취소 표시(이력에 남음)
+  async "stats.revoke"(ctx) {
+    const p = ctx.payload ?? {};
+    if (!UUID_RE.test(String(p.id))) throw new HttpError(400, "다시 골라주세요");
+    const g = must(await ctx.db.from("stat_grants").select("id,team_id,granted_by,revoked_at").eq("id", p.id).maybeSingle());
+    if (!g || g.revoked_at) throw new HttpError(404, "없거나 이미 취소된 기록이에요");
+    if (g.granted_by !== ctx.me.id) await requireRank(ctx, g.team_id, RANK.TEAM_LEADER);
+    must(await ctx.db.from("stat_grants").update({ revoked_at: new Date().toISOString(), revoked_by: ctx.me.id }).eq("id", g.id));
+    return { ok: true };
   },
 
   // 내 한 달 활동: { month: "YYYY-MM" }

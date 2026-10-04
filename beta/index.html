@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261005o">
+  <link rel="stylesheet" href="beta.css?v=20261005q">
 </head>
 <body>
   <div class="app">
@@ -290,6 +290,9 @@
       <div id="pfMain">
         <h1 class="page-title">개인노트</h1>
         <p class="page-desc">내 정보와 한 달 동안 걸어온 길을 모아봐요</p>
+
+        <!-- 성우 스탯 (육각형 차트 + 받은 피드백). 스탯 축이 있는 팀 사람만 보임 -->
+        <div id="statArea"></div>
 
         <div class="card pf-card" id="pfCard"><div class="b-wait">불러오는 중...</div></div>
 
@@ -633,6 +636,16 @@
       <div class="b-modal-body" id="bdayBody"></div>
     </div>
   </div>
+  <div class="b-modal" id="statModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="statModalT">
+      <div class="b-modal-head">
+        <div><h1 id="statModalT">스탯 주기</h1><p id="statModalSub">축마다 +1~+3 · 받는 사람에게 봇으로 알림이 가요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body" id="statBody"></div>
+    </div>
+  </div>
   <div class="b-modal" id="tpModal" aria-hidden="true">
     <div class="b-modal-dim" onclick="closeModal()"></div>
     <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="tpModalT">
@@ -764,6 +777,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261005o"></script>
+  <script src="beta.js?v=20261005p"></script>
 </body>
 </html>

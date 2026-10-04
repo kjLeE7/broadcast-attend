@@ -1058,3 +1058,53 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
 /* 스크롤 막대 자리를 늘 비워 둠: 내용 길이가 바뀌어도 화면 폭이 흔들리지 않게 */
 html { scrollbar-gutter: stable; }
 .b-dim { opacity: .45; pointer-events: none; transition: opacity .15s ease; }
+
+/* ===== 성우 스탯 (renderStats · 스탯 주기 팝업) ===== */
+.section-head .st-give { margin-left: auto; }
+.st-give-only { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+.st-card { padding: 14px 10px 14px; margin-bottom: 4px; }
+.st-chart svg { display: block; width: 100%; max-width: 360px; margin: 0 auto; overflow: visible; }
+.st-ring { fill: none; stroke: var(--line); stroke-width: 1; }
+.st-prev { fill: var(--sand); fill-opacity: .55; stroke: var(--sand); stroke-width: 1.5; }
+.st-now polygon { fill: var(--accent); fill-opacity: .26; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.st-now circle { fill: var(--accent); }
+.st-chart.grow .st-now { transform-box: view-box; transform-origin: center; animation: stGrow .8s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes stGrow { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.st-lab { cursor: pointer; }
+.st-lab text { font-size: 12.5px; font-weight: 700; fill: var(--text); }
+.st-lab text.lv { font-size: 11px; font-weight: 700; fill: var(--muted); }
+.st-lab.on text { fill: var(--accent); }
+.st-lab.lvup text, .st-now circle.lvup { animation: stFlash 1.1s ease-in-out .8s 3; }
+@keyframes stFlash { 50% { fill: var(--warn); } }
+.st-now circle.lvup { transform-box: fill-box; transform-origin: center; }
+.st-legend { display: flex; justify-content: center; gap: 16px; font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 4px; }
+.st-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.st-legend i.now { background: var(--accent); opacity: .7; }
+.st-legend i.prev { background: var(--sand); }
+.st-pick { text-align: center; font-size: 13.5px; margin-top: 8px; min-height: 1px; }
+.st-pick:empty { display: none; }
+.st-pick b { color: var(--accent); }
+.st-pick small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.st-fb { display: grid; gap: 10px; }
+@media (min-width: 1000px) { .st-fb { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); } }
+.st-fbrow { padding: 14px 16px; }
+.st-fbtop { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.st-fbtop b { font-size: 14px; }
+.st-fbtop small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.st-xps { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.st-xps span { background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 99px; }
+.st-fbrow p { margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.rp-stat { border: none; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 99px; cursor: pointer; margin-left: 4px; }
+.sg-who { padding: 10px 14px; background: var(--card-soft); border-radius: 12px; }
+.sg-who b { font-size: 15px; }
+.sg-who small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.sg-axes { display: grid; gap: 6px; }
+.sg-axis { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sg-axis > span { font-size: 14px; font-weight: 700; }
+.sg-axis .seg { display: flex; gap: 4px; }
+.sg-axis .seg button { width: 44px; padding: 7px 0; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card-soft); color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.sg-axis .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sg-revoke { width: 100%; margin-top: 10px; }
+.section-head .st-give, .st-give-only .ghost-btn { width: auto; margin: 0 0 0 auto; padding: 7px 12px; border-style: solid; color: var(--accent); }
+.sg-axis .seg button.on.z { background: var(--card); border-color: var(--sand); color: var(--text); }
+#statArea:not(:empty) { margin-bottom: 22px; }
