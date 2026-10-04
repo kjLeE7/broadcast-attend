@@ -151,7 +151,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `9d42c06`의 main.ts (함수 버전 36, 다른 팀 고르기·고치기·업무 탭·업무가능 2주 표). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `4b77616`의 main.ts (함수 버전 37, 성우 스탯). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -160,7 +160,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -279,6 +279,17 @@
   화면 안 [나의 기록|내 과제|업무가능|시간취합] 칩 줄은 없앰(과제의 [공지|과제] 칩은 공지에서 왔을 때만 그대로).
 - **지금 할 일 → 오른쪽 위 동그라미 상자**(`.b-mebox`, `#mePop`, `toggleMePop`): 동그라미를 누르면 이름·직책(`#who`, 왼쪽 위에서 옮김) + 지금 할 일(`#todoArea`, 화면 안에선 없앰) + '나의 기록 보기'.
   숫자 배지 `#todoBadge`도 '개인' 탭에서 동그라미로 옮김. 왼쪽 위는 '방송예술과 BETA'만. 할 일을 누르거나 바깥·Esc면 닫힘.
+
+### 성우 스탯 (2026-10-05, 함수 버전 37)
+- 교관이 실무 뒤 팀원에게 축별 XP를 주고, 본인은 '나의 기록' 맨 위 육각형 차트(`#statArea`, `renderStats`, `statSvg`)로 봄. 마이그레이션 파일 `supabase/migrations/20261005_stats.sql`.
+- 표: `stat_axes`(팀·key·이름·설명·sort·is_active, 성우팀 6축: 자연스러움·톤·발음·발성·변성·대본분석) / `stat_grants`(team_id, person_id, granted_by, source_type 녹음|수업|스터디|기타, source_id = 녹음이면 recording_sessions.id, comment 필수, revoked_at/by)
+  / `stat_grant_items`(grant_id, axis_id, xp 1~3). 뷰 `v_stat_xp`(취소 안 된 축별 XP 합). 세 표 audit_trigger. 같은 실무·같은 교관·같은 사람은 1번(부분 unique `stat_grants_once`), 본인 지급은 DB check로도 막음.
+- 레벨은 저장 안 함: 문지기 `statLevel` = 다음 레벨 필요 XP = 현재 레벨 × factor. 설정값 `stat_level` {factor 3, max 10}, `stat_grant_min_level` 30, `stat_max_xp_per_grant` 12 (관리자 화면은 아직 없음 → SQL로).
+- 권한(문지기에서 거름): 보기 = 본인, 또는 그 팀에서 기준 서열 이상. 주기·고치기 = 그 팀 기준 서열 이상, 받는 사람이 그 팀 사람(`unitAudience`), 본인 아님. 고치기는 준 사람만. 취소 = 준 사람 또는 팀장 이상(지우지 않고 revoked).
+  녹음 관계자 예외(엔지니어팀 팀장)는 안 씀. 녹음 지급은 '완료' 회차 + selected 사람만. 랭킹 화면 없음.
+- 화면: 지난달 말 모양(prev_level) 연하게 겹침, 처음 열 때 가운데서 펼침, 축 누르면 다음 레벨까지 남은 XP, 레벨업 반짝임은 이 기기 localStorage `statSeen:<id>`와 비교. 아래 '받은 피드백'(실무 제목만).
+  '⭐ 스탯 주기'(`openStatGrant`, `#statModal`): 나의 기록 위 버튼(사람·수업/스터디/기타 고르기) + 녹음 현황판 '녹음 완료' 회차의 성우 칩 옆 '⭐ 스탯'(이미 줬으면 고치기·취소). 받는 사람에게 봇 알림.
+- 테스트(2026-10-05): DB 규칙은 SQL로 확인(본인 지급·같은 실무 두 번·XP 4 막힘, 취소하면 합계에서 빠짐). 문지기 권한 검사는 실제 로그인이 필요해서 아직 사람별로 못 돌림.
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
@@ -412,6 +423,7 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
+- 성우 스탯(🟡): 주기·고치기는 그 팀 교관(설정값 `stat_grant_min_level`) 이상, 본인에겐 못 줌. 보기는 본인 + 그 팀 교관 이상. 취소는 준 사람·팀장 이상. 녹음 관계자 예외 없음.
 - 모임: 만들기·고치기·취소·출결확인·마감은 조장 이상. 출결 상태는 팀원 모두, 사유는 본인·조장 이상.
 
 ## 6. 조직 계층
