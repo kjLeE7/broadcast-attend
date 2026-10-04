@@ -52,6 +52,12 @@
      서버 공통 검사 `pickedPeople(ctx, p, 팀서열, 전체서열)`, 사람으로 집은 과제·체크인 보고·제출은 `requireItemMember`.
      `notices`·`assignments`·`checkins`에도 `target_people`·`target_label`. 목록은 다른 팀 글이라도 `target_people`에 내가 있으면 같이 보임(공지 scope 'other').
      제출·체크인 현황 명단은 `targetList(item)`(사람으로 집었으면 roster에서 이름). 공지 직책은 사람의 그 팀 직책(roster `pos[unit]`) 이름으로 거름.
+   - **프로필 → '개인노트'** + **지금 할 일**(함수 버전 26): 아래 탭 이름·아이콘(노트) 바꿈, 화면 제목 '개인노트'(칩 '나의 기록'은 그대로).
+     `todos.list` = 내 모든 팀에서 바로 해야 할 것: 업무가능 미제출(이번 주는 NAG_FROM 이후 주만, 다음 주는 마감 3일 전부터) · 사전체크 안 한 모임 ·
+     사유 안 쓴 지각/불참/조퇴 · 안 낸 과제(마감 전, 대상인 것, 내가 낸 것 제외) · 안 읽은 공지(2주 안) · 오늘 체크인 남은 항목. 기존 list 액션들을 안에서 불러 씀.
+     개인노트 맨 위 `#todoArea`(누르면 그 화면으로 `openTodo`), 아래 탭 아이콘에 빨간 숫자 배지 `#todoBadge`(PC 펼친 메뉴는 줄 오른쪽 끝).
+     `refreshTodos(force)`: 처음 들어올 때·탭 바꿀 때(30초 간격)·3분마다·다시 보일 때·저장 뒤(사전체크·사유·업무가능·과제 제출·공지 읽음·체크인 보고).
+     홈의 업무가능 미제출 배너는 없앰(출결 탭의 '사유/사전체크' 상자는 그대로).
    - 관리자 페이지에서 문구를 고치는 방법을 의논함 → **문구를 DB(`ui_texts` 같은 표)에 두는 방식이 좋다**고 정리했지만, 사용자가 "일단은 이대로"라고 해서 보류.
 
 ## 1. 누구와, 무엇을 만드는 중인지
@@ -125,7 +131,7 @@
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
 `sessions.create/update/delete/list/board/close/remind/audience`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
-`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`,
+`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
 `dashboard.load`, `dashboard.scene`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
@@ -170,7 +176,7 @@
 - `profile.report { month }`: 그달 내 모임 출결(모임 유형별: 정규수업·스터디·운영회의), 실무 녹음(`recording_participants`, 제목·코드만), 그 밖의 실무(`duties` owner = 나, 녹음 세션과 이어진 녹음 업무는 뺌), 과제 제출.
   출석률은 마감된 모임만. 녹음·실무·과제 부분은 하나가 실패해도 나머지는 보이게 `errors`에 이름만 남김(함수 로그 확인).
 - PC에서 '정보 고치기'를 누르면 오른쪽 패널(`#profileView.split`). 오른쪽 위 동그라미는 이제 프로필로 감, 로그아웃은 프로필 카드 아래.
-- 화면 제목은 한국어: 함께한 자리(출결) · 한 달의 발자취(리포트) · 전하는 말(공지) · 갈고닦는 시간(과제) · 업무가능 시간 취합(업무가능) · 나의 기록(프로필).
+- 화면 제목은 한국어: 함께한 자리(출결) · 한 달의 발자취(리포트) · 전하는 말(공지) · 갈고닦는 시간(과제) · 업무가능 시간 취합(업무가능) · 개인노트(프로필 탭).
 
 ### 공지 쓰기 (2026-10-04)
 - 오른쪽 아래 동그란 + 버튼(FAB, `#annFab`)으로 열림. 팝업(`#annModal`)으로 뜸 (2026-10-04 오른쪽 패널 → 팝업으로 바꿈).

@@ -219,6 +219,7 @@ function selectTeam(id) {
   document.querySelectorAll('#teamTabs .subtab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-team') === id); });
   showState('불러오는 중...', S.team.name + ' 정보를 가져오고 있어요');
   return loadTeam().then(function () {
+    if (!TODO.data) refreshTodos(true);   // 처음 들어올 때 배지 숫자
     $(VIEWS[curTab]).style.display = '';
     if (curTab === 'attend') showList(); else { $('stateBox').style.display = 'none'; refreshTab(); }
   }).catch(function (err) { showState('불러오지 못했어요', err.message); });
@@ -774,6 +775,7 @@ function savePlan() {
     patchMember(S.me.profile.id, row);
     haptic('success');
     setMsg('myMsg', st === '참석' ? '참석으로 체크했어요! 이따 봬요 🙌' : st + '으로 체크했어요. 알려줘서 고마워요!');
+    refreshTodos(true);
   }).catch(function (err) { setMsg('myMsg', err.message, true); haptic('error'); btn.disabled = false; });
 }
 
@@ -789,6 +791,7 @@ function saveReason(personId) {
     patchMember(personId || S.me.profile.id, row);
     haptic('success');
     setMsg(msgId, '사유를 저장했어요!');
+    if (mine) refreshTodos(true);
   }).catch(function (err) { setMsg(msgId, err.message, true); });
 }
 
@@ -1147,6 +1150,7 @@ function goTab(t) {
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   closeModal(); closeFabMenu();
   setTabUI(t);
+  refreshTodos();
   $('stateBox').style.display = 'none';
   S.current = null; stopBoardTimer();
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
@@ -1383,6 +1387,7 @@ function saveWk() {
     W.board = null;
     renderWkHead();
     haptic('success');
+    refreshTodos(true);
     setMsg('wkMsg', r.count ? r.count + '칸 저장했어요! 마감 전까지 언제든 고칠 수 있어요.'
       : (memo ? '특이사항을 저장했어요.' : '가능한 시간이 없다고 저장했어요.'));
   }).catch(function (err) { btn.disabled = false; setMsg('wkMsg', err.message, true); haptic('error'); });
@@ -1682,6 +1687,7 @@ function sendCheckin(id, item) {
   if (item === '출발') { var inp = $('etaIn-' + id); note = inp && inp.value ? inp.value + ' 도착 예정' : ''; }
   setMsg('ciMsg-' + id, '기록 중...');
   api('checkins.report', { checkin_id: id, item: item, note: note }).then(function (r) {
+    refreshTodos(true);
     var c = byId(C.list, id);
     c.mine[item] = { at: r.reported_at, note: r.note };
     if (c.reports) {
@@ -1784,7 +1790,7 @@ function toggleNotice(id) {
 function markRead(kind, item) {
   if (!item || item.seen) return;
   item.seen = true;   // 화면은 바로 '확인함'으로
-  api('reads.mark', { kind: kind, id: item.id }).catch(function () { item.seen = false; });
+  api('reads.mark', { kind: kind, id: item.id }).then(function () { refreshTodos(true); }).catch(function () { item.seen = false; });
 }
 function readChip(kind, item) {
   if (item.read_count == null) return '';
@@ -1996,6 +2002,7 @@ function submitTask() {
     btn.disabled = false; haptic('success');
     $('tdBtn').textContent = '다시 제출';
     setMsg('tdMsg', '제출했어요! 수고하셨어요 🙌');
+    refreshTodos(true);
     if (A.subs) { A.subs = A.subs.filter(function (x) { return x.person_id !== r.person_id; }); A.subs.push(Object.assign({ name: S.me.profile.name }, r)); renderTaskBoard(); }
   }).catch(function (err) { setMsg('tdMsg', err.message, true); btn.disabled = false; haptic('error'); });
 }
@@ -2168,7 +2175,7 @@ function renderDashboard() {
   renderTeamFilter();
   renderManager();
   renderBdayBanner();
-  renderWeeklyBanner();
+  $('weeklyBanner').innerHTML = '';   // 급한 알림은 개인노트 '지금 할 일'로 옮김
   var t = dashData.tribes;
   $('tribeTotal').textContent = t.filled ? '총 ' + t.total + '명' : '';
   $('tribeArea').innerHTML = tribeMapHtml(t);
@@ -2267,6 +2274,65 @@ function openMyWishes() {
 }
 
 // 주간 업무가능 시간 알림: 이번 주 미제출(빨강) > 주일에 다음 주 미제출
+// =====================================================================
+// 개인노트 '지금 할 일' + 아래 탭 숫자 배지 (카톡 안 읽은 수처럼)
+// =====================================================================
+var TODO = { data: null, at: 0, wait: null };
+function refreshTodos(force) {
+  if (!S.me || !S.team) return;
+  if (!force && (TODO.wait || Date.now() - TODO.at < 30000)) return;
+  TODO.at = Date.now();
+  TODO.wait = api('todos.list').then(function (d) { TODO.data = d; renderTodos(); })
+    .catch(function () {}).then(function () { TODO.wait = null; });
+}
+function renderTodos() {
+  var d = TODO.data, n = d ? d.count : 0, bd = $('todoBadge');
+  bd.hidden = !n; bd.textContent = n > 99 ? '99+' : String(n);
+  if (!d) return;
+  if (!d.items.length) { $('todoArea').innerHTML = '<div class="todo-ok">✅ 지금 할 일을 다 했어요</div>'; return; }
+  var wkLabel = function (ws) { var m = parseDate(ws), e = parseDate(ws); e.setDate(e.getDate() + 6); return (m.getMonth() + 1) + '/' + m.getDate() + '~' + (e.getMonth() + 1) + '/' + e.getDate(); };
+  var row = function (i, ic, title, sub, urgent) {
+    return '<button type="button" class="todo' + (urgent ? ' urgent' : '') + '" onclick="openTodo(' + i + ')"><span class="todo-ic">' + ic + '</span>' +
+      '<span class="todo-tx"><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></span><span class="todo-go">›</span></button>';
+  };
+  $('todoArea').innerHTML = '<div class="section-head"><h2>지금 할 일</h2><span class="section-count">' + d.items.length + '개</span></div><div class="todo-list">' +
+    d.items.map(function (t, i) {
+      if (t.kind === 'weekly') return row(i, '🎙', (t.which === 'this' ? '이번 주' : '다음 주') + ' 업무가능 시간 미제출',
+        wkLabel(t.week_start) + (t.which === 'next' ? ' · 마감 ' + mdw(t.due) + ' ' + hmMs(t.due) : ' · 지금이라도 입력해주세요'), t.urgent);
+      if (t.kind === 'reason') return row(i, '✍️', t.status + ' 사유를 적어주세요', shortD(t.date) + ' ' + t.name, true);
+      if (t.kind === 'plan') return row(i, '🙋', '출결 사전체크', shortD(t.date) + (t.start ? ' ' + String(t.start).slice(0, 5) : '') + ' ' + t.name, t.urgent);
+      if (t.kind === 'task') return row(i, '📝', '과제 제출 · ' + t.name, t.due ? '마감 ' + dtLabel(t.due) : '마감 없음', t.urgent);
+      if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
+      if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
+      return '';
+    }).join('') + '</div>';
+}
+// 할 일을 누르면 그 화면으로
+function openTodo(i) {
+  var t = TODO.data && TODO.data.items[i]; if (!t) return;
+  var inTeam = function (fn) {
+    if (t.team_id && S.team && t.team_id !== S.team.id && S.me.teams.some(function (x) { return x.id === t.team_id; })) return Promise.resolve(selectTeam(t.team_id)).then(fn);
+    return Promise.resolve(fn());
+  };
+  if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
+  if (t.kind === 'reason' || t.kind === 'plan') {
+    inTeam(function () { goTab('attend'); return refreshSessions().then(function () { if (byId(S.sessions, t.id)) openSession(t.id); }); });
+    return;
+  }
+  if (t.kind === 'checkin') { inTeam(function () { goTab('attend'); }); return; }
+  if (t.kind === 'task') {
+    inTeam(function () { A.current = null; goTask('profile'); var tries = 0;
+      (function open() { if (A.list && byId(A.list, t.id)) openTask(t.id); else if (tries++ < 20) setTimeout(open, 150); })(); });
+    return;
+  }
+  if (t.kind === 'notice') {
+    inTeam(function () { goTab('notice'); var tries = 0;
+      (function open() { if (N.list && byId(N.list, t.id)) { if (N.open !== t.id) toggleNotice(t.id); } else if (tries++ < 20) setTimeout(open, 150); })(); });
+  }
+}
+setInterval(function () { if (document.visibilityState === 'visible') refreshTodos(); }, 3 * 60 * 1000);
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refreshTodos(); });
+
 function renderWeeklyBanner() {
   var w = dashData.weekly, el = $('weeklyBanner');
   var b = function (which, urgent, title, sub) {

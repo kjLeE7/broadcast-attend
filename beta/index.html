@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004p">
+  <link rel="stylesheet" href="beta.css?v=20261004q">
 </head>
 <body>
   <div class="app">
@@ -25,7 +25,7 @@
           <div class="brand-sub" id="who">불러오는 중...</div>
         </div>
       </div>
-      <button class="avatar" id="avatar" onclick="onAvatar()" aria-label="나의 기록" title="나의 기록">?</button>
+      <button class="avatar" id="avatar" onclick="onAvatar()" aria-label="개인노트" title="개인노트">?</button>
     </header>
 
     <!-- 여러 팀 소속일 때만 보이는 팀 선택 -->
@@ -249,8 +249,10 @@
     <!-- ===== 프로필: 내 정보 + 한 달 활동 ===== -->
     <section id="profileView" style="display:none;">
       <div id="pfMain">
-        <h1 class="page-title">나의 기록</h1>
-        <p class="page-desc">내 정보와 한 달 동안 걸어온 길을 모아봐요</p>
+        <h1 class="page-title">개인노트</h1>
+        <p class="page-desc">지금 할 일, 내 정보와 한 달 동안 걸어온 길을 모아봐요</p>
+        <!-- 지금 할 일 (업무가능 미제출·사전체크·사유·과제·공지·체크인) -->
+        <div id="todoArea"></div>
         <div class="b-attseg"><button class="wkchip active" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip" onclick="goTab('weekly')">업무가능</button></div>
 
         <div class="card pf-card" id="pfCard"><div class="b-wait">불러오는 중...</div></div>
@@ -403,9 +405,9 @@
       <svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg>
       <span>공지</span>
     </button>
-    <button class="tab" data-tab="profile" title="나의 기록" onclick="goTab('profile')">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-      <span>프로필</span>
+    <button class="tab" data-tab="profile" title="개인노트" onclick="goTab('profile')">
+      <i class="tab-ic"><svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M16 3v3h3"/><path d="M9 10h7M9 14h7M9 18h4"/></svg><b class="tab-badge" id="todoBadge" hidden></b></i>
+      <span>개인노트</span>
     </button>
   </nav>
 
@@ -570,6 +572,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261004s"></script>
+  <script src="beta.js?v=20261004t"></script>
 </body>
 </html>

@@ -1108,6 +1108,60 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     return { ...s, notify };
   },
 
+  // ----- 개인노트 '지금 할 일': 내 팀들에서 내가 바로 해야 하는 것 모음 (아래 탭 숫자 배지) -----
+  // 업무가능 미제출 · 사전체크 안 한 모임 · 사유 안 쓴 지각/불참/조퇴 · 안 낸 과제 · 안 읽은 공지(2주 안) · 오늘 체크인 안 한 항목
+  async "todos.list"(ctx) {
+    const me = ctx.me.id, now = Date.now(), today = kstToday();
+    const teams = (await myTeams(ctx)).teams.filter((t: any) => t.rank >= RANK.MEMBER);
+    const items: any[] = [];
+    // 1) 업무가능: 이번 주 미제출(독촉 시작 주부터) / 다음 주 마감 3일 전부터 미제출
+    const dow = new Date(today + "T00:00:00Z").getUTCDay();
+    const thisMon = addDaysStr(today, -((dow + 6) % 7)), nextMon = addDaysStr(thisMon, 7);
+    const nextDue = kstMs(addDaysStr(nextMon, -1), "22:00:00");
+    const subs: any[] = must(await ctx.db.from("weekly_submissions").select("week_start").eq("person_id", me).in("week_start", [thisMon, nextMon])) ?? [];
+    const done = new Set(subs.map((x) => x.week_start));
+    if (!done.has(thisMon) && thisMon >= NAG_FROM) items.push({ kind: "weekly", which: "this", week_start: thisMon, urgent: true });
+    if (!done.has(nextMon) && now > nextDue - 3 * 24 * HOUR) items.push({ kind: "weekly", which: "next", week_start: nextMon, due: nextDue, urgent: now > nextDue });
+    const seenIds = new Set<string>();
+    const once = (k: string) => { if (seenIds.has(k)) return false; seenIds.add(k); return true; };
+    const groups = await myGroupIds(ctx);
+    const targeted = (r: any) => r.target_people?.length ? r.target_people.includes(me) : !r.target_unit_id || groups.includes(r.target_unit_id);
+    for (const t of teams) {
+      const sub = { ...ctx, payload: { team_id: t.id } } as Ctx;
+      const [sess, tasks, notes, cis] = await Promise.all([
+        actions["sessions.list"]({ ...sub, payload: { team_id: t.id, from: addDaysStr(today, -14), to: addDaysStr(today, 60) } }).catch(() => []),
+        actions["assignments.list"](sub).catch(() => []),
+        actions["notices.list"](sub).catch(() => []),
+        actions["checkins.list"](sub).catch(() => []),
+      ]) as any[][];
+      for (const s of sess) {
+        const m = s.mine;
+        if (m && ["지각", "불참", "조퇴"].includes(m.status) && !m.reason && once("r" + s.id))
+          items.push({ kind: "reason", id: s.id, team_id: s.team_id, name: sessionName(s), date: s.session_date, status: m.status, urgent: true });
+        else if (s.is_target && s.status === "예정" && !s.closed_at && now < planDeadline(s) && !(m && (m.planned_status || m.status)) && once("p" + s.id))
+          items.push({ kind: "plan", id: s.id, team_id: s.team_id, name: sessionName(s), date: s.session_date, start: s.start_time, urgent: planDeadline(s) - now < 24 * HOUR });
+      }
+      for (const a of tasks) {
+        if (a.my || a.created_by === me || !targeted(a)) continue;
+        const due = a.due_at ? Date.parse(a.due_at) : null;
+        if (due !== null && due < now) continue;
+        if (once("a" + a.id)) items.push({ kind: "task", id: a.id, team_id: a.team_id, name: a.title, due: a.due_at, urgent: due !== null && due - now < 24 * HOUR });
+      }
+      for (const n of notes) {
+        if (n.seen || Date.parse(n.published_at) < now - 14 * 24 * HOUR) continue;
+        if (once("n" + n.id)) items.push({ kind: "notice", id: n.id, team_id: t.id, name: n.title, at: n.published_at, pinned: n.is_pinned });
+      }
+      for (const c of cis) {
+        if (c.check_date !== today || !targeted(c)) continue;
+        const left = (c.items ?? []).filter((it: string) => !c.mine?.[it]);
+        if (left.length && once("c" + c.id)) items.push({ kind: "checkin", id: c.id, team_id: c.team_id, name: c.title, left });
+      }
+    }
+    const order: Record<string, number> = { reason: 0, weekly: 1, checkin: 2, plan: 3, task: 4, notice: 5 };
+    items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0) || order[x.kind] - order[y.kind]);
+    return { count: items.length, items };
+  },
+
   // ----- 개인 양식(템플릿): 만들기 화면 입력 상태를 저장해 두고 다시 채움 -----
   // { kind } → 내 양식 목록
   async "templates.list"(ctx) {
