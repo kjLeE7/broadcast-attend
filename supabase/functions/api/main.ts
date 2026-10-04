@@ -1963,14 +1963,14 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
     // 과 사람들 (팀·과 직책이 오늘 유효한 활성 인원). 직책이 여럿이면 등급 높은 것
     const pos: any[] = must(await ctx.db.from("position_history")
-      .select("person_id, org_unit_id, people(name, is_active), positions(name, rank)")
+      .select("person_id, org_unit_id, people(name, is_active, town_look), positions(name, rank)")
       .in("org_unit_id", unitIds).lte("started_on", today).or(`ended_on.is.null,ended_on.gte.${today}`)) ?? [];
     const ppl = new Map<string, any>();
     for (const r of pos) {
       if (!r.people?.is_active) continue;
       const rank = r.positions?.rank ?? 0, cur = ppl.get(r.person_id);
       if (!cur || rank > cur.rank) {
-        ppl.set(r.person_id, { id: r.person_id, name: r.people.name, rank, role: r.positions?.name ?? "",
+        ppl.set(r.person_id, { id: r.person_id, name: r.people.name, rank, role: r.positions?.name ?? "", look: r.people.town_look ?? null,
           team: teamName.get(r.org_unit_id) ?? "방송예술과", teamId: teamName.has(r.org_unit_id) ? r.org_unit_id : null });
       }
     }
@@ -2068,7 +2068,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     }
 
     const people = [...ppl.values()].sort((a, b) => a.team.localeCompare(b.team) || b.rank - a.rank || a.name.localeCompare(b.name))
-      .map((p) => ({ id: p.id, name: p.name, team: p.team, role: [p.role, p.group].filter(Boolean).join(" · ") }));
+      .map((p) => ({ id: p.id, name: p.name, team: p.team, role: [p.role, p.group].filter(Boolean).join(" · "), ...(p.look ? { look: p.look } : {}) }));
     return { date: today, can_detail: canDetail, people, segs };
   },
 

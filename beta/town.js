@@ -454,15 +454,47 @@ function parts(p, face, seated, legA, phones) {
   if (phones) { add(1, -1, 8, 1, PHONES); add(0, 2, 1, 4, PHONES); add(9, 2, 1, 4, PHONES); }
   return A;
 }
+// ---------- 타는 것 (look.ride): 이동할 때만 차로 보임, 도착하면 내려서 사람으로 ----------
+// ford: 짙은 파랑 머스탱풍 쿠페, 흰 줄무늬, 크롬 범퍼. 오른쪽 보는 모양 기준, 왼쪽이면 좌우 뒤집음
+function fordParts(p) {
+  const B = '#1d4e89', BL = shade(B, 1.25), BD = shade(B, .72), GL = '#9fd0de', CH = '#cfc9bf', TY = '#1f1b20', L = p.look;
+  return [
+    [0, 3, 5, 1, B], [4, 1, 9, 1, BL], [4, 2, 1, 2, B], [12, 2, 2, 2, B], [13, 3, 7, 1, B],   // 트렁크·지붕·기둥·보닛
+    [5, 2, 3, 2, GL], [8, 2, 1, 2, B], [9, 2, 3, 2, GL],                                      // 창문
+    [10, 2, 2, 1, L.hair], [10, 3, 2, 1, L.skin],                                             // 운전석의 그 사람
+    [0, 4, 20, 2, B], [0, 6, 20, 1, BD], [1, 5, 18, 1, '#f3efe6'],                            // 차체·아랫단·흰 줄
+    [14, 3, 1, 1, '#f3efe6'], [16, 3, 1, 1, '#f3efe6'],                                       // 보닛 레이싱 줄
+    [19, 4, 1, 1, '#ffe9a3'], [0, 4, 1, 1, '#e8584a'],                                       // 전조등·후미등
+    [0, 6, 2, 1, CH], [18, 6, 2, 1, CH],                                                      // 범퍼
+    [2, 6, 4, 3, TY], [14, 6, 4, 3, TY], [3, 7, 2, 1, CH], [15, 7, 2, 1, CH],                 // 바퀴
+  ];
+}
+function drawRide(c, p, t) {
+  const x = Math.round(p.x), y = Math.round(p.y), dir = p.dir || 1;
+  const bob = reduce ? 0 : (Math.floor(t * 10 + p.seed) % 2 ? -1 : 0);
+  const ox = x - 10, oy = y - 9;
+  R(c, 'rgba(20,16,24,.3)', ox, y - 1, 20, 2);
+  const A = fordParts(p).map(q => [dir > 0 ? q[0] : 20 - q[0] - q[2], q[1], q[2], q[3], q[4], q[4] === '#1f1b20' || q[4] === '#cfc9bf' && q[1] === 7]);
+  c.fillStyle = OUT;
+  for (const q of A) c.fillRect(ox + q[0] - 1, oy + q[1] + (q[5] ? 0 : bob) - 1, q[2] + 2, q[3] + 2);
+  for (const q of A) { c.fillStyle = q[4]; c.fillRect(ox + q[0], oy + q[1] + (q[5] ? 0 : bob), q[2], q[3]); }
+  if (!reduce) {   // 배기 연기
+    const k = (t * 3 + p.seed) % 1, ex = dir > 0 ? ox - 2 - Math.round(k * 4) : ox + 21 + Math.round(k * 4);
+    c.fillStyle = `rgba(230,224,214,${(0.55 * (1 - k)).toFixed(2)})`; c.fillRect(ex, oy + 5 - Math.round(k * 2), 2, 2);
+  }
+  p._top = oy - 2; p._seated = false;
+}
+
 function drawPerson(c, p, t) {
+  if (p.look.ride === 'ford' && p.moving && !p.hidden) return drawRide(c, p, t);
   const x = Math.round(p.x), y = Math.round(p.y);
   const pose = p.spot ? p.spot.s.pose : 'stand';
   const seated = !p.moving && pose === 'sit';
   const hgt = seated ? 12 : 16, ox = x - 5, oy = y - hgt;
   let bob = 0, legA = 0;
-  if (p.moving) { const f = Math.floor(t * 8 + p.id) % 4; legA = f === 1 ? 1 : f === 3 ? -1 : 0; bob = f % 2 ? -1 : 0; }
-  else if (!reduce && (p.seg.type === '연습' || (p.seg.type === '수업' && p.seg.lead) || p.seg.type === '사회')) bob = Math.floor(t * 2.4 + p.id * .7) % 2 ? -1 : 0;
-  else if (!reduce && seated) bob = (Math.floor(t * .7 + p.id) % 5 === 0) ? -1 : 0;
+  if (p.moving) { const f = Math.floor(t * 8 + p.seed) % 4; legA = f === 1 ? 1 : f === 3 ? -1 : 0; bob = f % 2 ? -1 : 0; }
+  else if (!reduce && (p.seg.type === '연습' || (p.seg.type === '수업' && p.seg.lead) || p.seg.type === '사회')) bob = Math.floor(t * 2.4 + p.seed * .7) % 2 ? -1 : 0;
+  else if (!reduce && seated) bob = (Math.floor(t * .7 + p.seed) % 5 === 0) ? -1 : 0;
   if (!seated) { R(c, 'rgba(20,16,24,.28)', x - 4, y - 1, 8, 2); }
   const A = parts(p, p.face, seated, legA, p.seg.type === '녹음' && !p.moving);
   c.fillStyle = OUT;
@@ -486,17 +518,17 @@ function drawFx(c, p, t) {
     for (let k = 0; k <= n; k++) { const ax = x + 7 + k * 2, len = 2 + k * 2; R(c, '#fff3c4', ax, ht + 4 - (len >> 1), 1, len); }
   }
   const typing = p._seated && (tags.includes('desk') || tags.includes('console')) && (ty === '근무' || ty === '행정' || ty === '녹음' || ty === '편집');
-  if (typing) { const f = Math.floor(ph * 6 + p.id) % 2; R(c, p.look.skin, x - 3, y - 2 - f, 2, 1); R(c, p.look.skin, x + 1, y - 3 + f, 2, 1); }
+  if (typing) { const f = Math.floor(ph * 6 + p.seed) % 2; R(c, p.look.skin, x - 3, y - 2 - f, 2, 1); R(c, p.look.skin, x + 1, y - 3 + f, 2, 1); }
   if (ty === '스터디' && p._seated) { R(c, OUT, x - 4, y - 3, 8, 3); R(c, '#fbf5e8', x - 3, y - 2, 3, 1); R(c, '#efe6d0', x + 1, y - 2, 2, 1); }
   if (ty === '사회') { R(c, OUT, x + 3, ht + 6, 3, 5); R(c, '#5a5f66', x + 4, ht + 7, 1, 3); }
   if (ty === '촬영' && p.face !== 'up') { R(c, OUT, x + 3, ht + 6, 6, 5); R(c, '#3a3740', x + 4, ht + 7, 4, 3); R(c, '#7fc6e0', x + 5, ht + 8, 1, 1); }
-  const talkCycle = Math.floor(ph * 1.2 + p.id) % 3 !== 0;
+  const talkCycle = Math.floor(ph * 1.2 + p.seed) % 3 !== 0;
   if ((p.seg.lead || ty === '사회') && talkCycle) bubble('dots');
   else if (ty === '연습' && talkCycle) bubble('note');
-  else if (ty === '회의' && Math.floor(ph * .8 + p.id * 1.7) % 6 === 0) bubble('dots');
+  else if (ty === '회의' && Math.floor(ph * .8 + p.seed * 1.7) % 6 === 0) bubble('dots');
   if (ty === '휴식' && p._seated) {
     R(c, OUT, x + 3, y - 6, 4, 4); R(c, '#fbf5e8', x + 4, y - 5, 2, 2);
-    const zc = (ph * .5 + p.id * .37) % 4;
+    const zc = (ph * .5 + p.seed * .37) % 4;
     if (zc < 1.4) { const zy = ht - 2 - Math.floor(zc * 4); R(c, '#fbf5e8', x + 4, zy, 3, 1); R(c, '#fbf5e8', x + 5, zy + 1, 1, 1); R(c, '#fbf5e8', x + 4, zy + 2, 3, 1); }
   }
 }
@@ -614,8 +646,8 @@ function setData(d, first) {
   const next = [];
   for (const raw of d.people || []) {
     let p = byId.get(raw.id);
-    if (!p) { p = { id:raw.id, x:0, y:0, path:[], seg:null, key:'', spot:null, face:'down', moving:false, hidden:false, wanderAt:0, isNew:true }; }
-    p.name = raw.name; p.team = raw.team || ''; p.role = raw.role || ''; p.look = raw.look || lookFor(raw.id);
+    if (!p) { p = { id:raw.id, seed:strHash(raw.id) % 97, x:0, y:0, path:[], seg:null, key:'', spot:null, face:'down', moving:false, hidden:false, wanderAt:0, isNew:true }; }
+    p.name = raw.name; p.team = raw.team || ''; p.role = raw.role || ''; p.look = Object.assign(lookFor(raw.id), raw.look || {});   // 꾸미기(people.town_look)는 기본 생김새 위에 덮어씀
     p.segs = segsBy.get(raw.id) || [];
     next.push(p);
   }
@@ -848,9 +880,10 @@ function step(dt) {
   let arrived = false;
   for (const p of people) {
     if (p.moving && p.path.length) {
-      let left = 30 * dt;
+      let left = (p.look.ride ? 55 : 30) * dt;   // 차는 걸음보다 빠름
       while (left > 0 && p.path.length) {
         const [tx, ty] = p.path[0], dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
+        if (Math.abs(dx) > .3) p.dir = dx > 0 ? 1 : -1;
         if (Math.abs(dx) > .3 || Math.abs(dy) > .3) p.face = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
         if (d <= left) { p.x = tx; p.y = ty; p.path.shift(); left -= d; } else { p.x += dx / d * left; p.y += dy / d * left; left = 0; }
       }

@@ -244,6 +244,12 @@
 - **아직 확인 못 한 것**: 실제 데이터로 `dashboard.scene`을 불러오는 것 (claude.ai 작업 공간에선 Supabase 주소로 직접 요청이 막혀 있었음. 클로드 코드에선 가능).
   사용자가 PC에서 탭을 열어 보고 오류가 나면 Supabase 함수 로그부터 볼 것.
 - **사용자 확인 대기**: 고정일정에 직장 말고 학교 등이 섞이는지 (섞이면 고정일정에 종류 칸 추가).
+- **캐릭터 꾸미기**(2026-10-04): `people.town_look` jsonb → `dashboard.scene`이 `look`으로 보냄 → town.js가 기본 생김새(`lookFor`, id 해시) 위에 덮어씀.
+  덮을 수 있는 것: skin·hair·style(short/long/bob/bun/cap)·shirt·shirt2·pants·capc·blush, 그리고 `ride`.
+  `ride: "ford"` = 이동하는 동안만 짙은 파랑 머스탱풍 쿠페(흰 줄, 운전석에 그 사람 머리)로 그려지고 걸음보다 빠름(55 vs 30), 도착하면 내림(`drawRide`, `fordParts`).
+  지금 설정: 김지혜 = ford. 사용자가 "누구 캐릭터를 ~로" 부탁하면 SQL로 `town_look`만 고치면 됨(새 탈것·모양이면 town.js에 그리기 추가).
+  사람마다 애니메이션 박자는 `p.seed`(id 해시 숫자). 예전엔 문자 id를 더해서 걷는 다리 움직임이 안 됐음 → 고침.
+- 장소 글자 맞추기 주의: '과천성전 9층'은 별칭 '과천성전'에 걸려 10층 방에 보임, '줌'은 목록에 없어 '외부'로 보임(필요하면 places·town.js에 장소 추가).
 
 ## 4. DB 요약
 
