@@ -37,7 +37,12 @@ const onLeft = (c, u0, u1, v0, v1, col, st) => poly(c, [P(0, u0, v0), P(0, u1, v
 
 // ---------- 소품 (그리기 함수 + 차지하는 칸) ----------
 const PROPS = {
-  desk: (c, x, y) => { cube(c, x, y, 2, 1, 12, '#a8714a'); cube(c, x + .55, y + .15, .7, .25, 9, '#3a3740', 12); onFront(c, x + .55, y + .15, .25, .08, .62, 13, 20, '#7fc6e0'); cube(c, x + .2, y + .55, .25, .25, 3, '#f2f0ea', 12); },
+  desk: (c, x, y) => { cube(c, x + .05, y + .05, .12, .9, 12, '#7a4f33'); cube(c, x + 1.3, y + .05, .65, .9, 12, '#8a5a3b'); for (let i = 0; i < 3; i++) onFront(c, x + 1.3, y + .05, .9, .08, .57, 2 + i * 3.4, 4.4 + i * 3.4, '#a8714a');
+    cube(c, x, y, 2, 1, 2, '#b98a5e', 12);
+    cube(c, x + .1, y + .55, .45, .32, .6, '#f7f3e8', 14); cube(c, x + .14, y + .5, .4, .3, .6, '#f2f0ea', 14.6);   // 서류
+    cube(c, x + 1.45, y + .55, .14, .14, 3, '#e07a5f', 14); cube(c, x + 1.7, y + .2, .1, .1, 9, '#55505e', 14); cube(c, x + 1.6, y + .15, .3, .2, 3, '#e9c46a', 22);   // 컵·스탠드
+    cube(c, x + 1.2, y + .2, .3, .22, 1.2, '#3d7ea6', 14); cube(c, x + 1.2, y + .2, .3, .22, 1.2, '#b56576', 15.2); cube(c, x + 1.22, y + .22, .28, .2, 1.2, '#4f772d', 16.4);   // 책 더미
+    return; cube(c, x, y, 2, 1, 12, '#a8714a'); cube(c, x + .55, y + .15, .7, .25, 9, '#3a3740', 12); onFront(c, x + .55, y + .15, .25, .08, .62, 13, 20, '#7fc6e0'); cube(c, x + .2, y + .55, .25, .25, 3, '#f2f0ea', 12); },
   chair: (c, x, y) => { cube(c, x, y, .6, .6, 7, '#3a3740'); cube(c, x, y - .05, .6, .12, 16, '#3a3740'); },
   shelf: (c, x, y) => { cube(c, x, y, .7, 2, 44, '#8a5a3b'); const cols = ['#b56576', '#3d7ea6', '#e9c46a', '#4f772d', '#e07a5f', '#6d597a', '#efe6d8'];
     for (let r = 0; r < 4; r++) for (let i = 0; i < 9; i++) onRight(c, x, y, .7, .1 + i * .2, .25 + i * .2, 4 + r * 10, 11 + r * 10 - (i % 3 === 1 ? 2 : 0), cols[(i + r * 3) % cols.length]); },
@@ -78,6 +83,11 @@ const PROPS = {
     else { poly(c, [P(x + w, y, 0), P(x + w, y + d, 0), P(x + w, y + d, h), P(x + w, y, h)], g, fr); for (let u = 0; u <= d; u += 1) cube(c, x, y + u - .04, w, .08, h, fr); }
     cube(c, x, y, w, d, 2, fr, h); },
   cable: (c, x, y, w) => { poly(c, [P(x, y, 0), P(x + w, y + .1, 0), P(x + w, y + .16, 0), P(x, y + .06, 0)], '#1f1b20'); },
+  boxes: (c, x, y) => { cube(c, x, y + .2, .8, .7, 10, '#c9a26b'); onFront(c, x, y + .2, .7, .3, .5, 2, 10, '#b58e57'); cube(c, x + .1, y + .25, .6, .55, 8, '#d8b67e', 10); cube(c, x + .3, y + .3, .2, .5, .5, '#e9dfcb', 18); },
+  cabinet: (c, x, y) => { cube(c, x, y, .7, .8, 26, '#6b8fa8'); for (let i = 0; i < 3; i++) { onFront(c, x, y, .8, .06, .64, 2 + i * 8, 9 + i * 8, '#7fa2ba'); onFront(c, x, y, .8, .28, .42, 6 + i * 8, 7 + i * 8, '#2f4858'); } cube(c, x + .1, y + .1, .35, .3, 4, '#f7f3e8', 26); },
+  printer: (c, x, y) => { cube(c, x, y, .8, .7, 8, '#5a6270'); cube(c, x + .05, y + .05, .7, .6, 4, '#e8eef5', 8); cube(c, x + .2, y + .1, .4, .15, 3, '#f7f3e8', 12); onFront(c, x, y, .7, .55, .7, 5, 7, '#9cc75f'); },
+  backpack: (c, x, y) => { cube(c, x + .3, y + .3, .4, .3, 9, '#3d7ea6'); cube(c, x + .32, y + .58, .36, .08, 5, '#2f5f80'); cube(c, x + .38, y + .28, .24, .06, 2, '#2f5f80', 9); },
+  pouf: (c, x, y, col) => { cube(c, x + .2, y + .2, .6, .6, 7, col || '#e07a5f'); cube(c, x + .25, y + .25, .5, .5, 1.5, shade(col || '#e07a5f', 1.15), 7); },
   foam: (c, x, y) => {},
   mat: (c, x, y) => poly(c, [P(x, y, 0), P(x + 1.6, y, 0), P(x + 1.6, y + .8, 0), P(x, y + .8, 0)], '#b5533f', OL),
 };
@@ -92,8 +102,9 @@ function makeScene(id, arg) {
       prop('counter', 5.5, 2.2, 3, 1), prop('sofa', 1.5, 4.8, 2, .9, ['#6b8fa8']), prop('sofa', 1.5, 7.2, 2, .9, ['#6b8fa8']), prop('table', 2, 6.1, 1.2, .8),
       prop('trophy', .1, 1.4, .6, 1.8), prop('cooler', .1, 3.4, 1, 1), prop('plant', .1, .2, 1, 1), prop('plant', .1, 8.9, 1, 1), prop('plant', 9.4, .2, 1, 1),
       prop('lamp', 4.2, 4.6, 1, 1), prop('bench', 10.4, 6.2, 1.8, .6), prop('bench', 10.4, 7.8, 1.8, .6), prop('plant', 12.9, 8.9, 1, 1), prop('bin', 9.1, 3.5, 1, 1),
-      prop('stairs', 11.8, .2, 2, 2.5), prop('mat', 6.2, 9.2, 1.6, .8, [], false)],
-    deco: c => { win(c, 'L', 5.4, 7.4); win(c, 'B', 9.6, 11.2); for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) screen(c, 1 + i * 1.1, 2 + i * 1.1, 24 + j * 13, 36 + j * 13, i * 2 + j + 3); poster(c, 'B', 3.4, '#e9c46a', '#3d7ea6'); board(c, 'L', 1.4, 3.2); clock(c, 'B', 9.0); onAir(c, 'B', 6.5);
+      prop('stairs', 11.8, .2, 2, 2.5), prop('mat', 6.2, 9.2, 1.6, .8, [], false), prop('printer', 8.6, 2.3, .8, .7), prop('cabinet', 4.6, 2.2, .7, .8), prop('pouf', 3.6, 6.2, 1, 1, ['#e9c46a']), prop('boxes', 12.9, 4, .8, .9)],
+    sun: [['L', 5.4, 7.4], ['B', 9.6, 11.2]],
+    deco: c => { win(c, 'L', 5.4, 7.4); win(c, 'B', 9.6, 11.2); for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) screen(c, 1 + i * 1.1, 2 + i * 1.1, 24 + j * 13, 36 + j * 13, i * 2 + j + 3); poster(c, 'B', 3.4, '#e9c46a', '#3d7ea6'); board(c, 'L', 1.4, 3.2); clock(c, 'B', 9.0); onAir(c, 'B', 6.5); hangPlant(c, 'B', 3.2); hangPlant(c, 'L', 8.4); wallShelf(c, 'L', 3.6, 30);
       onBack(c, 5.2, 8.8, 30, 48, '#2f4858', OL); onBack(c, 5.35, 8.65, 32, 46, '#f7f3e8'); onBack(c, 5.5, 5.75, 41, 44, '#e8584a'); },
     npc: [7, 1.6], acts: [ { x: 7, y: 3.6, r: 1.3, label: '안내 데스크', npc: true, act: () => talk(NPC_SAY) }, { x: 12.8, y: 3.1, r: 1.1, label: '계단', act: stairs } ] };
   if (id === 'floor') {
@@ -102,8 +113,9 @@ function makeScene(id, arg) {
     const doors = list.map((p, i) => ({ x: dx(i), y: .7, r: 1, label: p.name + ' 사무실', p, act: () => go('office', { p, back: { floor: arg.floor, x: dx(i) } }) }));
     const props = [prop('stairs', .2, .2, 2, 2.5), prop('rug', 0, 2.6, W, 1.4, [W, 1.4, '#2f4858', '#e9c46a'], false), prop('cooler', W - 1.1, .1, 1, 1), prop('plant', W - 1.1, 4, 1, 1)];
     list.forEach((p, i) => { if (i < list.length - 1) props.push(i % 2 ? prop('plant', dx(i) + 1.1, .1, 1, 1) : prop('bench', dx(i) + .8, .15, 1.6, .6)); });
-    return { id, W, D: 5, floorA: '#c9a073', floorB: '#bd9468', wall: '#efe6d4', panel: '#a8794f', fl: arg.floor, list, spawn: arg.at || [2.8, 3.4], props,
-      deco: c => { doors.forEach(a => door(c, a.x, a.p)); win(c, 'L', 2.8, 4.4); list.forEach((p, i) => { if (i % 2 === 0 && i < list.length - 1) poster(c, 'B', dx(i) + 1.05, ['#e07a5f', '#3d7ea6', '#4f772d'][i % 3], '#f7f3e8', .5); }); list.forEach((p, i) => { if (i < list.length - 1) wallLamp(c, dx(i) + 1.6); }); board(c, 'B', 2.6, 3.8); },
+    props.push(prop('boxes', W - 1, 2.2, .8, .9), prop('backpack', 2.6, 4.2, 1, 1, [], false));
+    return { id, W, D: 5, floorA: '#c9a073', floorB: '#bd9468', wall: '#efe6d4', panel: '#a8794f', fl: arg.floor, list, spawn: arg.at || [2.8, 3.4], props, sun: [['L', 2.8, 4.4]],
+      deco: c => { doors.forEach(a => door(c, a.x, a.p)); win(c, 'L', 2.8, 4.4); whiteboard(c, 'L', .3, 2.2); list.forEach((p, i) => { if (i % 2 === 0 && i < list.length - 1) poster(c, 'B', dx(i) + 1.05, ['#e07a5f', '#3d7ea6', '#4f772d'][i % 3], '#f7f3e8', .5); }); list.forEach((p, i) => { if (i < list.length - 1) wallLamp(c, dx(i) + 1.6); }); board(c, 'B', 2.6, 3.8); },
       acts: [{ x: 1.4, y: 3.2, r: 1.1, label: '계단', act: stairs }].concat(doors) };
   }
   const o = arg.p, mine = o.id === data.me, fl = arg.back.floor;
@@ -111,7 +123,8 @@ function makeScene(id, arg) {
   const base = [prop('rug', 1.6, 4.4, 4.2, 3, [4.2, 3, '#6d597a', '#e9c46a'], false), prop('shelf', .1, .4, .7, 2), prop('shelf', .1, 2.6, .7, 2),
     prop('desk', 3.6, 1.1, 2, 1), prop('chair', 4.3, .4, .6, .6, [], false), prop('plant', 2.6, .2, 1, 1), prop('bin', 5.8, 1.3, 1, 1),
     prop('sofa', 2.2, 7.4, 2.2, .9, ['#4f772d']), prop('table', 2.7, 6.1, 1.2, .8), prop('lamp', 1.2, 7.5, 1, 1),
-    prop('book', 9.9, 5.6, 1, 1), prop('rack', 9.9, 7.9, 1, 1), prop('plant', .1, 7.9, 1, 1), prop('mat', 4.7, 8.2, 1.6, .8, [], false)];
+    prop('book', 9.9, 5.6, 1, 1), prop('rack', 9.9, 7.9, 1, 1), prop('plant', .1, 7.9, 1, 1), prop('mat', 4.7, 8.2, 1.6, .8, [], false),
+    prop('backpack', 1.4, 6.3, 1, 1, [], false), prop('pouf', 4.4, 6.1, 1, 1, ['#e07a5f']), prop('boxes', .1, 4.9, .8, .9), prop('cabinet', 6.1, .1, .7, .8)];
   const theme = {
     2: { name: '녹음 부스', props: [prop('glass', 7, 3.4, 4, .1, [4, .1], true), prop('glass', 6.9, 0, .1, 3.5, [.1, 3.5], true),
         prop('mic', 8.4, .9, 1, 1), prop('mic', 9.7, .9, 1, 1), prop('stand', 8.4, 1.8, 1, 1), prop('stand', 9.7, 1.8, 1, 1), prop('console', 6.9, 4.4, 2.2, 1.1, [2.2]),
@@ -127,7 +140,8 @@ function makeScene(id, arg) {
   }[fl] || null;
   return { id, W: 11, D: 9, floorA: '#b98a5e', floorB: '#ad7f55', wall: '#f3e6cc', panel: '#a8794f', owner: o, back: arg.back, spawn: [5.5, 8.4], theme: theme && theme.name,
     props: base.concat(theme ? theme.props : []),
-    deco: c => { win(c, 'L', 5, 6.8, '#b56576'); clock(c, 'B', 2.6); (o.badges || []).slice(0, 5).forEach((ic, i) => poster(c, 'B', 3.4 + i * .62, '#f7f1e3', null, .5));
+    sun: [['L', 5, 6.8]],
+    deco: c => { win(c, 'L', 5, 6.8, '#b56576'); clock(c, 'B', 2.6); wallShelf(c, 'L', 3, 30); hangPlant(c, 'B', 1.2); hangPlant(c, 'L', 7.6); (o.badges || []).slice(0, 5).forEach((ic, i) => poster(c, 'B', 3.4 + i * .62, '#f7f1e3', null, .5));
       if (theme) theme.deco(c); onLeft(c, 1.2, 2.3, 26, 44, '#2f4858', OL); onLeft(c, 1.3, 2.2, 28, 42, '#e9c46a'); },   // 왼벽 방송국 포스터
     who: mine ? null : [4.6, .2],
     acts: [ { x: 5.5, y: 8.6, r: .9, label: '나가기', act: () => go('floor', { floor: fl, at: [arg.back.x, 1.8] }) },
@@ -154,6 +168,23 @@ function board(c, side, u0, u1) {
   f(c, u0, u1, 24, 46, '#8a5a3b', OL); f(c, u0 + .06, u1 - .06, 26, 44, '#c9a26b');
   const n = Math.floor((u1 - u0) / .35);
   for (let i = 0; i < n; i++) f(c, u0 + .12 + i * .33, u0 + .36 + i * .33, i % 2 ? 30 : 33, i % 2 ? 40 : 42, ['#f7f3e8', '#f2d8a0', '#cfe3c3', '#f3d1cc'][i % 4]);
+}
+function wallShelf(c, side, u, z) {
+  const f = side === 'B' ? onBack : onLeft;
+  f(c, u, u + 1.2, z, z + 2, '#7a4f33', OL); const cols = ['#b56576', '#3d7ea6', '#e9c46a', '#4f772d', '#efe6d8'];
+  for (let i = 0; i < 5; i++) f(c, u + .08 + i * .12, u + .18 + i * .12, z + 2, z + 9 - (i % 2) * 2, cols[i]);
+  f(c, u + .8, u + 1.05, z + 2, z + 6, '#b5673f'); f(c, u + .72, u + 1.13, z + 6, z + 10, '#4f8243'); f(c, u + .85, u + .95, z - 4, z, '#4f8243');
+}
+function hangPlant(c, side, u) {
+  const f = side === 'B' ? onBack : onLeft;
+  f(c, u + .18, u + .2, WALL - 12, WALL - 3, '#55505e'); f(c, u, u + .38, WALL - 18, WALL - 12, '#b5673f', OL);
+  for (let i = 0; i < 4; i++) f(c, u - .05 + i * .13, u + .03 + i * .13, WALL - 30 + (i % 2) * 5, WALL - 16, i % 2 ? '#6b9f55' : '#4f8243');
+}
+function whiteboard(c, side, u0, u1) {
+  const f = side === 'B' ? onBack : onLeft;
+  f(c, u0, u1, 22, 46, '#9aa0a6', OL); f(c, u0 + .06, u1 - .06, 24, 44, '#fbfbf8');
+  f(c, u0 + .2, u0 + .9, 39, 40, '#3d7ea6'); f(c, u0 + .2, u0 + 1.3, 35, 36, '#3d7ea6'); f(c, u0 + .2, u0 + .7, 31, 32, '#e8584a'); f(c, u1 - .7, u1 - .25, 28, 38, 'rgba(79,119,45,.5)');
+  f(c, u0 + .3, u0 + .7, 22, 23.5, '#55505e');
 }
 function clock(c, side, u) { const f = side === 'B' ? onBack : onLeft; f(c, u, u + .5, 40, 50, '#f7f3e8', OL); f(c, u + .23, u + .27, 43, 47, OL); f(c, u + .25, u + .38, 44.5, 45.5, OL); }
 function wallLamp(c, u) { onBack(c, u - .15, u + .15, 34, 40, '#f2d8a0', OL); c.fillStyle = 'rgba(255,226,150,.18)'; poly(c, [P(u - .45, 0, 18), P(u + .45, 0, 18), P(u + .15, 0, 34), P(u - .15, 0, 34)], 'rgba(255,226,150,.18)'); }
@@ -197,25 +228,59 @@ function closeTalk() { talkQ = null; if (talkBox) talkBox.hidden = true; }
 
 // ---------- 그리기 ----------
 function room(c) {
-  const { W, D } = scene;
-  // 바닥 (판자 느낌: 칸마다 두 색 + 가는 줄)
-  for (let y = 0; y < D; y++) for (let x = 0; x < W; x++) {
-    poly(c, [P(x, y, 0), P(x + 1, y, 0), P(x + 1, y + 1, 0), P(x, y + 1, 0)], (x + y * 2) % 3 ? scene.floorA : scene.floorB);
-    for (let k = 1; k < 4; k++) poly(c, [P(x, y + k / 4, 0), P(x + 1, y + k / 4, 0), P(x + 1, y + k / 4 + .025, 0), P(x, y + k / 4 + .025, 0)], shade(scene.floorA, .9));
-    poly(c, [P(x + ((y * 4) % 2 ? .5 : 0), y, 0), P(x + ((y * 4) % 2 ? .52 : .02), y, 0), P(x + ((y * 4) % 2 ? .52 : .02), y + .25, 0), P(x + ((y * 4) % 2 ? .5 : 0), y + .25, 0)], shade(scene.floorA, .86));
+  const { W, D } = scene, SL = 10;   // SL = 바닥 판 두께 (디오라마처럼 아래 단면이 보이게)
+  // 바닥 판 단면 (앞쪽 두 면)
+  poly(c, [P(0, D, 0), P(W, D, 0), P(W, D, -SL), P(0, D, -SL)], shade(scene.panel, .55), OL);
+  poly(c, [P(W, 0, 0), P(W, D, 0), P(W, D, -SL), P(W, 0, -SL)], shade(scene.panel, .42), OL);
+  // 바닥: gx 방향으로 긴 판자, 판자마다 세 가지 톤 + 엇갈린 이음새 + 어두운 틈
+  const tones = [scene.floorA, scene.floorB, shade(scene.floorA, 1.05)], BW = 1 / 3;
+  for (let r = 0; r < D / BW; r++) {
+    const y = r * BW, off = (r * 7) % 4 * .5;
+    for (let x = -off, i = 0; x < W; x += 2, i++) {
+      const x0 = Math.max(0, x), x1 = Math.min(W, x + 2); if (x1 <= x0) continue;
+      poly(c, [P(x0, y, 0), P(x1, y, 0), P(x1, y + BW, 0), P(x0, y + BW, 0)], tones[(r * 5 + i * 3) % 3]);
+      poly(c, [P(x0, y + BW - .03, 0), P(x1, y + BW - .03, 0), P(x1, y + BW, 0), P(x0, y + BW, 0)], shade(scene.floorA, .74));   // 틈
+      if (x0 > 0) poly(c, [P(x0, y, 0), P(x0 + .04, y, 0), P(x0 + .04, y + BW, 0), P(x0, y + BW, 0)], shade(scene.floorA, .78));   // 이음새
+      poly(c, [P(x0 + .1, y + .05, 0), P(x1 - .1, y + .05, 0), P(x1 - .1, y + .08, 0), P(x0 + .1, y + .08, 0)], shade(tones[(r * 5 + i * 3) % 3], 1.08));   // 결
+    }
   }
   poly(c, [P(0, 0, 0), P(W, 0, 0), P(W, D, 0), P(0, D, 0)], 'rgba(0,0,0,0)', OL);
+  // 벽 아래 그림자 (바닥 쪽으로 번짐)
+  poly(c, [P(0, 0, 0), P(W, 0, 0), P(W, .45, 0), P(.45, .45, 0), P(.45, D, 0), P(0, D, 0)], 'rgba(40,25,20,.13)');
   // 뒷벽(gy=0)·왼벽(gx=0): 위 벽지 + 아래 판넬 + 걸레받이
   poly(c, [P(0, 0, 0), P(W, 0, 0), P(W, 0, WALL), P(0, 0, WALL)], scene.wall, OL);
-  poly(c, [P(0, 0, 0), P(0, D, 0), P(0, D, WALL), P(0, 0, WALL)], shade(scene.wall, .92), OL);
-  onBack(c, 0, W, 0, 16, scene.panel); onLeft(c, 0, D, 0, 16, shade(scene.panel, .92));
-  onBack(c, 0, W, 15, 17, shade(scene.panel, 1.2)); onLeft(c, 0, D, 15, 17, shade(scene.panel, 1.1));
-  onBack(c, 0, W, 0, 3, shade(scene.panel, .6)); onLeft(c, 0, D, 0, 3, shade(scene.panel, .55));
+  poly(c, [P(0, 0, 0), P(0, D, 0), P(0, D, WALL), P(0, 0, WALL)], shade(scene.wall, .9), OL);
   for (let x = .25; x < W; x += .5) onBack(c, x, x + .2, 17, WALL, shade(scene.wall, .97));
-  for (let y = .25; y < D; y += .5) onLeft(c, y, y + .2, 17, WALL, shade(scene.wall, .9));
-  for (let x = .5; x < W; x += 1) onBack(c, x - .01, x + .01, 3, 15, shade(scene.panel, .85));
-  poly(c, [P(0, 0, WALL), P(W, 0, WALL), P(W, -.25, WALL), P(-.25, -.25, WALL), P(-.25, D, WALL), P(0, D, WALL)], shade(scene.panel, .7), OL);   // 벽 윗단
+  for (let y = .25; y < D; y += .5) onLeft(c, y, y + .2, 17, WALL, shade(scene.wall, .87));
+  onBack(c, 0, W, 0, 16, scene.panel); onLeft(c, 0, D, 0, 16, shade(scene.panel, .9));
+  for (let x = .5; x < W; x += 1) { onBack(c, x - .015, x + .015, 3, 15, shade(scene.panel, .8)); onBack(c, x - .5 + .08, x - .08, 6, 12, shade(scene.panel, 1.06)); }
+  for (let y = .5; y < D; y += 1) onLeft(c, y - .015, y + .015, 3, 15, shade(scene.panel, .72));
+  onBack(c, 0, W, 15, 17.5, shade(scene.panel, 1.25)); onLeft(c, 0, D, 15, 17.5, shade(scene.panel, 1.12));
+  onBack(c, 0, W, 0, 3, shade(scene.panel, .6)); onLeft(c, 0, D, 0, 3, shade(scene.panel, .55));
+  // 천장 몰딩
+  onBack(c, 0, W, WALL - 3, WALL, shade(scene.wall, .85)); onLeft(c, 0, D, WALL - 3, WALL, shade(scene.wall, .78));
+  // 벽 두께 (윗단 + 양 끝 단면)
+  const T = .3;
+  poly(c, [P(-T, -T, WALL), P(W, -T, WALL), P(W, 0, WALL), P(0, 0, WALL), P(0, D, WALL), P(-T, D, WALL)], shade(scene.panel, .62), OL);
+  poly(c, [P(W, -T, 0), P(W, 0, 0), P(W, 0, WALL), P(W, -T, WALL)], shade(scene.panel, .5), OL);
+  poly(c, [P(-T, D, 0), P(0, D, 0), P(0, D, WALL), P(-T, D, WALL)], shade(scene.panel, .58), OL);
+  poly(c, [P(-T, D, -SL), P(0, D, -SL), P(0, D, 0), P(-T, D, 0)], shade(scene.panel, .45), OL);
+  poly(c, [P(W, -T, -SL), P(W, 0, -SL), P(W, 0, 0), P(W, -T, 0)], shade(scene.panel, .4), OL);
   scene.deco(c);
+}
+// 창으로 들어온 햇빛 (바닥에 연한 사각형). scene.sun = [[side, u0, u1], ...]
+function sunlight(c) {
+  c.save(); c.beginPath(); [P(0, 0, 0), P(scene.W, 0, 0), P(scene.W, scene.D, 0), P(0, scene.D, 0)].forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.clip();   // 바닥 안에만
+  c.globalCompositeOperation = 'lighter';
+  for (const [side, u0, u1] of scene.sun || []) {
+    const pts = side === 'B' ? [P(u0 + .6, 0, 0), P(u1 + .6, 0, 0), P(u1 + 2.2, 2.6, 0), P(u0 + 2.2, 2.6, 0)] : [P(0, u0 + .6, 0), P(0, u1 + .6, 0), P(2.6, u1 + 2.2, 0), P(2.6, u0 + 2.2, 0)];
+    poly(c, pts, 'rgba(255,214,150,.13)');
+  }
+  c.restore();
+}
+// 가구 아래 그림자 (발치에 살짝 큰 어두운 판)
+function shadows(c) {
+  for (const p of scene.props) if (p.solid && p.k !== 'glass') poly(c, [P(p.x - .08, p.y - .02, 0), P(p.x + p.w + .12, p.y - .02, 0), P(p.x + p.w + .12, p.y + p.d + .14, 0), P(p.x - .08, p.y + p.d + .14, 0)], 'rgba(40,25,20,.2)');
 }
 function person(c, p, gx, gy, face, moving, dir) {
   const s = P(gx, gy, 0);
@@ -254,7 +319,7 @@ function draw() {
   cam[1] = bot - top < vh ? (top + bot) / 2 - vh / 2 : Math.max(top, Math.min(bot - vh, mp[1] - vh / 2));
   oc.setTransform(1, 0, 0, 1, 0, 0); oc.fillStyle = '#3b3a44'; oc.fillRect(0, 0, off.width, off.height);
   oc.setTransform(1, 0, 0, 1, -Math.round(cam[0]), -Math.round(cam[1]));
-  room(oc);
+  room(oc); sunlight(oc); shadows(oc);
   const list = [];
   for (const p of scene.props) { const fn = PROPS[p.k]; if (p.solid) list.push({ z: p.x + p.w + p.y + p.d - .5, f: () => fn(oc, p.x, p.y, ...p.args) }); else fn(oc, p.x, p.y, ...p.args); }
   if (scene.npc) list.push({ z: scene.npc[0] + scene.npc[1], f: () => person(oc, NPC, scene.npc[0], scene.npc[1], 'down', false, 1) });
