@@ -106,6 +106,32 @@
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
   새 사람은 그 화면을 캡처해 보내고, `people`(name, telegram_user_id) + `position_history`(팀 직책) + 필요하면 `group_assignments`(조)를 넣으면 들어올 수 있음.
+- **사용자가 직접 등록해요**(토큰 아끼려고, 2026-10-04). Supabase 대시보드 → BroadCast → SQL Editor에 아래를 붙여넣고 ★만 바꿔 Run.
+  사용자가 등록을 부탁하면 이 방법을 다시 알려주고, 오류가 났거나 잘못 넣은 걸 고칠 때만 직접 해요.
+  ```sql
+  with p as (
+    insert into people (name, telegram_user_id, tribe_id, is_active)
+    values ('홍길동',            -- ★ 이름
+            1234567890,          -- ★ 텔레그램 번호 (숫자만)
+            (select id from org_units where name = '총회'), true)
+    returning id
+  )
+  insert into position_history (person_id, position_code, org_unit_id, started_on)
+  select p.id,
+         (select code from positions where name = '팀원'),     -- ★ 직책: 팀원·조장·교관·부팀장·팀장·부과장·과장·서무·문화부장
+         (select id from org_units where name = '성우팀'),     -- ★ 소속: 성우팀·아나운서팀·엔지니어팀, 팀 없으면 방송예술과(세 팀 모두 권한)
+         current_date
+  from p;
+
+  -- 조가 있으면(팀원·조장)
+  insert into group_assignments (person_id, group_unit_id)
+  values ((select id from people where telegram_user_id = 1234567890),   -- ★ 번호
+          (select id from org_units where name = '2조'));                -- ★ 1조~4조
+
+  -- 확인
+  select * from v_people_current order by name;
+  ```
+  오류: `duplicate key` = 이미 등록된 번호. `null value … violates` = 이름·소속 글자가 틀림(띄어쓰기까지 똑같이).
 
 ### 프로필 '나의 기록' (2026-10-04, 탭 맨 끝 + 오른쪽 위 동그라미)
 - `profile.get`: 내 people 정보 + 구역장(people_private) + 직책 + 문화부 밖 사명 + 지파·교회 목록.
