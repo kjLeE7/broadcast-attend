@@ -1447,12 +1447,15 @@ async function isAdmin(ctx: Ctx) {
 }
 // 그해 공개일·공개 여부·미리보기 가능 여부
 async function recapState(ctx: Ctx, year: number) {
-  const r = must(await ctx.db.from("app_settings").select("value").eq("key", "recap_open").maybeSingle());
-  const md = /^\d\d-\d\d$/.test(String(r?.value)) ? String(r.value) : "12-22";
+  const rows: any[] = must(await ctx.db.from("app_settings").select("key,value").in("key", ["recap_open", "recap_enabled"])) ?? [];
+  const v = new Map(rows.map((x) => [x.key, x.value]));
+  const md = /^\d\d-\d\d$/.test(String(v.get("recap_open"))) ? String(v.get("recap_open")) : "12-22";
+  const enabled = v.get("recap_enabled") === true;   // 관리자가 켜야 보임
   const admin = await isAdmin(ctx);
   const { teams } = await myTeams(ctx);
-  const preview = admin || teams.some((t: any) => t.rank >= RANK.INSTRUCTOR);
-  return { year, open_md: md, open: Date.now() >= kstMs(`${year}-${md}`), preview, admin, teams };
+  // 꺼져 있으면 관리자만 미리보기
+  const preview = admin || (enabled && teams.some((t: any) => t.rank >= RANK.INSTRUCTOR));
+  return { year, open_md: md, enabled, open: enabled && Date.now() >= kstMs(`${year}-${md}`), preview, admin, teams };
 }
 // 장소 글자 → 동네지도 장소 이름 (places 별칭, 긴 것부터). 못 맞추면 null
 async function placeNamer(ctx: Ctx) {
@@ -1520,6 +1523,21 @@ async function cronDuesNag(ctx: Ctx) {
   must(await ctx.db.from("dues_nags").update({ result: { total: targets.length, sent: r.sent, failed: r.failed } }).eq("month", month));
   return { month, year: y, total: targets.length, sent: r.sent };
 }
+
+// ----- 동네지도 캐릭터 꾸미기 (people.town_look) -----
+// 고를 수 있는 값은 여기 목록뿐 (화면도 이 목록으로 그림). 목록 밖 값은 저장 안 함
+const LOOK_OPTS: Record<string, string[]> = {
+  gender: ["m", "f"],
+  skin: ["#f5d2b0", "#f2c9a0", "#e8b48a", "#d9a07a", "#b98463", "#8d5a3b"],
+  style: ["short", "long", "bob", "bun", "up", "pony"],
+  hair: ["#1d1d24", "#2b1d16", "#4a2f22", "#6b4426", "#8a5a3a", "#c9a26b", "#9aa0a6", "#b5533f"],
+  shirt: ["#b56576", "#3d7ea6", "#4f772d", "#e9c46a", "#e07a5f", "#81b29a", "#6d597a", "#355070", "#c06c84", "#f2cc8f", "#6b8f71", "#b07d4f", "#7aa6e8", "#efe6d8", "#5a6270", "#8a6fa8"],
+  bottom: ["pants", "skirt"],
+  pants: ["#3a3a4a", "#4b3b2f", "#2f3e46", "#2f4858", "#6b3b36", "#d8d4cc", "#4f772d", "#b56576"],
+  hat: ["", "cap", "helmet", "ribbon", "phones"],
+  hatc: ["#2f4858", "#a24848", "#4f772d", "#355070", "#e8584a", "#e9c46a", "#f2f0ea", "#e07a8f"],
+  ride: ["", "ford", "bike", "moto", "kick", "camel", "donkey", "turtle"],
+};
 
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
@@ -1793,7 +1811,14 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // 결산 상태 { year? } → 공개일·공개 여부·미리보기·관리자
   async "recap.status"(ctx) {
     const st = await recapState(ctx, recapYear(ctx.payload));
-    return { year: st.year, open_md: st.open_md, open: st.open, preview: st.preview, admin: st.admin };
+    return { year: st.year, open_md: st.open_md, enabled: st.enabled, open: st.open, preview: st.preview, admin: st.admin };
+  },
+  // 리포트 켜기·끄기 { on } — 관리자 명단만
+  async "recap.setEnabled"(ctx) {
+    if (!(await isAdmin(ctx))) throw new HttpError(403, "관리자만 바꿀 수 있어요");
+    const on = ctx.payload?.on === true;
+    must(await ctx.db.from("app_settings").upsert({ key: "recap_enabled", value: on, description: "연말 결산 리포트 켜기 (관리자가 켜야 보임)", updated_by: ctx.me.id, updated_at: new Date().toISOString() }));
+    return { enabled: on };
   },
   // 공개일 바꾸기 { md: "MM-DD" } — 관리자 명단만
   async "recap.setOpen"(ctx) {
@@ -1878,6 +1903,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const p = ctx.payload ?? {};
     await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
     const st = await recapState(ctx, recapYear(p));
+    if (!st.open && !st.preview) throw new HttpError(403, "아직 열리지 않았어요");
     const { from, to } = recapRange(st, p);
     const iso = [new Date(from).toISOString(), new Date(to).toISOString()];
     const day = [new Date(from + 9 * HOUR).toISOString().slice(0, 10), new Date(to + 9 * HOUR).toISOString().slice(0, 10)];
@@ -2010,6 +2036,26 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (ids.length > 10 || ids.some((id) => !members.some((m) => m.id === id))) throw new HttpError(400, "과원 중에서 골라주세요");
     must(await ctx.db.from("app_settings").update({ value: ids, updated_by: ctx.me.id, updated_at: new Date().toISOString() }).eq("key", "treasurers"));
     return { treasurers: ids };
+  },
+
+  // 내 캐릭터 { } → 지금 꾸민 것 + 고를 수 있는 목록
+  async "look.get"(ctx) {
+    const p = must(await ctx.db.from("people").select("town_look").eq("id", ctx.me.id).single());
+    return { look: p.town_look ?? {}, options: LOOK_OPTS, id: ctx.me.id };
+  },
+  // 내 캐릭터 저장 { look }: 본인만, 목록 안 값만 (빈 값은 기본 생김새)
+  async "look.save"(ctx) {
+    const src = ctx.payload?.look ?? {}, out: Record<string, unknown> = {};
+    for (const [k, list] of Object.entries(LOOK_OPTS)) {
+      const v = src[k];
+      if (v === undefined || v === null || v === "") continue;
+      if (!list.includes(String(v))) throw new HttpError(400, "고를 수 없는 값이 있어요");
+      out[k] = String(v);
+    }
+    if (src.blush !== undefined) out.blush = !!src.blush;
+    await rateLimit(ctx, "look_save", 30, 60);
+    must(await ctx.db.from("people").update({ town_look: out, updated_at: new Date().toISOString() }).eq("id", ctx.me.id));
+    return { look: out };
   },
 
   // 내 한 달 활동: { month: "YYYY-MM" }

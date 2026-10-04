@@ -422,10 +422,11 @@ function astar(sx, sy, gx, gy) {
 const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const f = v => Math.max(0, Math.min(255, Math.round(v * k))); return '#' + [n >> 16, n >> 8 & 255, n & 255].map(v => f(v).toString(16).padStart(2, '0')).join(''); };
 const OUT = P.ol, SHOE = '#2a2228', EYE = '#2a1e22', BLUSH = '#ec9b8d', PHONES = '#34323e';
 function parts(p, face, seated, legA, phones) {
-  const L = p.look, A = [], add = (x, y, ww, hh, c, leg) => A.push([x, y, ww, hh, c, leg]);
+  let L = p.look; const A = [], add = (x, y, ww, hh, c, leg) => A.push([x, y, ww, hh, c, leg]);
   if (!seated) {
-    const l1 = legA === 1 ? 2 : 3, l2 = legA === -1 ? 2 : 3;
-    add(3, 12, 2, l1, L.pants, 1); add(5, 12, 2, l2, L.pants, 1); add(3, 12 + l1, 2, 1, SHOE, 1); add(5, 12 + l2, 2, 1, SHOE, 1);
+    const l1 = legA === 1 ? 2 : 3, l2 = legA === -1 ? 2 : 3, skirt = L.bottom === 'skirt';
+    add(3, 12, 2, l1, skirt ? L.skin : L.pants, 1); add(5, 12, 2, l2, skirt ? L.skin : L.pants, 1); add(3, 12 + l1, 2, 1, SHOE, 1); add(5, 12 + l2, 2, 1, SHOE, 1);
+    if (skirt) { add(2, 11, 6, 2, L.pants); add(2, 12, 6, 1, shade(L.pants, .8)); }
   }
   add(2, 7, 6, 5, L.shirt); add(2, 7, 6, 1, shade(L.shirt, 1.12));
   if (face === 'left' || face === 'right') { const ax = face === 'left' ? 3 : 5; add(ax, 8, 2, 3, L.shirt2); add(ax, 11, 2, 1, L.skin); }
@@ -441,6 +442,7 @@ function parts(p, face, seated, legA, phones) {
       if (st === 'bob') { add(1, 2, 1, 5, hc); add(8, 2, 1, 5, hc); add(6, 2, 2, 1, hc); }
       if (st === 'long') { add(1, 2, 1, 8, hc); add(8, 2, 1, 8, hc); }
       add(3, 4, 1, 1, EYE); add(6, 4, 1, 1, EYE);
+      if (L.gender === 'f') { add(2, 3, 1, 1, EYE); add(7, 3, 1, 1, EYE); }   // 속눈썹
       if (L.blush) { add(2, 5, 1, 1, BLUSH); add(7, 5, 1, 1, BLUSH); }
     } else if (face === 'left') {
       add(4, 2, 5, 3, hc); if (st === 'long' || st === 'bob') add(6, 2, 3, st === 'long' ? 8 : 5, hc); add(2, 4, 1, 1, EYE);
@@ -449,7 +451,16 @@ function parts(p, face, seated, legA, phones) {
     }
   }
   if (st === 'bun') { add(3, -2, 4, 2, hc); add(4, -3, 2, 1, hc); }
-  if (st === 'cap') { add(1, -1, 8, 3, L.capc); add(2, -1, 3, 1, shade(L.capc, 1.3));
+  if (st === 'up') { add(2, -2, 6, 2, hc); add(3, -3, 4, 1, hc); }                         // 올림머리
+  if (st === 'pony') { if (face === 'down' || face === 'up') add(8, 1, 2, 6, hc); else add(face === 'left' ? 8 : 0, 1, 2, 6, hc); }   // 포니테일
+  // 머리에 쓰는 것 (look.hat, 색 look.hatc). 예전 style 'cap'도 모자로
+  const hat = L.hat || (st === 'cap' ? 'cap' : '');
+  if (hat === 'helmet') { const hm = L.hatc || '#e8584a'; add(0, -2, 10, 4, hm); add(1, -3, 8, 1, hm); add(2, -2, 3, 1, shade(hm, 1.3));
+    if (face === 'down') add(1, 2, 8, 1, '#9fd0de'); else if (face === 'left') add(-1, 2, 4, 2, '#9fd0de'); else if (face === 'right') add(6, 2, 4, 2, '#9fd0de'); }
+  if (hat === 'ribbon') { const rc = L.hatc || '#e07a8f'; add(1, -2, 2, 2, rc); add(4, -2, 2, 2, rc); add(3, -1, 1, 1, shade(rc, .75)); }
+  if (hat === 'phones') phones = true;
+  if (hat === 'cap' && L.hatc) L = Object.assign({}, L, { capc: L.hatc });
+  if (hat === 'cap') { add(1, -1, 8, 3, L.capc); add(2, -1, 3, 1, shade(L.capc, 1.3));
     if (face === 'down') add(1, 2, 8, 1, shade(L.capc, .8)); else if (face === 'left') add(-1, 2, 4, 1, shade(L.capc, .8)); else if (face === 'right') add(6, 2, 4, 1, shade(L.capc, .8)); }
   if (phones) { add(1, -1, 8, 1, PHONES); add(0, 2, 1, 4, PHONES); add(9, 2, 1, 4, PHONES); }
   return A;
@@ -468,7 +479,46 @@ function fordParts() {
     [2, 6, 4, 3, TY], [14, 6, 4, 3, TY], [3, 7, 2, 1, CH], [15, 7, 2, 1, CH],                 // 바퀴
   ];
 }
+// 그 밖의 탈것 (오른쪽 보는 모양, 폭 20, 바닥 = 9번째 줄). 탄 사람은 앉은 윗몸이 올라감(킥보드는 서서)
+// 6번째 값 'w'·'l' = 흔들리지 않는 칸(바퀴·다리). 동물 다리는 걸을 때 번갈아 짧아짐(f)
+const TY = '#1f1b20', CHR = '#cfc9bf';
+const RIDES = {
+  bike:   { speed: 42, rider: [4, -8], parts: () => [[2, 6, 4, 3, TY, 'w'], [14, 6, 4, 3, TY, 'w'], [3, 7, 2, 1, CHR, 'w'], [15, 7, 2, 1, CHR, 'w'],
+    [6, 5, 8, 1, '#c0392b'], [5, 4, 1, 3, '#c0392b'], [13, 3, 1, 4, '#c0392b'], [4, 3, 3, 1, '#2a2228'], [13, 1, 3, 1, '#34323e']] },
+  moto:   { speed: 52, rider: [4, -8], smoke: 1, parts: () => [[1, 5, 5, 4, TY, 'w'], [14, 5, 5, 4, TY, 'w'], [2, 6, 3, 2, CHR, 'w'], [15, 6, 3, 2, CHR, 'w'],
+    [4, 4, 12, 2, '#3a3740'], [8, 2, 5, 2, '#e8584a'], [9, 2, 2, 1, '#ff8a7a'], [4, 3, 4, 1, '#2a2228'], [15, 1, 1, 3, '#55505e'], [14, 1, 3, 1, '#34323e'], [18, 4, 1, 1, '#ffe9a3'], [2, 4, 3, 1, CHR]] },
+  kick:   { speed: 36, stand: 1, rider: [6, -8], parts: () => [[2, 8, 2, 2, TY, 'w'], [15, 8, 2, 2, TY, 'w'], [3, 7, 13, 1, '#5a6270'], [15, -2, 1, 9, '#9aa0a6'], [14, -2, 3, 1, '#34323e']] },
+  camel:  { speed: 26, legs: 1, rider: [4, -11], parts: f => [[4, 3, 10, 3, '#c9a26b'], [6, 1, 4, 2, '#c9a26b'], [7, 0, 2, 1, '#c9a26b'], [14, 0, 2, 5, '#c9a26b'], [15, -1, 4, 2, '#c9a26b'],
+    [18, -1, 1, 1, '#2a1e22'], [3, 3, 1, 2, '#a8814f'], [6, 1, 3, 1, '#b5533f'],
+    [5, 6, 1, f ? 3 : 4, '#a8814f', 'l'], [7, 6, 1, f ? 4 : 3, '#a8814f', 'l'], [11, 6, 1, f ? 3 : 4, '#a8814f', 'l'], [13, 6, 1, f ? 4 : 3, '#a8814f', 'l']] },
+  donkey: { speed: 30, legs: 1, rider: [4, -9], parts: f => [[4, 3, 10, 3, '#8e8a96'], [5, 5, 8, 1, '#b9b4c0'], [13, 1, 2, 3, '#8e8a96'], [14, 0, 4, 3, '#8e8a96'], [17, 1, 1, 1, '#f1e8d9'],
+    [14, -2, 1, 2, '#8e8a96'], [16, -2, 1, 2, '#8e8a96'], [15, 1, 1, 1, '#2a1e22'], [3, 3, 1, 3, '#5a5660'], [6, 2, 4, 1, '#b5533f'],
+    [5, 6, 1, f ? 2 : 3, '#6f6a78', 'l'], [7, 6, 1, f ? 3 : 2, '#6f6a78', 'l'], [11, 6, 1, f ? 2 : 3, '#6f6a78', 'l'], [13, 6, 1, f ? 3 : 2, '#6f6a78', 'l']] },
+  turtle: { speed: 14, legs: 1, rider: [5, -6], parts: f => [[4, 4, 11, 3, '#4f772d'], [6, 3, 7, 1, '#4f772d'], [6, 4, 2, 1, '#81b29a'], [10, 4, 2, 1, '#81b29a'], [8, 5, 2, 1, '#81b29a'], [4, 7, 11, 1, '#c9b37a'],
+    [15, 5, 3, 2, '#9cc75f'], [17, 5, 1, 1, '#2a1e22'], [3, 6, 1, 1, '#9cc75f'],
+    [5, 8, 2, f ? 1 : 2, '#9cc75f', 'l'], [12, 8, 2, f ? 2 : 1, '#9cc75f', 'l']] },
+};
+function drawRide2(c, p, t, R0) {
+  const x = Math.round(p.x), y = Math.round(p.y), dir = p.dir || 1, f = reduce ? 0 : Math.floor(t * 6 + p.seed) % 2;
+  const bob = reduce || R0.legs ? 0 : (Math.floor(t * 10 + p.seed) % 2 ? -1 : 0);
+  const ox = x - 10, oy = y - 9;
+  const flip = q => [dir > 0 ? q[0] : 20 - q[0] - q[2], q[1], q[2], q[3], q[4], q[5]];
+  const fill = (list, bx, by) => {
+    c.fillStyle = OUT;
+    for (const q of list) c.fillRect(bx + q[0] - 1, by + q[1] + (q[5] ? 0 : bob) - 1, q[2] + 2, q[3] + 2);
+    for (const q of list) { c.fillStyle = q[4]; c.fillRect(bx + q[0], by + q[1] + (q[5] ? 0 : bob), q[2], q[3]); }
+  };
+  R(c, 'rgba(20,16,24,.3)', ox, y - 1, 20, 2);
+  const body = R0.parts(f).map(flip);
+  const me = parts(p, dir > 0 ? 'right' : 'left', !R0.stand, 0, false).map(q => [q[0], q[1], q[2], q[3], q[4]]);
+  const rx = ox + (dir > 0 ? R0.rider[0] : 20 - R0.rider[0] - 10), ry = oy + R0.rider[1];
+  if (R0.stand) { fill(body, ox, oy); fill(me, rx, ry); } else { fill(me, rx, ry); fill(body, ox, oy); }
+  if (R0.smoke && !reduce) { const k = (t * 3 + p.seed) % 1, ex = dir > 0 ? ox - 2 - Math.round(k * 4) : ox + 21 + Math.round(k * 4);
+    c.fillStyle = `rgba(230,224,214,${(0.55 * (1 - k)).toFixed(2)})`; c.fillRect(ex, oy + 5 - Math.round(k * 2), 2, 2); }
+  p._top = ry + bob - 3; p._seated = false;
+}
 function drawRide(c, p, t) {
+  if (RIDES[p.look.ride]) return drawRide2(c, p, t, RIDES[p.look.ride]);
   const x = Math.round(p.x), y = Math.round(p.y), dir = p.dir || 1;
   const bob = reduce ? 0 : (Math.floor(t * 10 + p.seed) % 2 ? -1 : 0);
   const ox = x - 10, oy = y - 9;
@@ -494,7 +544,7 @@ function drawRide(c, p, t) {
 }
 
 function drawPerson(c, p, t) {
-  if (p.look.ride === 'ford' && p.moving && !p.hidden) return drawRide(c, p, t);
+  if ((p.look.ride === 'ford' || RIDES[p.look.ride]) && p.moving && !p.hidden) return drawRide(c, p, t);
   const x = Math.round(p.x), y = Math.round(p.y);
   const pose = p.spot ? p.spot.s.pose : 'stand';
   const seated = !p.moving && pose === 'sit';
@@ -580,6 +630,12 @@ const STYLES = ['short', 'short', 'long', 'bob', 'bun', 'cap', 'long', 'short'];
 const SHIRTS = ['#b56576', '#3d7ea6', '#4f772d', '#e9c46a', '#e07a5f', '#81b29a', '#6d597a', '#355070', '#c06c84', '#f2cc8f', '#6b8f71', '#b07d4f', '#7aa6e8', '#efe6d8', '#5a6270', '#8a6fa8'];
 const PANTS = ['#3a3a4a', '#4b3b2f', '#2f3e46'];
 const CAPS = ['#2f4858', '#a24848', '#4f772d', '#355070'];
+// 기본 생김새(id로 늘 같음) 위에 꾸미기를 덮어씀. 상의만 바꾸면 소매 그림자색도 맞춤
+function withLook(id, o) {
+  const L = Object.assign(lookFor(id), o || {});
+  if (o && o.shirt && !o.shirt2) L.shirt2 = shade(o.shirt, .8);
+  return L;
+}
 function lookFor(id) {
   const h = strHash(id), pick = (arr, k) => arr[(h >>> k) % arr.length];
   const shirt = pick(SHIRTS, 3);
@@ -655,7 +711,7 @@ function setData(d, first) {
   for (const raw of d.people || []) {
     let p = byId.get(raw.id);
     if (!p) { p = { id:raw.id, seed:strHash(raw.id) % 97, x:0, y:0, path:[], seg:null, key:'', spot:null, face:'down', moving:false, hidden:false, wanderAt:0, isNew:true }; }
-    p.name = raw.name; p.team = raw.team || ''; p.role = raw.role || ''; p.look = Object.assign(lookFor(raw.id), raw.look || {});   // 꾸미기(people.town_look)는 기본 생김새 위에 덮어씀
+    p.name = raw.name; p.team = raw.team || ''; p.role = raw.role || ''; p.look = withLook(raw.id, raw.look);   // 꾸미기(people.town_look)는 기본 생김새 위에 덮어씀
     p.title = raw.title || '';   // 대표 칭호 (본인이 고른 것만)
     p.segs = segsBy.get(raw.id) || [];
     next.push(p);
@@ -1006,7 +1062,7 @@ function step(dt) {
   let arrived = false;
   for (const p of people) {
     if (p.moving && p.path.length) {
-      let left = (p.look.ride ? 55 : 30) * dt;   // 차는 걸음보다 빠름
+      let left = (p.look.ride === 'ford' ? 55 : RIDES[p.look.ride] ? RIDES[p.look.ride].speed : 30) * dt;   // 탈것마다 빠르기 (거북이는 느림)
       while (left > 0 && p.path.length) {
         const [tx, ty] = p.path[0], dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
         if (Math.abs(dx) > .3) p.dir = dx > 0 ? 1 : -1;
@@ -1183,8 +1239,29 @@ function unmount() {
   zoomId = null; zoomEl = null; zcv = null; zctx = null; zPicEl = null; zListEl = null;
   root = null; cv = null; ctx = null; tip = null; placesEl = null; legendEl = null; mainEl = null; stageEl = null; panelEl = null;
 }
+// 꾸미기 미리보기: 작은 캔버스에 서 있는 모습 + 지나가는(탈것 타는) 모습을 계속 그림. 반환 = 멈추는 함수
+function avatar(cv, getLook) {
+  const W0 = 64, H0 = 30, k = Math.max(3, Math.floor((cv.clientWidth || 320) / W0));
+  cv.width = W0 * k; cv.height = H0 * k;
+  const off = document.createElement('canvas'); off.width = W0; off.height = H0;
+  const oc = off.getContext('2d'), c2 = cv.getContext('2d'), t0 = performance.now();
+  let on = true;
+  const frame = now => {
+    if (!on) return;
+    const t = (now - t0) / 1000, look = withLook('preview', getLook());
+    oc.clearRect(0, 0, W0, H0); R(oc, '#e9dfcb', 0, 24, W0, 6); for (let x = 0; x < W0; x += 6) R(oc, '#dccfb6', x, 26, 3, 1);
+    drawPerson(oc, { look, seed: 3, x: 10, y: 25, face: 'down', moving: false, spot: null, seg: { type: '휴식' } }, t);
+    const sp = look.ride === 'ford' ? 55 : RIDES[look.ride] ? RIDES[look.ride].speed : 30, px = 24 + ((t * sp * .35) % 36);
+    drawPerson(oc, { look, seed: 5, x: px, y: 25, dir: 1, face: 'right', moving: true, hidden: false, spot: null, seg: { type: '휴식' } }, t);
+    c2.imageSmoothingEnabled = false; c2.clearRect(0, 0, cv.width, cv.height); c2.drawImage(off, 0, 0, cv.width, cv.height);
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  return () => { on = false; };
+}
+
 window.Town = {
-  mount, unmount, refresh,
+  mount, unmount, refresh, avatar,
   setData: d => setData(d),
   setNames: v => { showNames = !!v; },
   rerender: () => { if (tip && !tip.hidden && tip._id && byId.get(tip._id)) showPersonTip(byId.get(tip._id)); },

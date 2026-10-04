@@ -1219,3 +1219,35 @@ html { scrollbar-gutter: stable; }
   .st-card .st-legend { justify-content: flex-start; }
   .st-card .st-pick { text-align: left; }
 }
+
+/* ===== 내 캐릭터 꾸미기 (renderLook) ===== */
+.lk-prev { padding: 10px; text-align: center; }
+.lk-prev canvas { display: block; width: 100%; max-width: 480px; margin: 0 auto; image-rendering: pixelated; border-radius: 12px; background: #f1e9d8; }
+.lk-prev small { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; }
+.lk-opts { margin-top: 12px; padding: 6px 16px; }
+.lk-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.lk-row:last-child { border-bottom: none; }
+.lk-l { flex: none; width: 88px; font-size: 13.5px; font-weight: 700; padding-top: 7px; }
+.lk-ch { display: flex; flex-wrap: wrap; gap: 6px; }
+.lk-sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--card); box-shadow: 0 0 0 1.5px var(--line); cursor: pointer; padding: 0; }
+.lk-sw.on { box-shadow: 0 0 0 2.5px var(--accent); }
+.lk-acts { display: flex; flex-direction: column; margin-top: 14px; }
+@media (min-width: 1000px) { .lk-prev, .lk-opts, .lk-acts { max-width: 720px; } .lk-acts { flex-direction: row; gap: 10px; align-items: center; } .lk-acts .btn-primary, .lk-acts .ghost-btn { width: auto; margin: 0; padding: 12px 22px; } }
+
+/* ===== 나의 기록 배치: PC 위 [나의 성장 | 받은 피드백], 아래 [배지·내 정보 | 내 캐릭터] ===== */
+.pf-two .pf-col > .section-head:first-child, .pf-two #badgeArea > .section-head:first-child { margin-top: 0; }
+@media (min-width: 1000px) {
+  .st-two, .pf-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+  .st-two .st-card { display: block; padding: 14px 10px; }
+  .st-two .st-legend { justify-content: center; } .st-two .st-pick { text-align: center; }
+  .st-two .st-fb { grid-template-columns: 1fr; max-height: 430px; overflow-y: auto; padding: 2px; }
+  .lk-prev, .lk-opts, .lk-acts { max-width: none; }
+  #profileView.split .st-two, #profileView.split .pf-two { grid-template-columns: minmax(0, 1fr); }
+}
+.st-fbhead { margin-top: 0; }
+@media (max-width: 999px) { .st-fbhead { margin-top: 22px; } }
+.pf-two { margin-bottom: 8px; }
+.rp-off { display: flex; align-items: center; gap: 10px; padding: 12px 16px; font-size: 13.5px; color: var(--muted); }
+.rp-off .rp-save { margin-left: auto; }
+.rp-entry .msg:empty { display: none; }
+.lk-prev canvas { max-width: 420px; }

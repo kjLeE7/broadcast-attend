@@ -1237,6 +1237,7 @@ function goTab(t) {
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   if (curTab === 'poll' && PL.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   closeModal(); closeFabMenu();
+  if (LK.stop) { LK.stop(); LK.stop = null; }   // 캐릭터 미리보기 그리기 멈춤
   setTabUI(t);
   refreshTodos();
   $('stateBox').style.display = 'none';
@@ -3896,6 +3897,7 @@ function loadProfile() {
   loadStats();
   loadBadges();
   loadRecapStatus();
+  loadLook();
 }
 
 function pfAge(b) {
@@ -4127,18 +4129,18 @@ function renderStats(first) {
     try { localStorage.setItem(statSeenKey(), JSON.stringify(now)); } catch (e) {}
   }
   var grew = d.axes.filter(function (a) { return a.level > a.prev_level; }).length;
-  el.innerHTML = '<div class="section-head"><h2>나의 성장</h2><span class="section-count">' +
+  el.innerHTML = '<div class="st-two"><div class="st-col"><div class="section-head"><h2>나의 성장</h2><span class="section-count">' +
       (grew ? '이번 달 ' + grew + '개 축 레벨업' : '축을 누르면 다음 레벨까지 남은 XP') + '</span>' +
       (statCan() ? '<button type="button" class="ghost-btn st-give" onclick="openStatGrant({})">⭐ 스탯 주기</button>' : '') + '</div>' +
     '<div class="card st-card"><div class="st-chart' + (first ? ' grow' : '') + '">' + statSvg(d, up) + '</div>' +
       '<div class="st-legend"><span><i class="now"></i>지금</span><span><i class="prev"></i>지난달 말</span></div>' +
-      '<div class="st-pick" id="statPick">' + statPickText() + '</div></div>' +
-    '<div class="section-head b-gap"><h2>받은 피드백</h2><span class="section-count">' + d.feedback.length + '개</span></div>' +
+      '<div class="st-pick" id="statPick">' + statPickText() + '</div></div></div><div class="st-col">' +
+    '<div class="section-head st-fbhead"><h2>받은 피드백</h2><span class="section-count">' + d.feedback.length + '개</span></div>' +
     (d.feedback.length ? '<div class="st-fb">' + d.feedback.map(function (f) {
       return '<div class="card st-fbrow"><div class="st-fbtop"><b>' + esc(f.title || f.source_type) + '</b><small>' + mdOf(f.at) + ' · ' + esc(f.by) + '</small></div>' +
         '<div class="st-xps">' + f.items.map(function (i) { return '<span>' + esc(i.name) + ' +' + i.xp + '</span>'; }).join('') + '</div>' +
         '<p>' + esc(f.comment) + '</p></div>';
-    }).join('') + '</div>' : '<div class="empty"><b>아직 받은 피드백이 없어요</b>실무를 마치면 교관님이 스탯을 올려줘요</div>');
+    }).join('') + '</div>' : '<div class="empty"><b>아직 받은 피드백이 없어요</b>실무를 마치면 교관님이 스탯을 올려줘요</div>') + '</div></div>';
 }
 function statPickText() {
   var a = STAT.data && STAT.data.axes[STAT.pick];
@@ -4292,15 +4294,21 @@ function loadRecapStatus() {
   api('recap.status').then(function (st) { RP.st = st; renderRecapCard(); }).catch(function () { $('recapArea').innerHTML = ''; });
 }
 function renderRecapCard() {
-  var st = RP.st; if (!st || (!st.open && !st.preview)) { $('recapArea').innerHTML = ''; return; }
+  var st = RP.st; if (!st || (!st.admin && (!st.enabled || (!st.open && !st.preview)))) { $('recapArea').innerHTML = ''; return; }
+  if (!st.enabled) { $('recapArea').innerHTML = '<div class="card rp-entry"><div class="rp-off"><span>🎁 <b>올해의 성우 리포트</b> · 꺼져 있어요 (관리자만 보여요)</span>' +
+    '<button type="button" class="ghost-btn rp-save" onclick="setRecapOn(true)">켜기</button></div><div class="msg" id="rpOnMsg"></div></div>'; return; }
   var md = st.open_md.split('-'), when = (+md[0]) + '월 ' + (+md[1]) + '일';
   var h = '<div class="card rp-entry"><button type="button" class="rp-go" onclick="openRecap()"><span class="rp-gift">🎁</span><span><b>' + st.year + ' 올해의 성우 리포트</b>' +
     '<small>' + (st.open ? '한 해 동안 걸어온 길을 한 장씩 넘겨 봐요' : '미리보기 · 모두에게는 ' + when + '에 열려요') + '</small></span><span class="rp-arrow">›</span></button>';
   if (st.preview) h += '<details class="rp-opts"><summary>기간 바꿔 보기 (테스트용)</summary><div class="tp-row"><input type="date" id="rpFrom" value="' + esc(RP.from) + '"><span>~</span><input type="date" id="rpTo" value="' + esc(RP.to) + '"></div>' +
     '<small>비우면 ' + st.year + '년 한 해 전체예요</small></details>';
+  if (st.admin) h += '<details class="rp-opts"><summary>리포트 끄기 (관리자)</summary><button type="button" class="ghost-btn rp-save" onclick="setRecapOn(false)">리포트 끄기</button><small>끄면 관리자 말고는 아무에게도 안 보여요</small><div class="msg" id="rpOnMsg"></div></details>';
   if (st.admin) h += '<details class="rp-opts"><summary>공개일 바꾸기 (관리자)</summary><div class="tp-row"><input type="date" id="rpOpen" value="' + st.year + '-' + esc(st.open_md) + '">' +
     '<button type="button" class="ghost-btn rp-save" onclick="saveRecapOpen()">저장</button></div><small>해마다 이 날짜에 모두에게 열려요</small><div class="msg" id="rpOpenMsg"></div></details>';
   $('recapArea').innerHTML = h + '</div>';
+}
+function setRecapOn(on) {
+  api('recap.setEnabled', { on: on }).then(function () { haptic('success'); loadRecapStatus(); }).catch(function (err) { setMsg('rpOnMsg', err.message, true); });
 }
 function saveRecapOpen() {
   var v = $('rpOpen').value; if (!v) return;
@@ -4521,4 +4529,46 @@ function submitDues() {
     haptic('success'); setMsg('duMsg', r.treasurers ? '올렸어요! 회계담당자가 확인하면 알려드려요' : '올렸어요. 아직 회계담당자가 정해지지 않아서 알림은 안 갔어요', !r.treasurers);
     loadDues(); setTimeout(function () { closeModal('duesModal'); }, r.treasurers ? 1200 : 3000);
   }).catch(function (err) { btn.disabled = false; setMsg('duMsg', err.message, true); });
+}
+
+// =====================================================================
+// 내 캐릭터 꾸미기 (나의 기록 오른쪽 아래): 고를 수 있는 값은 서버 목록(look.get options)뿐. 미리보기는 town.js Town.avatar
+// =====================================================================
+var LK = { look: null, saved: null, opts: null, stop: null };
+var LOOK_ROWS = [
+  ['gender', '성별', { m: '남', f: '여' }], ['skin', '피부', null], ['style', '머리 모양', { short: '짧은 머리', long: '긴 머리', bob: '단발', bun: '똥머리', up: '올림머리', pony: '포니테일' }],
+  ['hair', '머리색', null], ['shirt', '윗옷', null], ['bottom', '아래옷', { pants: '바지', skirt: '치마' }], ['pants', '아래옷 색', null],
+  ['hat', '머리에 쓰는 것', { '': '없음', cap: '모자', helmet: '헬멧', ribbon: '리본', phones: '헤드폰' }], ['hatc', '쓰는 것 색', null],
+  ['ride', '탈것', { '': '걸어서', ford: '🚗 오픈카', bike: '🚲 자전거', moto: '🏍 오토바이', kick: '🛴 킥보드', camel: '🐫 낙타', donkey: '🫏 당나귀', turtle: '🐢 거북이' }]
+];
+function loadLook() {
+  api('look.get').then(function (d) { LK.opts = d.options; LK.look = Object.assign({}, d.look); LK.saved = JSON.stringify(d.look); renderLook(); })
+    .catch(function (err) { $('lookArea').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function renderLook() {
+  var L = LK.look, h = '<div class="card lk-prev"><canvas id="lookCv"></canvas><small>왼쪽은 서 있을 때, 오른쪽은 이동할 때 모습이에요</small></div><div class="card lk-opts">';
+  LOOK_ROWS.forEach(function (r) {
+    var k = r[0], list = LK.opts[k] || [];
+    if (k === 'hatc' && !L.hat) return;
+    var cur = L[k] == null ? '' : L[k];
+    h += '<div class="lk-row"><span class="lk-l">' + r[1] + '</span><div class="lk-ch">' + list.map(function (v) {
+      var on = String(cur) === v ? ' on' : '';
+      return r[2] ? '<button type="button" class="b-pick' + on + '" onclick="lookSet(\'' + k + '\',\'' + v + '\')">' + esc(r[2][v] || v) + '</button>'
+        : '<button type="button" class="lk-sw' + on + '" style="background:' + v + '" aria-label="' + r[1] + '" onclick="lookSet(\'' + k + '\',\'' + v + '\')"></button>';
+    }).join('') + '</div></div>';
+  });
+  h += '<div class="lk-row"><span class="lk-l">볼터치</span><div class="lk-ch"><button type="button" class="b-pick' + (L.blush ? ' on' : '') + '" onclick="lookSet(\'blush\',' + !L.blush + ')">' + (L.blush ? '있음' : '없음') + '</button></div></div></div>' +
+    '<div class="lk-acts"><button class="btn-primary" id="lkBtn" onclick="saveLook()">저장하기</button><button class="ghost-btn" onclick="resetLook()">기본 모습으로</button></div><div class="msg" id="lkMsg"></div>';
+  if (LK.stop) LK.stop();
+  $('lookArea').innerHTML = h;
+  LK.stop = window.Town && Town.avatar ? Town.avatar($('lookCv'), function () { return LK.look; }) : null;
+}
+function lookSet(k, v) { LK.look[k] = v; renderLook(); }
+function resetLook() { LK.look = {}; renderLook(); }
+function saveLook() {
+  var btn = $('lkBtn'); btn.disabled = true; setMsg('lkMsg', '저장하는 중...');
+  api('look.save', { look: LK.look }).then(function (r) {
+    haptic('success'); LK.look = Object.assign({}, r.look); LK.saved = JSON.stringify(r.look); renderLook();
+    setMsg('lkMsg', '저장했어요! 동네지도에 곧 반영돼요'); townTeam = null;
+  }).catch(function (err) { btn.disabled = false; setMsg('lkMsg', err.message, true); });
 }

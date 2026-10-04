@@ -4,3 +4,7 @@ insert into app_settings (key, value, description) values
   ('recap_open', '"12-22"', '연말 결산 공개일 (MM-DD, 해마다). 그 전에는 교관 이상만 미리보기'),
   ('admins', (select jsonb_build_array(id) from people where name = '이강준'), '관리자 명단 (people.id). 공개일 등 운영 설정을 바꿀 수 있음')
 on conflict (key) do nothing;
+
+-- 리포트 켜기 (2026-10-05): 관리자가 앱에서 켜야 보임
+insert into app_settings (key, value, description) values ('recap_enabled', 'false', '연말 결산 리포트 켜기 (관리자가 켜야 보임)')
+on conflict (key) do nothing;

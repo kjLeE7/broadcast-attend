@@ -160,7 +160,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -321,6 +321,14 @@
 - 자동: `cron.reminders` 안 `cronDuesNag` — 매달 25일(한국 10시 이후) 그달 미납 과원에게 한 번(`dues_nags`로 중복 막음).
 - 권한: 회비 내역은 본인과 회계 명단만. 교관·팀장도 다른 사람 회비는 못 봄. 회계 지정은 관리자 명단만.
 
+### 나의 기록 배치·캐릭터 꾸미기 (2026-10-05, 함수 버전 43)
+- '개인' 첫 화면 제목 '개인노트' → **'나의 기록'**. PC 배치: 위 [나의 성장 | 받은 피드백](`.st-two`), 아래 [배지·내 정보 | 내 캐릭터](`.pf-two`), 그 아래 한 달 활동. 폰은 위아래로.
+- **연말 결산은 관리자가 켜야 보임**: 설정값 `recap_enabled`(기본 false), `recap.setEnabled { on }`(관리자만). 꺼져 있으면 관리자에게만 '켜기' 카드. 켜면 예전처럼 공개일 전 교관 이상 미리보기, 공개일 뒤 모두.
+- **캐릭터 꾸미기**(나의 기록 오른쪽 아래 `#lookArea`, `renderLook`/`saveLook`): `look.get`(지금 값 + 고를 수 있는 목록 `LOOK_OPTS`, 서버가 원본) / `look.save`(본인만, 목록 밖 값은 거부) → `people.town_look`.
+  고르는 것: 성별(m/f, f는 속눈썹) · 피부 · 머리 모양(short/long/bob/bun/up 올림머리/pony 포니테일) · 머리색 · 윗옷 · 아래옷(pants/skirt)+색 · 머리에 쓰는 것 `hat`(cap/helmet/ribbon/phones)+색 `hatc` · 볼터치 · 탈것 `ride`.
+  탈것: ford(오픈카, 예전 그대로) + town.js `RIDES`(bike·moto·kick 킥보드(서서)·camel·donkey·turtle). 이동할 때만 타고, 빠르기는 RIDES speed(거북이 14, 걷기 30). 미리보기 `Town.avatar(canvas, () => look)`(서 있는 모습 + 지나가는 모습).
+  town.js `withLook(id, look)` = 기본 생김새 위에 덮어씀(윗옷만 바꾸면 소매 그림자색 맞춤). 예전 style 'cap'도 모자로 그려짐.
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -422,7 +430,7 @@
 - **캐릭터 꾸미기**(2026-10-04): `people.town_look` jsonb → `dashboard.scene`이 `look`으로 보냄 → town.js가 기본 생김새(`lookFor`, id 해시) 위에 덮어씀.
   덮을 수 있는 것: skin·hair·style(short/long/bob/bun/cap)·shirt·shirt2·pants·capc·blush, 그리고 `ride`.
   `ride: "ford"` = 이동하는 동안만 짙은 파랑 머스탱풍 **오픈카**(지붕 없음, 흰 줄, 그 사람 얼굴이 차 위로 쏙 — 사람 그림의 머리 7칸을 잘라 씀)로 그려지고 걸음보다 빠름(55 vs 30), 도착하면 내림(`drawRide`, `fordParts`).
-  지금 설정: 김지혜 = ford. 사용자가 "누구 캐릭터를 ~로" 부탁하면 SQL로 `town_look`만 고치면 됨(새 탈것·모양이면 town.js에 그리기 추가).
+  지금 설정: 김지혜 = ford. 2026-10-05부터 본인이 나의 기록에서 직접 꾸밈(아래 '나의 기록 배치·캐릭터 꾸미기'). 새 탈것·모양은 town.js 그리기 + main.ts `LOOK_OPTS` 둘 다 추가.
   사람마다 애니메이션 박자는 `p.seed`(id 해시 숫자). 예전엔 문자 id를 더해서 걷는 다리 움직임이 안 됐음 → 고침.
 - **장소 상태 연출**(2026-10-05, 함수 버전 38): 받아 둔 segs로 분마다 장소 상태 계산(`updatePlaceStatus`, `placeSt`, `busyLabel`). 새 표 없음.
   코드원·SMC 녹음 중 = ON AIR 깜빡임 + 문 닫힘 + 이름표 'ON AIR'. 스담 방 5개 수업·모임·회의·스터디·연습 중 = 바닥 불빛 + 이름표 'OO 중'. 총회·성전 = '회의 중'.
