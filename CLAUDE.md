@@ -151,7 +151,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `ccea54e`의 main.ts (함수 버전 35, 모임에 체크인 붙이기). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `9d42c06`의 main.ts (함수 버전 36, 다른 팀 고르기·고치기·업무 탭·업무가능 2주 표). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -160,7 +160,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -261,6 +261,18 @@
   → 웹훅을 문지기로 + 명령어 메뉴(`BOT_COMMANDS`) 등록. 확인은 같은 방식으로 `cron.webhookInfo`(target: supabase/apps-script).
   **되돌리기**: Apps Script 편집기에서 `setupBot` 실행(웹훅을 Apps Script로 다시 맞춤). 전환하면 Supabase에 없는 운영 앱 사람은 '등록 안 됨' 답을 받고, 채팅 체크인이 시트로 안 감.
 - 테스트(2026-10-04): 가짜 update를 없는 채팅(id 1)으로 보내 확인 — 비밀값 틀리면 401, 등록자 '기상'·'/todo@BangYeah_bot', 미등록자 모두 200, 로그엔 'chat not found'만(정상).
+
+### 2026-10-05 바뀐 것 (함수 버전 36)
+- **다른 팀도 고르기**: 대상 고르기(`pk*`)의 팀 칩을 여러 개 켤 수 있음(`P.keys` 배열, `P.all` = 과 전체). 팀 칩은 내가 만들 수 있는 팀(`pkMine`, PCFG min)이 하나라도 있으면 과의 모든 팀이 보임.
+  만드는 팀 `pkOwner`(고른 팀 중 내가 만들 수 있는 팀, 지금 팀 먼저). 그 팀 하나를 통째로 고르면 예전처럼 팀 대상, 다른 팀이 섞이면 언제나 `target_people`.
+  조·직책 기준은 팀을 하나만 골랐을 때만. 서버 `pickedPeople`: 만드는 팀에서 서열 확인 + 사람은 같은 과면 누구나. 양식 대상은 `keys`(예전 `key`도 읽음).
+- **고치기**: 만들기 팝업 4개(c·ci·ann·hw)를 `editOn(k, id, 대상글자)`로 '고치기' 모드로(대상 고르기 숨기고 '받는 사람' 안내, 양식 줄 숨김), 닫으면 `editOff`가 쓰던 입력·글자를 되돌림(`closeModal`에서).
+  만들기 함수 맨 앞에서 `EDIT.k`면 `save*Edit`. 모임 = 상세 아래 '✏️ 모임 고치기'(조장 이상, 바뀐 칸만 `sessions.update`, 마감된 모임은 날짜·시작 잠금, 알림 선택),
+  체크인 = 현황판 펼침 안 '체크인 고치기'(교관 이상·만든 사람, `checkins.update`), 공지 = 카드 아래 '고치기'(삭제와 같은 사람), 과제 = 제출 현황 아래 '과제 고치기'(교관 이상).
+  **받는 사람은 못 고침**(바꾸려면 지우고 새로). `sessions.update { checkin_items }` = 모임에 붙은 체크인 항목 고치기(비우면 지움, 없으면 새로 붙임, 뺀 항목 기록 지움).
+- **아래 탭 '녹음' → '업무'**(화면 제목은 그대로 '목소리를 담는 시간'). `rec.list`는 내 팀(서열 있는 팀)이 올린 요청 + 내가 올렸거나 회차에 들어간 요청만.
+- **업무가능 시간 · 2주**(`#recAvail`, 업무 탭 맨 아래, PC는 `grid-column: 1/-1`로 화면 폭 가득 + 오른쪽 sticky 패널 위로 덮임): `weekly.overview` = 오늘부터 14일, 팀은 `boardTeams`(모아보기와 같음), 처음엔 내 팀(`mine`)이 하나면 그 팀.
+  [시간대별] 30분 칸 인원 진하기 + 누르면 가능/안 됨/아직 안 냄 명단, [사람별] 날짜마다 되는 시간('19~22', 안 냈으면 '미제출'), 주마다 안 낸 사람. `AV`, `loadAvail`(3분 저장), `avRanges`.
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
@@ -393,7 +405,7 @@
 - 공통: 본인이 낸 건 본인이 조회·수정. 조장 이상은 출결 현황 조회·수정. 다른 팀원은 이름까지만 보여요.
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
-- 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요.
+- 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
 - 모임: 만들기·고치기·취소·출결확인·마감은 조장 이상. 출결 상태는 팀원 모두, 사유는 본인·조장 이상.
 
 ## 6. 조직 계층
