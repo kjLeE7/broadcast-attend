@@ -1178,7 +1178,9 @@ async function cronReminders(db: any) {
   let weekly = null, polls = null;
   try { weekly = await cronWeeklyNag(ctx); } catch (e) { console.error("weekly nag", e); }
   try { polls = await cronPolls(ctx); } catch (e) { console.error("polls", e); }
-  return { sessions: out, weekly, polls };
+  let dues = null;
+  try { dues = await cronDuesNag(ctx); } catch (e) { console.error("dues nag", e); }
+  return { sessions: out, weekly, polls, dues };
 }
 
 // 출결 행에서 다른 사람에게 보여도 되는 칸 / 사유까지 (본인·조장 이상)
@@ -1473,6 +1475,50 @@ function recapYear(p: any) {
   const y = Number(p?.year ?? kstToday().slice(0, 4));
   if (!Number.isInteger(y) || y < 2025 || y > 2100) throw new HttpError(400, "연도를 다시 골라주세요");
   return y;
+}
+
+// ----- 회비·후원 -----
+// 설정값: treasurers(회계 명단), dues_monthly(한 달 회비), dues_start(받기 시작한 달), dues_nag_day(미납 알림 날)
+async function duesSettings(ctx: Ctx) {
+  const rows: any[] = must(await ctx.db.from("app_settings").select("key,value").in("key", ["treasurers", "dues_monthly", "dues_start", "dues_nag_day", "admins"])) ?? [];
+  const v = new Map(rows.map((r) => [r.key, r.value]));
+  const arr = (x: any) => Array.isArray(x) ? x as string[] : [];
+  return { treasurers: arr(v.get("treasurers")), admins: arr(v.get("admins")), monthly: Number(v.get("dues_monthly") ?? 10000),
+    start: /^\d{4}-\d\d$/.test(String(v.get("dues_start"))) ? String(v.get("dues_start")) : kstToday().slice(0, 7), nagDay: Number(v.get("dues_nag_day") ?? 25) };
+}
+// 과원 = 과·과의 팀에 지금 직책이 있는 활성 인원
+async function duesMembers(ctx: Ctx, teamId: string) {
+  const units = await sectionUnits(ctx, teamId);
+  return { sectionId: units[0], members: await unitMembers(ctx, units) };
+}
+function monthsBetween(a: string, b: string) {   // a~b 포함, 'YYYY-MM'
+  const out: string[] = []; let [y, m] = a.split("-").map(Number);
+  while (out.length < 120) { const k = `${y}-${String(m).padStart(2, "0")}`; if (k > b) break; out.push(k); if (++m > 12) { m = 1; y++; } }
+  return out;
+}
+// 달마다 상태: 확인 / 대기 / 미납 (회비 줄의 months로 셈)
+function duesMonthState(entries: any[], month: string) {
+  const fee = entries.filter((e) => e.kind === "회비" && e.months.includes(month));
+  return fee.some((e) => e.status === "확인") ? "확인" : fee.some((e) => e.status === "대기") ? "대기" : "미납";
+}
+// 매달 dues_nag_day(한국 시간 10시 이후)에 그달 미납 과원에게 한 번
+async function cronDuesNag(ctx: Ctx) {
+  const st = await duesSettings(ctx);
+  const now = new Date(Date.now() + 9 * HOUR), month = now.toISOString().slice(0, 7);
+  if (!st.nagDay || now.getUTCDate() < st.nagDay || now.getUTCHours() < 10 || month < st.start) return null;
+  if (must(await ctx.db.from("dues_nags").select("month").eq("month", month).maybeSingle())) return null;
+  const sections: any[] = must(await ctx.db.from("org_units").select("id").eq("unit_type", "과").is("ended_on", null)) ?? [];
+  const members: any[] = [];
+  for (const sec of sections) members.push(...await unitMembers(ctx, await sectionUnits(ctx, sec.id)));
+  const ids = members.map((m) => m.id);
+  const ent: any[] = ids.length ? must(await ctx.db.from("dues_entries").select("person_id, kind, months, status").eq("kind", "회비").in("person_id", ids).contains("months", [month])) ?? [] : [];
+  const targets = members.filter((m) => duesMonthState(ent.filter((e) => e.person_id === m.id), month) === "미납");
+  must(await ctx.db.from("dues_nags").insert({ month, result: { total: targets.length } }));   // 먼저 적어 두어 두 번 안 감
+  const [y, mo] = month.split("-");
+  const r = await sendToMembers(targets, `💰 <b>${Number(mo)}월 회비가 아직 확인되지 않았어요</b>\n\n입금하셨다면 미니앱 › 개인 › 회비에서 '납부 확인 요청'을 올려주세요.\n(이미 올리셨다면 회계담당자가 확인 중이에요)`,
+    appButton("회비 화면 열기", "?go=dues"));
+  must(await ctx.db.from("dues_nags").update({ result: { total: targets.length, sent: r.sent, failed: r.failed } }).eq("month", month));
+  return { month, year: y, total: targets.length, sent: r.sent };
 }
 
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
@@ -1844,6 +1890,126 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       cnt(ctx.db.from("person_badges").select("id, badges!inner(team_id)", { count: "exact", head: true }).eq("badges.team_id", p.team_id).gte("earned_at", iso[0]).lt("earned_at", iso[1])),
     ]);
     return { recordings: rec, meetings: sess.length, attendance: attend, grants, badges };
+  },
+
+  // ----- 회비·후원 -----
+  // 내 회비 { team_id } → 달마다 상태(받기 시작한 달 ~ 이번 달), 내가 올린 것, 회계·관리자인지 (관리자면 과원 명단·회계 명단도)
+  async "dues.mine"(ctx) {
+    const st = await duesSettings(ctx);
+    const { members } = await duesMembers(ctx, ctx.payload?.team_id);
+    if (!members.some((m) => m.id === ctx.me.id)) throw new HttpError(403, "과원만 볼 수 있어요");
+    const ent: any[] = must(await ctx.db.from("dues_entries").select("id, kind, months, amount, depositor, item, qty, memo, status, reject_reason, created_at, reviewed_at")
+      .eq("person_id", ctx.me.id).neq("status", "취소").order("created_at", { ascending: false })) ?? [];
+    const cur = kstToday().slice(0, 7);
+    const admin = st.admins.includes(ctx.me.id);
+    return {
+      monthly: st.monthly, start: st.start, current: cur,
+      months: monthsBetween(st.start, cur).reverse().map((m) => ({ month: m, state: duesMonthState(ent, m) })),
+      entries: ent, treasurer: st.treasurers.includes(ctx.me.id), admin,
+      ...(admin ? { people: members.map((m) => ({ id: m.id, name: m.name })), treasurers: st.treasurers } : {}),
+    };
+  },
+  // 확인 요청 올리기 { team_id, kind: 회비|물품, months?, amount?, depositor?, item?, qty?, memo? } → 회계담당자에게 알림
+  async "dues.submit"(ctx) {
+    const p = ctx.payload ?? {};
+    const st = await duesSettings(ctx);
+    const { sectionId, members } = await duesMembers(ctx, p.team_id);
+    if (!members.some((m) => m.id === ctx.me.id)) throw new HttpError(403, "과원만 올릴 수 있어요");
+    const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n) || null;
+    const row: any = { section_id: sectionId, person_id: ctx.me.id, kind: p.kind, memo: t(p.memo, 300) };
+    let label = "";
+    if (p.kind === "회비") {
+      const cur = kstToday().slice(0, 7), ok = monthsBetween(st.start, addDaysStr(cur + "-01", 370).slice(0, 7));
+      const months = [...new Set((Array.isArray(p.months) ? p.months : []).map(String))].sort() as string[];
+      if (!months.length || months.length > 12 || months.some((m) => !ok.includes(m))) throw new HttpError(400, "몇 월 회비인지 골라주세요");
+      const amount = Number(p.amount);
+      if (!Number.isInteger(amount) || amount < 1 || amount > 10000000) throw new HttpError(400, "입금한 금액을 숫자로 적어주세요");
+      Object.assign(row, { months, amount, depositor: t(p.depositor, 30) });
+      label = `${months.map((m) => Number(m.slice(5)) + "월").join("·")} 회비 ${amount.toLocaleString()}원`;
+    } else if (p.kind === "물품") {
+      const item = t(p.item, 80);
+      if (!item) throw new HttpError(400, "어떤 물품인지 적어주세요");
+      Object.assign(row, { item, qty: t(p.qty, 30) });
+      label = `후원물품 ${item}${row.qty ? " " + row.qty : ""}`;
+    } else throw new HttpError(400, "회비인지 물품인지 골라주세요");
+    await rateLimit(ctx, "dues_submit", 10, 60);
+    const e = must(await ctx.db.from("dues_entries").insert(row).select("id").single());
+    if (st.treasurers.length) await sendToMembers(await withTelegram(ctx, st.treasurers),
+      `💰 <b>확인 요청</b>\n${escHtml(ctx.me.name)} · ${escHtml(label)}${row.depositor ? `\n입금자명 ${escHtml(row.depositor)}` : ""}${row.memo ? `\n${escHtml(row.memo)}` : ""}`,
+      appButton("회계 화면 열기", "?go=dues"));
+    return { id: e.id, treasurers: st.treasurers.length };
+  },
+  // 내가 올린 것 취소 { id } (확인 전만)
+  async "dues.cancel"(ctx) {
+    const e = must(await ctx.db.from("dues_entries").select("id, person_id, status").eq("id", ctx.payload?.id).maybeSingle());
+    if (!e || e.person_id !== ctx.me.id) throw new HttpError(404, "없는 요청이에요");
+    if (e.status !== "대기") throw new HttpError(400, "확인 전인 것만 취소할 수 있어요");
+    must(await ctx.db.from("dues_entries").update({ status: "취소" }).eq("id", e.id));
+    return { ok: true };
+  },
+  // 회계 화면 { team_id, month } (회계 명단만): 확인 기다리는 것 · 그달 과원별 상태 · 합계 · 물품
+  async "dues.board"(ctx) {
+    const st = await duesSettings(ctx);
+    if (!st.treasurers.includes(ctx.me.id)) throw new HttpError(403, "회계담당자만 볼 수 있어요");
+    const month = /^\d{4}-\d\d$/.test(String(ctx.payload?.month)) ? String(ctx.payload.month) : kstToday().slice(0, 7);
+    const { sectionId, members } = await duesMembers(ctx, ctx.payload?.team_id);
+    const nameOf = new Map(members.map((m) => [m.id, m.name]));
+    const all: any[] = must(await ctx.db.from("dues_entries").select("id, person_id, kind, months, amount, depositor, item, qty, memo, status, reject_reason, created_at, reviewed_at, reviewed_by")
+      .eq("section_id", sectionId).neq("status", "취소").order("created_at", { ascending: false }).limit(1000)) ?? [];
+    const pend = all.filter((e) => e.status === "대기");
+    const inMonth = all.filter((e) => e.kind === "회비" ? e.months.includes(month) : e.created_at.slice(0, 7) === month);
+    const people = members.map((m) => ({ id: m.id, name: m.name, state: duesMonthState(all.filter((e) => e.person_id === m.id), month) }))
+      .sort((a, b) => (a.state === "미납" ? 0 : a.state === "대기" ? 1 : 2) - (b.state === "미납" ? 0 : b.state === "대기" ? 1 : 2) || a.name.localeCompare(b.name));
+    // 그달 확인된 회비: 기본 회비(한 달 몫) + 넘는 만큼은 후원금 (여러 달이면 달 수로 나눔)
+    let fee = 0, extra = 0;
+    for (const e of inMonth.filter((x) => x.kind === "회비" && x.status === "확인")) { const per = e.amount / e.months.length; fee += Math.min(per, st.monthly); extra += Math.max(0, per - st.monthly); }
+    const named = (e: any) => ({ ...e, name: nameOf.get(e.person_id) ?? "(과 밖)", reviewer: e.reviewed_by ? nameOf.get(e.reviewed_by) ?? "" : "" });
+    return {
+      month, monthly: st.monthly, pending: pend.map(named), people,
+      totals: { fee: Math.round(fee), extra: Math.round(extra), paid: people.filter((x) => x.state === "확인").length, total: people.length },
+      items: inMonth.filter((e) => e.kind === "물품").map(named), history: inMonth.filter((e) => e.kind === "회비").map(named),
+    };
+  },
+  // 확인·반려 { id, ok, reason? } (회계 명단만) → 올린 사람에게 알림
+  async "dues.review"(ctx) {
+    const st = await duesSettings(ctx);
+    if (!st.treasurers.includes(ctx.me.id)) throw new HttpError(403, "회계담당자만 할 수 있어요");
+    const p = ctx.payload ?? {};
+    const e = must(await ctx.db.from("dues_entries").select("id, person_id, kind, months, amount, item, qty, status").eq("id", p.id).maybeSingle());
+    if (!e) throw new HttpError(404, "없는 요청이에요");
+    if (e.status !== "대기") throw new HttpError(400, "이미 처리된 요청이에요");
+    const reason = String(p.reason ?? "").trim().slice(0, 200);
+    if (!p.ok && !reason) throw new HttpError(400, "반려 사유를 적어주세요");
+    must(await ctx.db.from("dues_entries").update({ status: p.ok ? "확인" : "반려", reviewed_by: ctx.me.id, reviewed_at: new Date().toISOString(), reject_reason: p.ok ? null : reason }).eq("id", e.id));
+    const label = e.kind === "회비" ? `${e.months.map((m: string) => Number(m.slice(5)) + "월").join("·")} 회비 ${Number(e.amount).toLocaleString()}원` : `후원물품 ${e.item}${e.qty ? " " + e.qty : ""}`;
+    await sendToMembers(await withTelegram(ctx, [e.person_id]), p.ok
+      ? `✅ <b>${escHtml(label)}</b> 확인됐어요. 고맙습니다!`
+      : `↩️ <b>${escHtml(label)}</b> 확인 요청이 반려됐어요\n사유: ${escHtml(reason)}\n\n확인 후 다시 올려주세요.`, appButton("회비 화면 열기", "?go=dues"));
+    return { ok: true };
+  },
+  // 미납자 연락 { team_id, month } (회계 명단만): 봇이 회계담당자에게 미납자 이름을 누르면 바로 개인 대화로 가는 목록을 보냄
+  async "dues.contacts"(ctx) {
+    const st = await duesSettings(ctx);
+    if (!st.treasurers.includes(ctx.me.id)) throw new HttpError(403, "회계담당자만 할 수 있어요");
+    await rateLimit(ctx, "dues_contacts", 5, 10);
+    const b: any = await actions["dues.board"](ctx);
+    const unpaid = b.people.filter((x: any) => x.state === "미납");
+    if (!unpaid.length) return { count: 0 };
+    const tg: any[] = await withTelegram(ctx, unpaid.map((x: any) => x.id));
+    const lines = tg.map((m) => m.telegram_user_id ? `• <a href="tg://user?id=${m.telegram_user_id}">${escHtml(m.name)}</a>` : `• ${escHtml(m.name)} (텔레그램 번호 없음)`);
+    const meTg = await withTelegram(ctx, [ctx.me.id]);
+    const r = await sendToMembers(meTg, `💰 <b>${Number(b.month.slice(5))}월 회비 미납 ${unpaid.length}명</b>\n이름을 누르면 그 사람과 개인 대화로 가요.\n\n${lines.join("\n")}`);
+    return { count: unpaid.length, sent: r.sent };
+  },
+  // 회계담당자 지정 { ids } (관리자 명단만): 과원 중에서
+  async "dues.setTreasurers"(ctx) {
+    const st = await duesSettings(ctx);
+    if (!st.admins.includes(ctx.me.id)) throw new HttpError(403, "관리자만 지정할 수 있어요");
+    const { members } = await duesMembers(ctx, ctx.payload?.team_id);
+    const ids = [...new Set((Array.isArray(ctx.payload?.ids) ? ctx.payload.ids : []).map(String))] as string[];
+    if (ids.length > 10 || ids.some((id) => !members.some((m) => m.id === id))) throw new HttpError(400, "과원 중에서 골라주세요");
+    must(await ctx.db.from("app_settings").update({ value: ids, updated_by: ctx.me.id, updated_at: new Date().toISOString() }).eq("key", "treasurers"));
+    return { treasurers: ids };
   },
 
   // 내 한 달 활동: { month: "YYYY-MM" }

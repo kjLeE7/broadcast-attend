@@ -1173,3 +1173,49 @@ html { scrollbar-gutter: stable; }
 .rp-dl { display: inline-block; padding: 10px 18px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; text-decoration: none; }
 .rp-foot { display: block; color: var(--muted); font-size: 12px; margin-top: 8px; }
 .cover .rp-h { font-size: 34px; }
+
+/* ===== 회비 (renderDues) ===== */
+.du-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.du-m { padding: 12px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.du-m b { font-size: 15px; }
+.du-m.s-미납 { border: 1.5px solid #EBC9C0; }
+.du-acts { display: flex; flex-direction: column; gap: 0; margin-top: 14px; }
+.du-acts .du-item { border-style: solid; color: var(--accent); }
+@media (min-width: 1000px) { .du-acts { flex-direction: row; gap: 10px; align-items: center; } .du-acts .btn-primary, .du-acts .ghost-btn { width: auto; margin: 0; padding: 12px 22px; } }
+.du-list { display: grid; gap: 8px; }
+@media (min-width: 1000px) { .du-list { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); } }
+.du-e { padding: 12px 14px; }
+.du-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.du-top .st { margin-left: auto; }
+.du-who { font-size: 14.5px; }
+.du-what { font-size: 14px; }
+.du-what small { color: var(--muted); font-size: 12px; }
+.du-memo { margin: 6px 0 0; font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.du-memo.bad { color: var(--bad); }
+.du-at { display: block; color: var(--muted); font-size: 11.5px; margin-top: 6px; }
+.du-btns { display: flex; gap: 6px; margin-top: 10px; }
+.du-btns button, .du-cancel { flex: 1; border: none; border-radius: 10px; padding: 9px; font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+.du-ok { background: var(--accent); color: #fff; }
+.du-no { background: var(--card-soft); color: var(--bad); border: 1.5px solid #EBC9C0 !important; }
+.du-cancel { margin-top: 8px; width: 100%; background: var(--card-soft); color: var(--muted); }
+.du-sep { height: 1px; background: var(--line); margin: 30px 0 22px; }
+.du-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.du-sum div { background: var(--card); border-radius: 14px; padding: 12px; font-size: 12.5px; color: var(--muted); box-shadow: var(--shadow); }
+.du-sum small { display: block; font-weight: 700; }
+.du-sum b { font-size: 18px; color: var(--accent); }
+.du-people { padding: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+.du-p { padding: 5px 10px; border-radius: 99px; font-size: 13px; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
+.du-p.s-미납 { background: #F6E3DE; color: var(--bad); }
+.du-p.s-대기 { background: #F5ECD9; color: var(--warn); }
+.du-contact { border-style: solid; color: var(--accent); }
+.du-hint { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; }
+.du-tr { padding: 14px; }
+.du-trsave { margin-top: 12px; }
+/* 나의 성장 차트는 작게 (화면을 너무 차지하지 않게) — PC는 차트 옆에 설명 */
+.st-chart svg { max-width: 250px; }
+@media (min-width: 1000px) {
+  .st-card { display: grid; grid-template-columns: 300px 1fr; align-items: center; column-gap: 24px; padding: 12px 20px; }
+  .st-card .st-chart { grid-row: 1 / span 2; }
+  .st-card .st-legend { justify-content: flex-start; }
+  .st-card .st-pick { text-align: left; }
+}

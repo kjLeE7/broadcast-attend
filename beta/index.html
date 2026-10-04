@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261005s">
+  <link rel="stylesheet" href="beta.css?v=20261005v">
 </head>
 <body>
   <div class="app">
@@ -422,6 +422,13 @@
     </section>
 
     <!-- ===== 시간취합 (가능시간 투표: 누구나 만들고 대상자가 칸을 칠함) ===== -->
+    <!-- ===== 회비·후원 (개인 › 회비) ===== -->
+    <section id="duesView" style="display:none;">
+      <h1 class="page-title">마음을 보태는 일</h1>
+      <p class="page-desc">회비는 과원 모두 매달 내요. 계좌로 입금한 뒤 '납부 확인 요청'을 올리면 회계담당자가 확인해요</p>
+      <div id="duesArea"><div class="b-wait">불러오는 중...</div></div>
+    </section>
+
     <section id="pollView" style="display:none;">
       <div id="pollList">
         <h1 class="page-title">함께할 시간 찾기</h1>
@@ -506,6 +513,7 @@
       <button type="button" data-t="task" onclick="pfGo('task')">내 과제</button>
       <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
       <button type="button" data-t="poll" onclick="pfGo('poll')">시간취합</button>
+      <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
     </div>
   </nav>
 
@@ -649,6 +657,16 @@
       <div class="b-modal-body" id="bdayBody"></div>
     </div>
   </div>
+  <div class="b-modal" id="duesModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="duesModalT">
+      <div class="b-modal-head">
+        <div><h1 id="duesModalT">납부 확인 요청</h1><p>회계담당자에게 봇으로 알림이 가요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body" id="duesBody"></div>
+    </div>
+  </div>
   <div class="b-modal" id="statModal" aria-hidden="true">
     <div class="b-modal-dim" onclick="closeModal()"></div>
     <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="statModalT">
@@ -790,6 +808,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261005b"></script>
-  <script src="beta.js?v=20261005t"></script>
+  <script src="beta.js?v=20261005u"></script>
 </body>
 </html>

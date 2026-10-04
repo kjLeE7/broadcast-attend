@@ -160,7 +160,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -311,6 +311,16 @@
 - 공유 이미지: `recapImage(summary)` canvas → PNG(1080×1350). `summary`엔 숫자·스탯 레벨·축 이름·배지 아이콘만(서버에서 제목·코드·배역·코멘트·이름을 아예 안 넣음). PC는 다운로드, 폰은 길게 눌러 저장.
 - 설정값: `recap_open` "MM-DD"(기본 "12-22", 해마다), `admins` = 관리자 명단(people.id 배열, 지금 이강준만, 2026-10-05 사용자 결정). 관리자 명단은 나중에 관리자 페이지에서도 씀.
 
+### 회비·후원 (2026-10-05, 함수 버전 42)
+- 개인 하위 메뉴 '회비'(`duesView`, `curTab` 'dues', 화면 제목 '마음을 보태는 일', 딥링크 `?go=dues`). **계좌번호는 앱·DB에 두지 않음**(사용자 결정).
+- 표 `dues_entries`(section_id, person_id, kind 회비|물품, months text[] 'YYYY-MM', amount, depositor, item, qty, memo, status 대기|확인|반려|취소, reviewed_by/at, reject_reason) + `dues_nags`(month, 미납 알림 기록). 마이그레이션 `supabase/migrations/20261005_dues.sql`.
+- 설정값: `treasurers`(회계 명단, people.id, 관리자가 화면에서 지정), `dues_monthly` 10000, `dues_start` "2026-10"(미납을 세기 시작한 달), `dues_nag_day` 25.
+- 과원(과·과의 팀에 지금 직책 있는 활성 인원) 모두 냄. 달 상태 = 그달이 months에 든 회비 줄 중 확인 있으면 '확인', 대기 있으면 '대기', 없으면 '미납'. 한 달 몫을 넘는 금액은 후원금으로 셈.
+- 기능: `dues.mine`(내 달별 상태·올린 것, 관리자면 과원·회계 명단) / `dues.submit`(회계에게 봇 알림) / `dues.cancel`(대기만) / `dues.board`(회계만: 대기 목록·과원별·합계·물품) / `dues.review`(회계만, 반려는 사유 필수, 올린 사람에게 알림)
+  / `dues.contacts`(회계만: 봇이 회계담당자에게 미납자 이름을 `tg://user?id=` 링크로 보냄 → 눌러서 개인 대화) / `dues.setTreasurers`(관리자만).
+- 자동: `cron.reminders` 안 `cronDuesNag` — 매달 25일(한국 10시 이후) 그달 미납 과원에게 한 번(`dues_nags`로 중복 막음).
+- 권한: 회비 내역은 본인과 회계 명단만. 교관·팀장도 다른 사람 회비는 못 봄. 회계 지정은 관리자 명단만.
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -447,6 +457,7 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
+- 회비(🔴 성격): 본인과 회계 명단만 봄. 회계 명단은 관리자가 지정. 계좌번호는 앱에 안 둠.
 - 연말 결산: 본인 것만. 공개일(`recap_open`) 전엔 교관 이상·관리자만 미리보기, 팀 결산은 그 팀 교관 이상(합계만). 공개일은 관리자 명단(`admins`)만 바꿈.
 - 배지(🟡): 보유 목록은 본인 + 그 팀 교관(설정값) 이상. 대표 칭호는 본인이 고른 것만 모두에게. 배지 정의는 팀장 이상(관리자 페이지, 지금은 SQL).
 - 성우 스탯(🟡): 주기·고치기는 그 팀 교관(설정값 `stat_grant_min_level`) 이상, 본인에겐 못 줌. 보기는 본인 + 그 팀 교관 이상. 취소는 준 사람·팀장 이상. 녹음 관계자 예외 없음.

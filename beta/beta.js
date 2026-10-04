@@ -108,7 +108,7 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -1231,7 +1231,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
@@ -1247,7 +1247,7 @@ function goTab(t) {
 }
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
-function parentTab(t) { return t === 'weekly' || t === 'poll' ? 'profile' : t === 'task' ? taskFrom : t; }
+function parentTab(t) { return t === 'weekly' || t === 'poll' || t === 'dues' ? 'profile' : t === 'task' ? taskFrom : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1298,7 +1298,7 @@ function setTabUI(t) {
   togglePfSub(!pfFloating() && pt === 'profile');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
@@ -1312,6 +1312,7 @@ function refreshTab() {
   else if (curTab === 'rec') loadRec();
   else if (curTab === 'profile') loadProfile();
   else if (curTab === 'poll') loadPolls();
+  else if (curTab === 'dues') loadDues();
 }
 
 // =====================================================================
@@ -4391,4 +4392,133 @@ function recapImage(sm) {
   c.fillStyle = '#8C877D'; c.font = '600 30px ' + F; c.fillText('방송예술과 성우팀', W / 2, 1290);
   RP.img = { k: sm, url: cv.toDataURL('image/png') };
   return RP.img.url;
+}
+
+// =====================================================================
+// 회비·후원 (개인 › 회비): 내 달별 상태 + 확인 요청. 회계담당자는 확인·반려·달별 현황, 관리자는 회계담당자 지정
+// 계좌번호는 앱에 두지 않음 (사용자 결정)
+// =====================================================================
+var DU = { d: null, board: null, month: null, kind: '회비', pick: {}, tr: null };
+var won = function (n) { return Number(n || 0).toLocaleString() + '원'; };
+var monLabel = function (m) { return (+m.slice(5)) + '월'; };
+function loadDues() {
+  api('dues.mine', { team_id: S.team.id }).then(function (d) {
+    DU.d = d; if (!DU.month) DU.month = d.current; renderDues();
+    if (d.treasurer) loadDuesBoard();
+  }).catch(function (err) { $('duesArea').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function loadDuesBoard() {
+  api('dues.board', { team_id: S.team.id, month: DU.month }).then(function (b) { DU.board = b; renderDues(); })
+    .catch(function (err) { DU.board = { error: err.message }; renderDues(); });
+}
+var DU_ST = { '확인': ['✓ 확인', 'st-참석'], '대기': ['확인 기다리는 중', 'st-지각'], '미납': ['아직 안 냄', 'st-불참'], '반려': ['반려', 'st-불참'], '취소': ['취소', 'st-none'] };
+function duStChip(st) { var x = DU_ST[st] || [st, 'st-none']; return '<span class="st ' + x[1] + '">' + x[0] + '</span>'; }
+function renderDues() {
+  var d = DU.d; if (!d) return;
+  var h = '<div class="section-head"><h2>내 회비</h2><span class="section-count">한 달 ' + won(d.monthly) + '</span></div>' +
+    '<div class="du-months">' + d.months.map(function (m) { return '<div class="card du-m s-' + m.state + '"><b>' + (m.month.slice(0, 4) !== d.current.slice(0, 4) ? m.month.slice(2, 4) + '년 ' : '') + monLabel(m.month) + '</b>' + duStChip(m.state) + '</div>'; }).join('') + '</div>' +
+    '<div class="du-acts"><button class="btn-primary" onclick="openDuesModal(\'회비\')">💰 납부 확인 요청</button><button class="ghost-btn du-item" onclick="openDuesModal(\'물품\')">🎁 후원물품 올리기</button></div>';
+  if (d.entries.length) h += '<div class="section-head b-gap"><h2>내가 올린 것</h2></div><div class="du-list">' + d.entries.map(duEntry).join('') + '</div>';
+  if (d.treasurer) h += renderDuesBoard();
+  if (d.admin) h += renderTreasurerPick();
+  $('duesArea').innerHTML = h;
+}
+function duEntry(e, board) {
+  var what = e.kind === '회비' ? e.months.map(monLabel).join('·') + ' 회비 · <b>' + won(e.amount) + '</b>' + (e.depositor ? ' <small>입금자 ' + esc(e.depositor) + '</small>' : '')
+    : '🎁 ' + esc(e.item) + (e.qty ? ' · ' + esc(e.qty) : '');
+  return '<div class="card du-e"><div class="du-top">' + (board ? '<b class="du-who">' + esc(e.name) + '</b>' : '') + '<span class="du-what">' + what + '</span>' + duStChip(e.status) + '</div>' +
+    (e.memo ? '<p class="du-memo">' + esc(e.memo) + '</p>' : '') +
+    (e.status === '반려' && e.reject_reason ? '<p class="du-memo bad">사유: ' + esc(e.reject_reason) + '</p>' : '') +
+    '<small class="du-at">' + mdOf(e.created_at) + ' 올림' + (e.reviewed_at ? ' · ' + mdOf(e.reviewed_at) + ' ' + (e.reviewer ? esc(e.reviewer) + ' ' : '') + '처리' : '') + '</small>' +
+    (board && e.status === '대기' ? '<div class="du-btns"><button class="du-ok" onclick="reviewDues(\'' + e.id + '\',true)">확인</button><button class="du-no" onclick="reviewDues(\'' + e.id + '\',false)">반려</button></div>' : '') +
+    (!board && e.status === '대기' ? '<button class="du-cancel" onclick="cancelDues(\'' + e.id + '\')">요청 취소</button>' : '') + '</div>';
+}
+function renderDuesBoard() {
+  var b = DU.board;
+  var h = '<div class="du-sep"></div><div class="section-head"><h2>회계</h2><span class="section-count">회계담당자만 보여요</span></div>';
+  if (!b) return h + '<div class="b-wait">불러오는 중...</div>';
+  if (b.error) return h + '<div class="empty"><b>불러오지 못했어요</b>' + esc(b.error) + '</div>';
+  h += '<div class="b-month"><button type="button" onclick="duMove(-1)">‹</button><b>' + b.month.slice(0, 4) + '년 ' + monLabel(b.month) + '</b><button type="button" onclick="duMove(1)"' + (b.month >= DU.d.current ? ' disabled' : '') + '>›</button></div>' +
+    '<div class="du-sum"><div><small>낸 사람</small><b>' + b.totals.paid + '</b> / ' + b.totals.total + '명</div><div><small>회비</small><b>' + won(b.totals.fee) + '</b></div><div><small>후원금</small><b>' + won(b.totals.extra) + '</b></div></div>';
+  if (b.pending.length) h += '<div class="section-head b-gap"><h2>확인 기다리는 것</h2><span class="section-count">' + b.pending.length + '건 · 통장·물품을 보고 눌러주세요</span></div><div class="du-list">' + b.pending.map(function (e) { return duEntry(e, true); }).join('') + '</div>';
+  var unpaid = b.people.filter(function (p) { return p.state === '미납'; });
+  h += '<div class="section-head b-gap"><h2>' + monLabel(b.month) + ' 과원별</h2><span class="section-count">미납 ' + unpaid.length + '명</span></div>' +
+    '<div class="card du-people">' + b.people.map(function (p) { return '<span class="du-p s-' + p.state + '">' + esc(p.name) + '</span>'; }).join('') + '</div>' +
+    (unpaid.length ? '<button class="ghost-btn du-contact" onclick="duesContacts()">💬 미납자 연락 목록을 텔레그램으로 받기</button><small class="du-hint">봇이 보내 준 목록에서 이름을 누르면 그 사람과 개인 대화로 가요</small><div class="msg" id="duContactMsg"></div>' : '');
+  if (b.items.length) h += '<div class="section-head b-gap"><h2>' + monLabel(b.month) + ' 후원물품</h2></div><div class="du-list">' + b.items.map(function (e) { return duEntry(e, true); }).join('') + '</div>';
+  return h;
+}
+function duMove(k) { var p = DU.month.split('-').map(Number), m = p[1] + k, y = p[0]; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } DU.month = y + '-' + String(m).padStart(2, '0'); DU.board = null; renderDues(); loadDuesBoard(); }
+function renderTreasurerPick() {
+  var d = DU.d; if (!DU.tr) DU.tr = d.treasurers.slice();
+  return '<div class="du-sep"></div><div class="section-head"><h2>회계담당자 지정</h2><span class="section-count">관리자만 보여요</span></div><div class="card du-tr"><div class="b-chips">' +
+    d.people.map(function (p) { return '<button type="button" class="b-pick' + (DU.tr.indexOf(p.id) !== -1 ? ' on' : '') + '" onclick="duTrToggle(\'' + p.id + '\')">' + esc(p.name) + '</button>'; }).join('') +
+    '</div><button class="btn-primary du-trsave" onclick="saveTreasurers()">회계담당자 저장</button><div class="msg" id="duTrMsg"></div></div>';
+}
+function duTrToggle(id) { var i = DU.tr.indexOf(id); if (i === -1) DU.tr.push(id); else DU.tr.splice(i, 1); renderDues(); }
+function saveTreasurers() {
+  api('dues.setTreasurers', { team_id: S.team.id, ids: DU.tr }).then(function () { haptic('success'); DU.tr = null; loadDues(); setTimeout(function () { setMsg('duTrMsg', '저장했어요'); }, 400); })
+    .catch(function (err) { setMsg('duTrMsg', err.message, true); });
+}
+function reviewDues(id, ok) {
+  var reason = '';
+  if (!ok) { reason = prompt('반려 사유를 적어주세요 (올린 사람에게 보여요)') || ''; if (!reason.trim()) return; }
+  api('dues.review', { id: id, ok: ok, reason: reason }).then(function () { haptic('success'); loadDuesBoard(); loadDues(); }).catch(function (err) { alertMsg(err.message); });
+}
+function cancelDues(id) {
+  if (!confirm('이 요청을 취소할까요?')) return;
+  api('dues.cancel', { id: id }).then(function () { loadDues(); }).catch(function (err) { alertMsg(err.message); });
+}
+function duesContacts() {
+  setMsg('duContactMsg', '보내는 중...');
+  api('dues.contacts', { team_id: S.team.id, month: DU.month }).then(function (r) { setMsg('duContactMsg', r.sent ? '텔레그램으로 보냈어요. 봇 대화를 확인해주세요' : '못 보냈어요. 봇과 대화를 시작했는지 확인해주세요', !r.sent); })
+    .catch(function (err) { setMsg('duContactMsg', err.message, true); });
+}
+// 확인 요청 팝업: 회비(몇 월·금액·입금자명) / 물품(이름·수량)
+function openDuesModal(kind) {
+  DU.kind = kind; DU.pick = {};
+  var d = DU.d, un = d.months.filter(function (m) { return m.state === '미납'; }).map(function (m) { return m.month; });
+  (un.length ? un.slice(-1) : [d.current]).forEach(function (m) { DU.pick[m] = 1; });
+  $('duesModalT').textContent = kind === '회비' ? '💰 납부 확인 요청' : '🎁 후원물품 올리기';
+  renderDuesModal(); openModal('duesModal');
+}
+function duesMonthOptions() {
+  var d = DU.d, out = d.months.map(function (m) { return m.month; }).reverse(), p = d.current.split('-').map(Number);
+  for (var i = 1; i <= 2; i++) { var m = p[1] + i, y = p[0]; if (m > 12) { m -= 12; y++; } out.push(y + '-' + String(m).padStart(2, '0')); }
+  return out;
+}
+function renderDuesModal() {
+  var d = DU.d, h = '';
+  if (DU.kind === '회비') {
+    var st = {}; d.months.forEach(function (m) { st[m.month] = m.state; });
+    var n = Object.keys(DU.pick).length;
+    h = '<label class="field-label">몇 월 회비인가요 <span class="hint">여러 달 골라도 돼요</span></label><div class="b-chips">' + duesMonthOptions().map(function (m) {
+        var done = st[m] === '확인' || st[m] === '대기';
+        return '<button type="button" class="b-pick' + (DU.pick[m] ? ' on' : '') + '"' + (done ? ' disabled' : '') + ' onclick="duPickMonth(\'' + m + '\')">' + monLabel(m) + (done ? '<small> ' + (st[m] === '확인' ? '✓' : '대기') + '</small>' : '') + '</button>';
+      }).join('') + '</div>' +
+      '<label class="field-label" for="duAmount">입금한 금액 <span class="hint">기본 ' + won(d.monthly * Math.max(1, n)) + ' · 더 넣으면 그만큼 후원금</span></label>' +
+      '<input type="number" id="duAmount" class="b-input" inputmode="numeric" min="1" step="1000" value="' + (d.monthly * Math.max(1, n)) + '">' +
+      '<label class="field-label" for="duDepositor">입금자명 <span class="hint">통장에 찍힌 이름</span></label><input type="text" id="duDepositor" class="b-input" maxlength="30" value="' + esc(S.me.profile.name) + '">';
+  } else {
+    h = '<label class="field-label" for="duItem">어떤 물품인가요</label><input type="text" id="duItem" class="b-input" maxlength="80" placeholder="예) 생수, 마이크 커버">' +
+      '<label class="field-label" for="duQty">수량 <span class="hint">선택</span></label><input type="text" id="duQty" class="b-input" maxlength="30" placeholder="예) 2상자">';
+  }
+  h += '<label class="field-label" for="duMemo">메모 <span class="hint">선택</span></label><textarea id="duMemo" rows="2" maxlength="300"></textarea>' +
+    '<button class="btn-primary" id="duBtn" onclick="submitDues()">' + (DU.kind === '회비' ? '확인 요청 올리기' : '물품 올리기') + '</button><div class="msg" id="duMsg"></div>';
+  $('duesBody').innerHTML = h;
+}
+function duPickMonth(m) {
+  var keep = { a: $('duDepositor') && $('duDepositor').value, m: $('duMemo') && $('duMemo').value };
+  if (DU.pick[m]) delete DU.pick[m]; else DU.pick[m] = 1;
+  renderDuesModal(); if (keep.a != null) $('duDepositor').value = keep.a; if (keep.m) $('duMemo').value = keep.m;
+}
+function submitDues() {
+  var p = { team_id: S.team.id, kind: DU.kind, memo: $('duMemo').value };
+  if (DU.kind === '회비') { p.months = Object.keys(DU.pick).sort(); p.amount = Number($('duAmount').value); p.depositor = $('duDepositor').value; }
+  else { p.item = $('duItem').value; p.qty = $('duQty').value; }
+  var btn = $('duBtn'); btn.disabled = true; setMsg('duMsg', '올리는 중...');
+  api('dues.submit', p).then(function (r) {
+    haptic('success'); setMsg('duMsg', r.treasurers ? '올렸어요! 회계담당자가 확인하면 알려드려요' : '올렸어요. 아직 회계담당자가 정해지지 않아서 알림은 안 갔어요', !r.treasurers);
+    loadDues(); setTimeout(function () { closeModal('duesModal'); }, r.treasurers ? 1200 : 3000);
+  }).catch(function (err) { btn.disabled = false; setMsg('duMsg', err.message, true); });
 }
