@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004n">
+  <link rel="stylesheet" href="beta.css?v=20261004o">
 </head>
 <body>
   <div class="app">
@@ -466,6 +466,15 @@
         <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
       </div>
       <div class="b-modal-body">
+        <!-- 내 양식: 누르면 그대로 채워짐 / 지금 입력한 걸 양식으로 저장 -->
+        <div class="tpl-bar" id="cTplBar"></div>
+        <div class="b-slide" id="cTplSave"><div>
+          <div class="tpl-save">
+            <input type="text" id="cTplName" class="b-input" maxlength="30" placeholder="양식 이름 (예: 토요 정규수업)">
+            <button type="button" class="tpl-save-btn" onclick="saveSessTpl()">저장</button>
+          </div>
+          <small class="tpl-note">날짜만 빼고 지금 입력한 그대로(대상·장소·내용까지) 저장돼요. 같은 이름이면 덮어써요.</small>
+        </div></div>
         <label class="field-label" for="cType">모임 유형</label>
         <div class="select-wrap"><select id="cType" onchange="applyTypeDefaults()"></select></div>
         <label class="field-label" for="cTitle">제목 <span class="hint">비우면 모임 유형 이름으로</span></label>
@@ -476,12 +485,15 @@
           <div><label class="field-label" for="cStart">시작</label><input type="time" id="cStart" class="b-input"></div>
           <div><label class="field-label" for="cEnd">끝</label><input type="time" id="cEnd" class="b-input"></div>
         </div>
-        <label class="field-label" for="cPlace">장소</label>
-        <input type="text" id="cPlace" class="b-input" maxlength="40" placeholder="예) 스담">
+        <label class="field-label" for="cPlaceSel">장소</label>
+        <div class="select-wrap"><select id="cPlaceSel" onchange="onPlaceSel()"><option value="">장소를 고르세요</option><option>스담</option><option>회의실</option><option>사무실</option><option>연구실</option><option>거울방</option><option>코드원 스튜디오</option><option>SMC</option><option>과천성전 10층</option><option>과천성전 9층</option><option>벽산 편집실</option><option value="기타">기타 (직접 입력)</option></select></div>
+        <div class="b-slide" id="cPlaceWrap"><div><input type="text" id="cPlace" class="b-input" maxlength="40" placeholder="장소를 직접 적어주세요"></div></div>
         <label class="field-label">대상</label>
         <div class="b-pick-row"><span>팀</span><div class="b-picks" id="cTeams"></div></div>
         <div class="b-pick-row" id="cSubRow" style="display:none;"><span>조</span><div class="b-picks" id="cSubs"></div></div>
         <div class="b-aud" id="cAud"><b>불러오는 중...</b></div>
+        <label class="field-label" for="cDesc">내용 <span class="hint">수업·스터디 내용 등 (선택)</span></label>
+        <textarea id="cDesc" rows="4" maxlength="2000" placeholder="예) 3과 발성 연습 · 대본 2쪽까지 읽어오기"></textarea>
         <label class="b-check-line"><input type="checkbox" id="cNotify" checked><span>대상자에게 텔레그램 알림 보내기</span></label>
         <button class="btn-primary" id="cBtn" onclick="createSession()">만들기</button>
         <div class="msg" id="cMsg"></div>
@@ -536,6 +548,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004b"></script>
-  <script src="beta.js?v=20261004n"></script>
+  <script src="beta.js?v=20261004o"></script>
 </body>
 </html>

@@ -539,6 +539,7 @@ async function notifyMembers(ctx: Ctx, s: any, kind: "new" | "cancel" | "change"
   const members = (await sessionMembers(ctx, s, true)).filter((m) => m.id !== ctx.me.id);
   const head = { new: "📅 새 모임이 잡혔어요", cancel: "❌ 모임이 취소됐어요", change: "✏️ 모임 정보가 바뀌었어요" }[kind];
   const text = `<b>${head}</b>\n\n<b>${escHtml(sessionName(s))}</b>\n${escHtml(sessionWhen(s))}${s.location ? " · " + escHtml(s.location) : ""}` +
+    (kind !== "cancel" && s.description ? "\n\n📝 " + escHtml(String(s.description).slice(0, 300)) + (String(s.description).length > 300 ? "…" : "") : "") +
     (kind === "cancel" ? "" : "\n\n미니앱에서 참석·지각·불참을 미리 체크해주세요.");
   const markup = kind === "cancel" ? undefined : checkButton(s);
   const { sent, failed, why } = await sendToMembers(members, text, markup);
@@ -1083,12 +1084,37 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       ...pick(p, ["meeting_type_id", "session_date", "start_time", "end_time", "place_mode"]),
       title: String(p.title ?? "").trim().slice(0, 60) || null,
       location: String(p.location ?? "").trim().slice(0, 40) || null,
+      description: String(p.description ?? "").trim().slice(0, 2000) || null,
       target_unit_id: p.target_unit_id || null,
       team_id: p.team_id,
       created_by: ctx.me.id,
     }).select(SESSION_COLS).single());
     const notify = p.notify === false ? null : await notifyMembers(ctx, s, "new");
     return { ...s, notify };
+  },
+
+  // ----- 개인 양식(템플릿): 만들기 화면 입력 상태를 저장해 두고 다시 채움 -----
+  // { kind } → 내 양식 목록
+  async "templates.list"(ctx) {
+    return must(await ctx.db.from("user_templates").select("id, name, data, updated_at")
+      .eq("person_id", ctx.me.id).eq("kind", String(ctx.payload.kind ?? "")).order("name")) ?? [];
+  },
+  // { kind, name, data } → 같은 이름이면 덮어씀. 종류마다 20개까지
+  async "templates.save"(ctx) {
+    const kind = String(ctx.payload.kind ?? "").slice(0, 20), name = String(ctx.payload.name ?? "").trim().slice(0, 30);
+    if (!kind || !name) throw new HttpError(400, "양식 이름을 적어주세요");
+    const data = ctx.payload.data;
+    if (!data || typeof data !== "object" || JSON.stringify(data).length > 8000) throw new HttpError(400, "양식 내용이 올바르지 않습니다");
+    const { count } = await ctx.db.from("user_templates").select("id", { count: "exact", head: true }).eq("person_id", ctx.me.id).eq("kind", kind).neq("name", name);
+    if ((count ?? 0) >= 20) throw new HttpError(400, "양식은 20개까지 만들 수 있어요. 안 쓰는 걸 지워주세요");
+    return must(await ctx.db.from("user_templates").upsert(
+      { person_id: ctx.me.id, kind, name, data, updated_at: new Date().toISOString() },
+      { onConflict: "person_id,kind,name" }).select("id, name, data, updated_at").single());
+  },
+  // { id } → 내 것만
+  async "templates.delete"(ctx) {
+    must(await ctx.db.from("user_templates").delete().eq("id", ctx.payload.id).eq("person_id", ctx.me.id));
+    return { ok: true };
   },
 
   // 모임 대상 고르기: { team_id } → 과의 팀들(만들 수 있는지), 팀마다 조, 사람 명단(팀별 서열). 조장 이상
@@ -1109,7 +1135,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "sessions.update"(ctx) {
     const before = await getSession(ctx, ctx.payload.id);
     await requireRank(ctx, before.team_id, RANK.GROUP_LEADER);
-    const patch = pick(ctx.payload, ["title", "session_date", "start_time", "end_time", "location", "place_mode", "status"]);
+    const patch = pick(ctx.payload, ["title", "session_date", "start_time", "end_time", "location", "place_mode", "status", "description"]);
     if ("status" in patch && !["예정", "취소"].includes(patch.status)) throw new HttpError(400, "상태가 올바르지 않습니다");
     if (before.closed_at && Object.keys(patch).some((k) => ["session_date", "start_time", "status"].includes(k))) {
       throw new HttpError(400, "이미 출결이 마감된 모임이라 날짜·시간·상태는 바꿀 수 없어요");

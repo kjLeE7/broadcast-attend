@@ -336,8 +336,92 @@ function sessionCard(s) {
 // ---------------------------------------------------------------------
 // 모임 만들기 (조장 이상) — 만들면 대상자에게 봇 알림
 // ---------------------------------------------------------------------
+// ----- 장소: 정해진 목록 + 기타(직접 입력 칸이 스르륵) -----
+function placeIsListed(v) { return [].some.call($('cPlaceSel').options, function (o) { return o.value && o.value !== '기타' && o.value === v; }); }
+function onPlaceSel() {
+  var other = $('cPlaceSel').value === '기타';
+  $('cPlaceWrap').classList.toggle('open', other);
+  if (other) setTimeout(function () { try { $('cPlace').focus(); } catch (e) {} }, 220);
+}
+function getPlace() { var v = $('cPlaceSel').value; return v === '기타' ? $('cPlace').value.trim() : v; }
+function setPlace(v) {
+  v = String(v || '').trim();
+  if (!v) { $('cPlaceSel').value = ''; $('cPlace').value = ''; }
+  else if (placeIsListed(v)) { $('cPlaceSel').value = v; $('cPlace').value = ''; }
+  else { $('cPlaceSel').value = '기타'; $('cPlace').value = v; }
+  onPlaceSel();
+}
+
+// ----- 내 양식: 지금 입력 상태(날짜 빼고)를 저장해 두고 누르면 그대로 채움 -----
+var TPL = { session: null };
+function loadSessTpls() {
+  if (TPL.session) { renderSessTpls(); return; }
+  $('cTplBar').innerHTML = '';
+  api('templates.list', { kind: 'session' }).then(function (l) { TPL.session = l || []; renderSessTpls(); }).catch(function () {});
+}
+function renderSessTpls() {
+  var l = TPL.session || [];
+  $('cTplBar').innerHTML = '<span class="tpl-label">📋 내 양식</span>' + l.map(function (t) {
+    return '<span class="tpl-chip"><button type="button" onclick="useSessTpl(\'' + esc(t.id) + '\')">' + esc(t.name) + '</button>' +
+      '<button type="button" class="tpl-x" onclick="delSessTpl(\'' + esc(t.id) + '\')" aria-label="양식 지우기" title="지우기">×</button></span>';
+  }).join('') + '<button type="button" class="tpl-add" onclick="toggleTplSave()">+ 지금 입력한 걸 양식으로</button>';
+}
+function toggleTplSave() {
+  var w = $('cTplSave'), open = !w.classList.contains('open');
+  w.classList.toggle('open', open);
+  if (open) setTimeout(function () { try { $('cTplName').focus(); } catch (e) {} }, 220);
+}
+function sessFormData() {
+  return {
+    type: $('cType').value, title: $('cTitle').value.trim(), start: $('cStart').value, end: $('cEnd').value,
+    place: getPlace(), desc: $('cDesc').value, notify: $('cNotify').checked,
+    target: MA.data ? { key: MA.key, subs: MA.subs.slice(), off: Object.keys(MA.off) } : null
+  };
+}
+function saveSessTpl() {
+  var name = $('cTplName').value.trim();
+  if (!name) { setMsg('cMsg', '양식 이름을 적어주세요', true); return; }
+  var same = (TPL.session || []).filter(function (t) { return t.name === name; })[0];
+  if (same && !confirm('\'' + name + '\' 양식을 지금 입력한 걸로 바꿀까요?')) return;
+  api('templates.save', { kind: 'session', name: name, data: sessFormData() }).then(function (t) {
+    TPL.session = (TPL.session || []).filter(function (x) { return x.id !== t.id && x.name !== t.name; }).concat([t])
+      .sort(function (a, b) { return a.name.localeCompare(b.name); });
+    $('cTplName').value = ''; $('cTplSave').classList.remove('open');
+    renderSessTpls(); haptic('success');
+    setMsg('cMsg', '\'' + name + '\' 양식을 저장했어요. 다음엔 위에서 누르면 그대로 채워져요.');
+  }).catch(function (err) { setMsg('cMsg', err.message, true); });
+}
+function useSessTpl(id) {
+  var t = byId(TPL.session || [], id); if (!t) return;
+  var d = t.data || {};
+  $('cType').value = [].some.call($('cType').options, function (o) { return o.value === d.type; }) ? d.type : '';
+  $('cTitle').value = d.title || ''; $('cStart').value = d.start || ''; $('cEnd').value = d.end || '';
+  setPlace(d.place); $('cDesc').value = d.desc || ''; $('cNotify').checked = d.notify !== false;
+  MA.pending = d.target || null; applyPendingTarget();
+  setMsg('cMsg', '\'' + t.name + '\' 양식으로 채웠어요. 날짜만 확인해주세요.');
+}
+// 양식의 대상: 명단이 아직 안 왔으면 오고 나서 맞춤. 지금 고를 수 없는 팀이면 건너뜀
+function applyPendingTarget() {
+  var g = MA.pending; if (!g || !MA.data) return;
+  MA.pending = null;
+  var okKey = g.key === 'all' ? MA.data.can_all : MA.data.teams.some(function (t) { return t.id === g.key && t.can; });
+  if (!okKey) { renderSessPicks(); return; }
+  MA.key = g.key;
+  var opts = maSubOpts(maTeam()).map(function (o) { return o.key; });
+  MA.subs = (g.subs || []).filter(function (k) { return opts.indexOf(k) !== -1; });
+  MA.off = {}; (g.off || []).forEach(function (id) { MA.off[id] = true; });
+  renderSessPicks();
+}
+function delSessTpl(id) {
+  var t = byId(TPL.session || [], id); if (!t || !confirm('\'' + t.name + '\' 양식을 지울까요?')) return;
+  api('templates.delete', { id: id }).then(function () {
+    TPL.session = TPL.session.filter(function (x) { return x.id !== id; }); renderSessTpls();
+  }).catch(function (err) { setMsg('cMsg', err.message, true); });
+}
+
 function openSessModal() {
   fillTypeSelect();
+  loadSessTpls();
   if (!$('cDate').value) $('cDate').value = todayStr();
   setMsg('cMsg', '');
   openModal('cModal');
@@ -355,6 +439,7 @@ function loadSessAudience() {
     var mine = d.teams.filter(function (t) { return t.id === S.team.id && t.can; })[0] || d.teams.filter(function (t) { return t.can; })[0];
     MA.key = mine ? mine.id : 'all'; MA.subs = []; MA.off = {};
     renderSessPicks();
+    applyPendingTarget();
   }).catch(function (err) { $('cAud').innerHTML = '<b>명단을 불러오지 못했어요</b>' + esc(err.message); });
 }
 function maTeam() { return MA.key === 'all' ? null : MA.data.teams.filter(function (t) { return t.id === MA.key; })[0]; }
@@ -413,7 +498,7 @@ function applyTypeDefaults() {
   if (!t) return;
   if (t.default_start && !$('cStart').value) $('cStart').value = hm(t.default_start);
   if (t.default_end && !$('cEnd').value) $('cEnd').value = hm(t.default_end);
-  if (t.default_location && !$('cPlace').value) $('cPlace').value = t.default_location;
+  if (t.default_location && !getPlace()) setPlace(t.default_location);
 }
 function notifyText(r) {
   if (!r) return '';
@@ -429,7 +514,8 @@ function createSession() {
     session_date: $('cDate').value,
     start_time: $('cStart').value || null,
     end_time: $('cEnd').value || null,
-    location: $('cPlace').value.trim() || null,
+    location: getPlace() || null,
+    description: $('cDesc').value.trim() || null,
     notify: $('cNotify').checked
   };
   if (!MA.data) { setMsg('cMsg', '대상 명단을 불러오는 중이에요. 잠시 뒤 다시 눌러주세요', true); return; }
@@ -456,7 +542,7 @@ function createSession() {
     });
     if (s.team_id === S.team.id) S.sessions.push(s);
     S.sessions.sort(function (a, b) { return a.session_date + (a.start_time || '') < b.session_date + (b.start_time || '') ? -1 : 1; });
-    ['cTitle', 'cStart', 'cEnd', 'cPlace'].forEach(function (id) { $(id).value = ''; });
+    ['cTitle', 'cStart', 'cEnd', 'cDesc'].forEach(function (id) { $(id).value = ''; }); setPlace('');
     $('cType').value = ''; MA.subs = []; MA.off = {}; renderSessPicks();
     btn.disabled = false;
     haptic('success');
@@ -538,6 +624,7 @@ function renderHead() {
     (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + WD[d.getDay()] + ')' + (timePlace(s) ? ' · ' + esc(timePlace(s)) : '') + '</p>' +
     '<div class="b-chips">' + tag + '<span class="chip">' + (s.target_label ? esc(s.target_label) : s.target_unit_id ? esc(groupName(s.target_unit_id)) : esc(S.team.name) + ' 전체') + '</span>' +
     (M.board && M.board.grace_min ? '<span class="chip">시작 후 ' + M.board.grace_min + '분까지 참석</span>' : '') + '</div>' +
+    (s.description ? '<div class="card b-desc">' + esc(s.description) + '</div>' : '') +
     (lead && nr ? '<div class="b-notify">📨 ' + esc(notifyText(nr)) + '</div>' : '') + '</div>';
 }
 
