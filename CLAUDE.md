@@ -110,14 +110,14 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `ffc5cc130ebf7b31ba7ebbc39332e64a7437f424` (함수 버전 20, 공지·과제 확인 기록).
+- 현재 배포: SHA `41869efcbaf5b207789dc38a19dec6fb34ff04e2` (함수 버전 21, 업무가능 독촉·생일).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
 `sessions.create/update/delete/list/board/close/remind`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
-`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`,
+`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
 `dashboard.load`, `dashboard.scene`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
@@ -171,6 +171,14 @@
   '전체'는 어느 팀이든 팀장 이상일 때만, 팀 칩은 내가 교관 이상인 팀만. 직책·조 칩은 실제 명단에 있는 것만 보임.
 - `notices.target_positions`(직책 코드 배열, 비면 모두). `notices.audience { team_id, scope }` = 그 단위·아래 단위 직책 + 문화부까지 상속된 직책, 사람마다 가장 높은 직책.
 - 직책을 콕 집은 공지는 그 직책인 사람 + 쓴 사람 + 관리자(팀 공지 교관 이상, 과 공지 팀장 이상)만 봄. 보는 사람의 직책은 그 팀에서의 서열(rank)로 맞춤.
+
+### 업무가능 독촉 · 생일 (2026-10-04, 함수 버전 21)
+- **독촉**: 같은 10분 cron(`cron.reminders`) 안의 `cronWeeklyNag`. 마감(주일 22시)이 지난 주의 미제출자(과·팀에 지금 직책 있는 활성 인원 전부)에게
+  **6시간마다**, **밤 0~8시는 쉼**, 그 주가 끝날 때까지(다음 주일 22시에 다음 주로 넘어감). 기록은 `weekly_nags`(주마다 한 줄: last_at·count·result).
+  `NAG_FROM = "2026-10-05"` 이전 주는 건너뜀(기능 넣은 날 끝나 가던 주). 버튼 주소 `beta/?go=weekly&ws=월요일` → 그 주 업무가능 화면.
+- **생일**: `dashboard.load`의 `birthdays` = 과 인원 중 오늘 생일(`today`, 내가 보냈는지 `wished`), 7일 안 생일(`soon`, 월/일만), 내 생일이면 받은 메시지(`wishes_to_me`).
+  홈 맨 위 `#bdayBanner`. '축하 메시지' → 팝업(`#bdayModal`) → `birthday.wish` → `birthday_wishes`(한 사람에게 그해 한 번) + 봇으로 바로 전달(`delivered`).
+  2/29생은 평년엔 2/28. 양력 기준(`people.birth_date`, 프로필에서 본인이 입력). 나이는 안 보냄.
 
 ### 공지·과제 확인 기록 (2026-10-04, 함수 버전 20)
 - 공지 카드를 눌러 펼치거나 과제를 열면 `reads.mark` → `content_reads`(kind notice|assignment, item_id, person_id, first/last_read_at). 열람 기록이라 audit 트리거 없음.
