@@ -151,7 +151,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `b6cbed8`의 main.ts (함수 버전 33, 봇 채팅 답장). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `8f7d1e2`의 main.ts (함수 버전 34, 녹음 배역 30개까지). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -222,7 +222,7 @@
   → **회차**(`recording_sessions`: title '1회차', status **조율중 → 예정(모두 확정) → 완료 / 취소**, `confirmed_at`)
   → **사람**(`recording_participants`: role 녹음자/엔지니어/감독자, `role_id`(배역), `method` 지정/후보, `answer` 대기/수락/조율/미선정, `answer_note`, `selected`(실제로 들어가는 사람), 엔지니어 교대면 `starts_at/ends_at`).
   unique = (session, person, role, role_id) nulls not distinct. `castings` 표는 안 씀.
-- **올리기**(`rec.create`, `#recModal`): 제목·마감(필수), **예상 녹음시간** 칩(10분 내외=10·30·60·90·2시간 이상=120, 계산은 30분 칸 `recSlots`), 필요한 성우 수 →
+- **올리기**(`rec.create`, `#recModal`): 제목·마감(필수, 2026-10-05부터 날짜 `#rcDueDate`(기본 일주일 뒤) + 시간 `#rcDueTime`(기본 '그날까지' 23:59)), **예상 녹음시간** 칩(10분 내외=10·30·60·90·2시간 이상=120, 계산은 30분 칸 `recSlots`), 필요한 성우 수(− 숫자 + `#rcNeed`, 1~30, DB `voices_needed` 30까지) →
   배역 줄(`#rcRoles`, `RCF`): 2명 이상이면 배역 이름, 줄마다 미정/지정/후보 + 성우 칩. **요청 코드는 자동** `R`+YYMMDD+`-`+순번. 세 팀 교관 이상에게 봇 알림.
 - **회차 만들기**(`rec.plan` → `rec.propose`): ① 이번에 녹음할 배역(아직 회차 없는 배역) ② 가능한 시간·장소: 업무가능 30분 칸으로, 지정 배역은 그 사람이 비어야, 후보는 한 명이라도 비어야,
   엔지니어는 한 명이 끝까지 안 되면 앞·뒤 두 명 교대(`shift`), 감독(세 팀 교관 이상), 녹음 장소(`places.can_record` 코드원·SMC). 조율 중·확정된 다른 회차의 사람(selected 또는 대기·수락)·장소는 뺌.
