@@ -2501,13 +2501,20 @@ function renderRecOverview(open) {
 }
 
 // ----- 요청 올리기 팝업: 예상 녹음시간 · 배역(지정/후보/미정) -----
+// 마감 날짜 기본값: 일주일 뒤 (올해 연도가 미리 들어가 있게)
+function rcDueDefault() { if (!$('rcDueDate').value) $('rcDueDate').value = addDays(7); $('rcDueDate').min = todayStr(); }
+function rcNeedVal() { var n = parseInt($('rcNeed').value, 10); return isNaN(n) ? 1 : Math.max(1, Math.min(30, n)); }
+function rcNeedStep(d) { $('rcNeed').value = Math.max(1, Math.min(30, rcNeedVal() + d)); rcRolesDraw(); }
+function rcNeedInput() { if ($('rcNeed').value !== '') rcRolesDraw(); }   // 지우는 중(빈칸)엔 그대로 둠
+function rcNeedFix() { $('rcNeed').value = rcNeedVal(); rcRolesDraw(); }
 function openRecModal() {
   setMsg('rcMsg', '');
+  rcDueDefault();
   var go = function () { rcRolesDraw(); openModal('recModal'); };
   if (!RC.people.length) loadRec().then(go); else go();
 }
 function rcRolesDraw() {
-  var n = +$('rcNeed').value;
+  var n = rcNeedVal();
   while (RCF.roles.length < n) RCF.roles.push({ name: '', method: '', people: [] });
   RCF.roles.length = n;
   var voices = RC.people.filter(function (p) { return p.voice; });
@@ -2546,7 +2553,7 @@ $('rcDurs').addEventListener('click', function (e) {
   [].forEach.call($('rcDurs').children, function (x) { x.classList.toggle('on', x === b); });
 });
 function createRec() {
-  var due = $('rcDue').value;
+  var dd = $('rcDueDate').value, due = dd ? dd + 'T' + $('rcDueTime').value : '';
   var p = { team_id: S.team.id, title: $('rcTitle').value.trim(), due_at: due ? new Date(due).toISOString() : null, duration_min: RCF.dur,
     request_dept: $('rcDept').value.trim(), requester_name: $('rcWho').value.trim(), volume_desc: $('rcVol').value.trim(), note: $('rcNote').value.trim(),
     roles: RCF.roles.map(function (r) { return { name: r.name.trim(), method: r.method || null, people: r.method ? r.people : [] }; }) };
@@ -2561,7 +2568,8 @@ function createRec() {
   var btn = $('rcBtn'); btn.disabled = true; setMsg('rcMsg', '올리는 중...');
   api('rec.create', p).then(function (r) {
     (RC.list = RC.list || []).unshift(r);
-    ['rcTitle', 'rcDue', 'rcDept', 'rcWho', 'rcVol', 'rcNote'].forEach(function (id) { $(id).value = ''; });
+    ['rcTitle', 'rcDueDate', 'rcDept', 'rcWho', 'rcVol', 'rcNote'].forEach(function (id) { $(id).value = ''; });
+    $('rcDueTime').value = '23:59'; rcDueDefault();
     RCF.roles = [{ name: '', method: '', people: [] }]; $('rcNeed').value = '1';
     btn.disabled = false; haptic('success');
     var n = r.notify_result || {};

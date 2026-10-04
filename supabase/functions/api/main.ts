@@ -2774,7 +2774,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (!due) throw new HttpError(400, "마감 기한을 넣어주세요");
     const dur = [10, 30, 60, 90, 120].includes(Number(p.duration_min)) ? Number(p.duration_min) : 60;
     // 배역: [{ name, method?: 지정|후보, people?: [id] }] (문자열만 와도 됨)
-    const rawRoles: any[] = (Array.isArray(p.roles) ? p.roles : []).slice(0, 10).map((x: any) => (typeof x === "string" ? { name: x } : x ?? {}));
+    const rawRoles: any[] = (Array.isArray(p.roles) ? p.roles : []).slice(0, 30).map((x: any) => (typeof x === "string" ? { name: x } : x ?? {}));
     const nRoles = Math.max(1, rawRoles.length);
     const names = Array.from({ length: nRoles }, (_, i) => String(rawRoles[i]?.name ?? "").trim().slice(0, 40) || (nRoles === 1 ? "성우" : `배역${i + 1}`));
     const voices = new Set((await recPeople(ctx, sec)).filter((m: any) => m.voice).map((m: any) => m.id));
