@@ -60,6 +60,7 @@
      홈의 업무가능 미제출 배너는 없앰(출결 탭의 '사유/사전체크' 상자는 그대로).
    - **홈 대시보드 개편**(함수 버전 27): 오늘의 트랙 → 준비 중·프로젝트·사명자 일정 세 칸 → 한 달 달력 → 12지파. 아래 '홈 대시보드' 참고.
    - **녹음 요청**(함수 버전 28): 아래 탭 '녹음'(세 팀 교관 이상만). 아래 '녹음 요청' 참고.
+   - **녹음 배역·회차·수락/조율**(함수 버전 29): 배역별 지정/후보, 회차 여러 개, 엔지니어 교대, 받은 사람 수락/조율, 인력 배치 현황판.
    - 관리자 페이지에서 문구를 고치는 방법을 의논함 → **문구를 DB(`ui_texts` 같은 표)에 두는 방식이 좋다**고 정리했지만, 사용자가 "일단은 이대로"라고 해서 보류.
 
 ## 1. 누구와, 무엇을 만드는 중인지
@@ -126,7 +127,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `8f83fd7182dbc709f50959865a30f368526feafa` (함수 버전 28, 녹음 요청).
+- 현재 배포: SHA `36eccfdeff6b4d442cd7413148b70b8ab1e292d7` (함수 버전 29, 녹음 배역·회차·수락/조율).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -135,7 +136,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/schedule/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -191,19 +192,26 @@
 - `dashboard.month { team_id, month:"YYYY-MM" }` → 달력 6주 범위 items. 화면은 `CALM`(달마다 저장), 홈을 새로 불러올 때 지금 보는 달도 새로.
 - 위 알약: 지금 진행 중(트랙에서 지금 하는 것) · 준비 중(upcoming) · 프로젝트.
 
-### 녹음 요청 (2026-10-04, 함수 버전 28)
-- 아래 탭 **'녹음'**(`recView`, 화면 제목 '목소리를 담는 시간'). **과 안 세 팀 어디서든 교관 이상**에게만 보임(`recAllowed()`, 서버 `recSection` = `canSeeDetail`). 내 업무가 아니어도 서로 공유하는 취지.
-- **올리기**: FAB → `#recModal`: 제목·마감 기한(필수)·녹음 시간(30분~4시간)·필요한 성우 수·요청 부서·요청자·요청 코드(유일)·분량·메모. 대본은 안 받음(NAS에만).
-  `rec.create` → `recording_requests`(+`duration_min`, `voices_needed`, `notify_result`) + **세 팀 교관 이상 모두에게 봇 알림**(올린 사람 빼고), 버튼 `beta/?rec=요청id`(`DEEP_REC`).
-- **후보·가능한 시간**(`rec.plan`): 오늘~마감(최대 28일), `availability`(업무가능 30분 칸)로 녹음 시간 내내 비는 사람.
-  역할: 성우 = 성우팀 소속, 엔지니어 = 엔지니어팀 소속, **감독 = 세 팀 어디서든 교관 이상**(사용자 결정). `recPeople`.
-  이미 '예정'인 녹음(`recording_sessions`)의 참여자·장소, 녹음 업무(duties 녹음, 장소 글자)와 겹치면 뺌. 같은 요청의 녹음은 안 셈.
-  가능 = 성우 N명 + 엔지니어 1 + 감독 1을 서로 다른 사람으로 고를 수 있고(`recPick`) **녹음 장소**(`places.can_record` = 코드원 스튜디오·SMC, 사용자 결정)가 하나라도 빔.
-  화면: 날짜 칩 → 시작 시간 칸(인원 수·빈 장소) → 누르면 장소·사람 칩(추천 조합이 미리 켜짐) → '이 시간으로 확정'. 아래에 역할별 후보(마감 전 비는 시간, 미제출은 흐리게), 이미 잡힌 녹음.
-- **확정**(`rec.schedule`): `recording_sessions`(location = 장소 이름) + `recording_participants`(녹음자·엔지니어·감독자), 요청 상태 '일정확정'.
-  알림: 교관 이상은 버튼 포함, 그 밖의 참여자는 글만. 장소·사람이 다른 녹음과 겹치면 409. 한 요청에 '예정' 녹음은 하나만(먼저 취소).
-- `rec.sessionStatus { session_id, 완료|취소 }`: 완료 → 요청 '녹음완료', 취소 → 요청 '접수'로 + 참여자에게 취소 알림. `rec.update`로 보류·다시 진행·요청 취소.
-- 확정된 녹음은 홈 '오늘의 트랙'·달력·동네지도에도 그대로 나옴(recording_sessions를 읽음).
+### 녹음 요청 (2026-10-04, 함수 버전 28 → 29에서 배역·회차·수락/조율로 바뀜)
+- 아래 탭 **'녹음'**(`recView`, 화면 제목 '목소리를 담는 시간'). **과 안 세 팀 어디서든 교관 이상**에게만 보임(`recAllowed()`, 서버 `recSection` = `canSeeDetail`). 내 업무가 아니어도 서로 공유.
+- 구조: **요청**(`recording_requests`) → **배역**(`recording_roles`: name, `pref_method` 지정/후보, `pref_people`, `session_id` = 들어간 회차)
+  → **회차**(`recording_sessions`: title '1회차', status **조율중 → 예정(모두 확정) → 완료 / 취소**, `confirmed_at`)
+  → **사람**(`recording_participants`: role 녹음자/엔지니어/감독자, `role_id`(배역), `method` 지정/후보, `answer` 대기/수락/조율/미선정, `answer_note`, `selected`(실제로 들어가는 사람), 엔지니어 교대면 `starts_at/ends_at`).
+  unique = (session, person, role, role_id) nulls not distinct. `castings` 표는 안 씀.
+- **올리기**(`rec.create`, `#recModal`): 제목·마감(필수), **예상 녹음시간** 칩(10분 내외=10·30·60·90·2시간 이상=120, 계산은 30분 칸 `recSlots`), 필요한 성우 수 →
+  배역 줄(`#rcRoles`, `RCF`): 2명 이상이면 배역 이름, 줄마다 미정/지정/후보 + 성우 칩. **요청 코드는 자동** `R`+YYMMDD+`-`+순번. 세 팀 교관 이상에게 봇 알림.
+- **회차 만들기**(`rec.plan` → `rec.propose`): ① 이번에 녹음할 배역(아직 회차 없는 배역) ② 가능한 시간·장소: 업무가능 30분 칸으로, 지정 배역은 그 사람이 비어야, 후보는 한 명이라도 비어야,
+  엔지니어는 한 명이 끝까지 안 되면 앞·뒤 두 명 교대(`shift`), 감독(세 팀 교관 이상), 녹음 장소(`places.can_record` 코드원·SMC). 조율 중·확정된 다른 회차의 사람(selected 또는 대기·수락)·장소는 뺌.
+  ③ 사람 배치(`recSlotPanel`, 추천 조합이 켜져 있음, 시간 밖 사람은 점선): 장소, 배역마다 지정/후보 + 사람, 엔지니어 1~2명(2명이면 교대 시각), 감독 → '요청 보내기'.
+  `rec.propose`: 회차(조율중) + 사람(대기) 저장, **사람마다 '수락 / 조율 응답하기' 알림**(web_app 버튼 `beta/?ask=participant_id`). 확정된 사람·장소가 겹치면 409.
+- **받은 사람**: 버튼 또는 개인노트 '지금 할 일'(`todos.list` kind `recask`) → `#askModal`(`openAsk`, `rec.ask`) → 수락/조율(조율은 메모 필수, `rec.answer`).
+  지정·엔지니어·감독은 수락하면 바로 확정(selected), 후보는 요청자가 '이 사람으로'(`rec.select`)를 눌러야 확정. 응답마다 회차 만든 사람에게 알림. 확정 뒤 조율하면 회차가 다시 조율중.
+- **확정**(`recFinalize`): 회차의 모든 배역에 selected+수락, 엔지니어·감독 모두 수락이면 회차 '예정' + 확정 알림(사람·요청자), 뽑히지 않은 후보는 '미선정' + 안내. 요청 상태는 `recSyncStatus`(접수/캐스팅중/일정확정/녹음완료).
+- **인력 배치 현황판**(`renderRecBoard`, `sessCard`): 회차마다 칸(장소·배역·엔지니어·감독) 막대(초록 확정·회색 대기·빨강 조율 필요·황토 고르기) + '확정 n / 전체',
+  줄마다 사람 칩(지정/후보/교대 시간 + 상태), 조율 메모, '이 사람으로', ×빼기(`rec.removePerson`), '+ 후보/사람'(`rec.addPerson`, 바로 알림), '답 없는 N명에게 다시 알림'(`rec.remind`, 10분에 한 번), 회차 취소/녹음 완료(`rec.sessionStatus`).
+  목록 카드에도 진행 막대·'확정 n/전체 · 조율 필요 · 대기 · 배치 전'.
+- 홈 트랙·달력·동네지도·나의 기록은 **확정된(예정·완료) 회차의 selected 사람만** 봄. 엔지니어 교대는 동네지도에서 자기 시간만.
+- 딥링크: `?rec=요청id`(교관 이상, 녹음 탭 상세), `?ask=participant_id`(누구나 본인 것 응답).
 - 녹음 장소를 바꾸려면 `update places set can_record = true/false where code = ...`.
 - 2026-10-04 기준: 시범 인원에 엔지니어팀이 없고 업무가능 시간도 아직 없어서 '가능한 시간'은 비어 보임.
 
@@ -351,7 +359,7 @@
 - [ ] 모임: 월간 리포트 자동 발송(매달 1일 팀장에게 봇으로), 모임 전날 미체크자 알림, 모임 고치기 화면
 - [ ] 베타로 아직 안 옮긴 기능: 시간취합(투표), 녹음자 배치
 - [ ] `churches` 표 채우기(지파별 본부교회·지교회), 팀장 이상이 다른 사람의 '나의 기록' 보기
-- [ ] 녹음: 배역별 캐스팅(`castings`), 재녹음·편집완료·전달완료 흐름, 요청 고치기 화면
+- [ ] 녹음: 재녹음·편집완료·전달완료 흐름, 요청·배역 고치기 화면, 감독 교대
 - [ ] 관리자 페이지 (PIN 초기화, 설정값 수정, 비활성화)
 - [ ] 동네지도: 모임 만들 때 장소를 `places` 목록에서 고르게 (지금은 글자 맞추기), 고정일정에 종류(직장/학교/기타) 칸, 캐릭터 꾸미기(본인이 고르기)
 - [ ] 홈 대시보드 데이터 입력 화면 (`staff_schedules`, `duties`, `projects`, `tribe_stats` — 지금은 Supabase 표 편집기로 입력)
