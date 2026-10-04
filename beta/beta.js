@@ -417,7 +417,7 @@ function openSession(id) {
   renderHead();
   $('myCard').style.display = 'block';
   $('myCard').innerHTML = '<div class="b-wait">불러오는 중...</div>';
-  ['board', 'boardChips', 'boardActs'].forEach(function (k) { $(k).innerHTML = ''; });
+  ['board', 'boardChips', 'boardActs', 'remindBox'].forEach(function (k) { $(k).innerHTML = ''; });
   $('boardCount').textContent = ''; setMsg('boardMsg', '');
   loadBoard(true);
   if (!wide) window.scrollTo(0, 0);
@@ -450,7 +450,7 @@ function syncSession() {
   if ($('listView').style.display !== 'none') renderList();
 }
 
-function renderDetail() { renderHead(); renderMine(); renderBoard(); renderActs(); }
+function renderDetail() { renderHead(); renderMine(); renderBoard(); renderRemind(); renderActs(); }
 
 function renderHead() {
   var s = S.current, d = parseDate(s.session_date), ph = phaseOf(s);
@@ -652,6 +652,43 @@ function setStatus(personId, status) {
     haptic('success');
     setMsg('amsg-' + personId, status + '(으)로 바꿨어요');
   }).catch(function (err) { setMsg('amsg-' + personId, err.message, true); });
+}
+
+// ----- 사전체크 알림: 교관 이상은 버튼으로 미체크자에게 보냄, 자동 알림(72·24시간 전) 상태도 보여줌 -----
+function renderRemind() {
+  var s = S.current, b = M.board, box = $('remindBox');
+  if (!b || phaseOf(s) !== 'before' || S.team.rank < RANK.INSTRUCTOR) { box.innerHTML = ''; return; }
+  var left = b.members.filter(function (m) { return !(m.att && (m.att.planned_status || m.att.status)); });
+  var start = s.start_ms, created = s.created_at ? Date.parse(s.created_at) : 0;
+  // 자동 알림 한 줄: 보냄 / 예정 / 건너뜀(그 시점 뒤에 만든 모임)
+  var auto = function (h, at) {
+    if (!start) return '';
+    var when = start - h * 3600000, label = h + '시간 전';
+    if (at) return '<span class="rm-ok">✓ ' + label + ' 보냄</span>';
+    if (created && created >= when) return '<span class="rm-skip">' + label + ' · 만들 때 알림으로 대신</span>';
+    if (Date.now() >= when) return '<span class="rm-skip">' + label + ' · 곧 보내요</span>';
+    return '<span>' + label + ' · ' + dtLabel(new Date(when).toISOString()) + ' 예정</span>';
+  };
+  var rr = s.remind_result, last = rr && rr.kind === 'manual'
+    ? '<div class="rm-last">마지막: ' + dtLabel(rr.at) + ' ' + esc(rr.by || '') + '님이 ' + rr.sent + '명에게 보냄' +
+      (rr.failed && rr.failed.length ? ' · 못 받은 사람 ' + esc(rr.failed.join(', ')) : '') + '</div>' : '';
+  box.innerHTML = '<div class="card b-remind">' +
+    '<div class="rm-top"><div><b>🔔 사전체크 알림</b><small>' +
+      (left.length ? '아직 체크 안 한 사람 ' + left.length + '명: ' + esc(left.map(function (m) { return m.name; }).join(', ')) : '모두 사전체크를 했어요') + '</small></div>' +
+      (left.length ? '<button type="button" class="rm-btn" id="remindBtn" onclick="sendRemind()">미체크 ' + left.length + '명에게 알림</button>' : '') + '</div>' +
+    (start ? '<div class="rm-auto">자동 알림 ' + auto(72, s.reminded_72h_at) + auto(24, s.reminded_24h_at) + '</div>' : '') +
+    last + '<div class="msg" id="remindMsg"></div></div>';
+}
+function sendRemind() {
+  var b = M.board, s = S.current;
+  var n = b.members.filter(function (m) { return !(m.att && (m.att.planned_status || m.att.status)); }).length;
+  if (!confirm('사전체크 안 한 ' + n + '명에게 텔레그램 알림을 보낼까요?')) return;
+  var btn = $('remindBtn'); btn.disabled = true; setMsg('remindMsg', '보내는 중...');
+  api('sessions.remind', { id: s.id }).then(function (r) {
+    s.reminded_manual_at = r.reminded_manual_at; s.remind_result = r;
+    haptic('success'); renderRemind();
+    setMsg('remindMsg', r.sent + '명에게 보냈어요' + (r.failed.length ? '\n못 받은 사람: ' + r.failed.join(', ') + ' (봇을 아직 시작하지 않았을 수 있어요)' : ''));
+  }).catch(function (err) { btn.disabled = false; setMsg('remindMsg', err.message, true); haptic('error'); });
 }
 
 // ----- 마감·취소·지우기 (조장 이상) -----

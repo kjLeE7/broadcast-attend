@@ -472,12 +472,20 @@ async function notifyMembers(ctx: Ctx, s: any, kind: "new" | "cancel" | "change"
   const head = { new: "📅 새 모임이 잡혔어요", cancel: "❌ 모임이 취소됐어요", change: "✏️ 모임 정보가 바뀌었어요" }[kind];
   const text = `<b>${head}</b>\n\n<b>${escHtml(sessionName(s))}</b>\n${escHtml(sessionWhen(s))}${s.location ? " · " + escHtml(s.location) : ""}` +
     (kind === "cancel" ? "" : "\n\n미니앱에서 참석·지각·불참을 미리 체크해주세요.");
-  const markup = kind === "cancel" ? undefined : {
-    inline_keyboard: [[{ text: "출결 체크하기", web_app: { url: `${MINIAPP_URL}?s=${s.id}` } }]],
-  };
+  const markup = kind === "cancel" ? undefined : checkButton(s);
+  const { sent, failed } = await sendToMembers(members, text, markup);
+  const result = { kind, sent, failed, at: new Date().toISOString() };
+  await ctx.db.from("meeting_sessions").update({ notified_at: result.at, notify_result: result }).eq("id", s.id);
+  return result;
+}
+function checkButton(s: any) {
+  return { inline_keyboard: [[{ text: "출결 체크하기", web_app: { url: `${MINIAPP_URL}?s=${s.id}` } }]] };
+}
+// 여러 사람에게 봇 메시지 (텔레그램 초당 제한 때문에 20명씩). 봇을 시작하지 않은 사람은 failed에 이름
+async function sendToMembers(members: any[], text: string, markup?: unknown) {
   const failed: string[] = [];
   let sent = 0;
-  for (let i = 0; i < members.length; i += 20) {   // 텔레그램 초당 제한 때문에 20명씩
+  for (let i = 0; i < members.length; i += 20) {
     await Promise.all(members.slice(i, i + 20).map(async (m) => {
       if (!m.telegram_user_id) { failed.push(m.name); return; }
       try {
@@ -489,9 +497,55 @@ async function notifyMembers(ctx: Ctx, s: any, kind: "new" | "cancel" | "change"
       } catch { failed.push(m.name); }
     }));
   }
-  const result = { kind, sent, failed, at: new Date().toISOString() };
-  await ctx.db.from("meeting_sessions").update({ notified_at: result.at, notify_result: result }).eq("id", s.id);
+  return { sent, failed };
+}
+
+// ----- 사전체크 안 한 사람에게 다시 알림 -----
+// 자동: 모임 시작 72시간 전·24시간 전 (cron.reminders, 10분마다). 그 시점보다 늦게 만든 모임은 그 알림을 건너뜀(만들 때 알림이 이미 감)
+// 수동: 교관 이상이 버튼으로 (sessions.remind, 10분에 한 번)
+async function unplannedMembers(ctx: Ctx, s: any) {
+  const members = await sessionMembers(ctx, s, true);
+  const rows: any[] = must(await ctx.db.from("attendance").select("person_id, planned_status, status").eq("session_id", s.id)) ?? [];
+  const done = new Set(rows.filter((r) => r.planned_status || r.status).map((r) => r.person_id));
+  return members.filter((m) => !done.has(m.id));
+}
+function leftText(ms: number) {
+  const h = Math.round(ms / HOUR);
+  return h >= 36 ? `약 ${Math.round(h / 24)}일` : h >= 1 ? `약 ${h}시간` : "1시간도 안";
+}
+const REMIND_COOLDOWN = 10 * 60000;
+async function remindUnplanned(ctx: Ctx, s: any, kind: "72h" | "24h" | "manual") {
+  const targets = (await unplannedMembers(ctx, s)).filter((m) => m.id !== ctx.me?.id);
+  const head = kind === "manual" ? "🔔 출결 사전체크를 부탁드려요" : "⏰ 아직 출결 사전체크를 안 하셨어요";
+  const text = `<b>${head}</b>\n\n<b>${escHtml(sessionName(s))}</b>\n${escHtml(sessionWhen(s))}${s.location ? " · " + escHtml(s.location) : ""}` +
+    `\n\n시작까지 ${leftText(planDeadline(s) - Date.now())} 남았어요. 미니앱에서 참석·지각·불참을 미리 체크해주세요.`;
+  const { sent, failed } = targets.length ? await sendToMembers(targets, text, checkButton(s)) : { sent: 0, failed: [] as string[] };
+  const result = { kind, sent, failed, total: targets.length, by: kind === "manual" ? ctx.me?.name ?? null : null, at: new Date().toISOString() };
+  const patch: any = { remind_result: result };
+  patch[kind === "manual" ? "reminded_manual_at" : kind === "72h" ? "reminded_72h_at" : "reminded_24h_at"] = result.at;
+  must(await ctx.db.from("meeting_sessions").update(patch).eq("id", s.id));
   return result;
+}
+// 10분마다 pg_cron이 부름: 72시간 전·24시간 전이 된 모임에 자동 알림
+async function cronReminders(db: any) {
+  const ctx = { db, me: { id: null, name: "자동 알림" }, payload: {} } as unknown as Ctx;
+  const today = kstToday();
+  const rows: any[] = must(await db.from("meeting_sessions").select(SESSION_COLS)
+    .eq("status", "예정").is("closed_at", null).not("start_time", "is", null)
+    .gte("session_date", today).lte("session_date", addDaysStr(today, 4))) ?? [];
+  const now = Date.now(), out: any[] = [];
+  for (const s of rows) {
+    const st = sessionStart(s)!;
+    if (st <= now) continue;
+    const created = Date.parse(s.created_at), left = st - now;
+    let kind: "72h" | "24h" | null = null;
+    if (left <= 24 * HOUR) { if (!s.reminded_24h_at && created < st - 24 * HOUR) kind = "24h"; }
+    else if (left <= 72 * HOUR) { if (!s.reminded_72h_at && created < st - 72 * HOUR) kind = "72h"; }
+    if (!kind) continue;
+    try { out.push({ id: s.id, ...(await remindUnplanned(ctx, s, kind)) }); }
+    catch (e) { console.error("remind", s.id, e); }
+  }
+  return out;
 }
 
 // 출결 행에서 다른 사람에게 보여도 되는 칸 / 사유까지 (본인·조장 이상)
@@ -795,16 +849,31 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (before.closed_at && Object.keys(patch).some((k) => ["session_date", "start_time", "status"].includes(k))) {
       throw new HttpError(400, "이미 출결이 마감된 모임이라 날짜·시간·상태는 바꿀 수 없어요");
     }
+    const t5 = (v: any) => String(v ?? "").slice(0, 5);
+    if (["session_date", "start_time"].some((k) => k in patch && t5(patch[k]) !== t5(before[k]))) {
+      patch.reminded_72h_at = null; patch.reminded_24h_at = null;   // 시간이 바뀌면 자동 알림을 새 시간 기준으로 다시
+    }
     const s = must(await ctx.db.from("meeting_sessions").update(patch).eq("id", before.id).select(SESSION_COLS).single());
     let notify = null;
     if (ctx.payload.notify !== false && patch.status === "취소" && before.status !== "취소") {
       notify = await notifyMembers(ctx, s, "cancel");
     } else if (ctx.payload.notify === true) {
-      const t5 = (v: any) => String(v ?? "").slice(0, 5);
       const moved = ["session_date", "start_time", "end_time", "location"].some((k) => k in patch && t5(patch[k]) !== t5(before[k]));
       if (moved) notify = await notifyMembers(ctx, s, "change");
     }
     return { ...s, notify };
+  },
+
+  // 사전체크 안 한 사람에게 알림 보내기: { id } → 교관 이상, 모임 시작 전, 10분에 한 번
+  async "sessions.remind"(ctx) {
+    const s = await getSession(ctx, ctx.payload.id);
+    await requireRank(ctx, s.team_id, RANK.INSTRUCTOR);
+    if (s.status !== "예정" || s.closed_at) throw new HttpError(400, "끝났거나 취소된 모임이에요");
+    if (Date.now() > planDeadline(s)) throw new HttpError(400, "모임이 시작돼서 사전체크는 끝났어요");
+    const wait = (s.reminded_manual_at ? Date.parse(s.reminded_manual_at) : 0) + REMIND_COOLDOWN - Date.now();
+    if (wait > 0) throw new HttpError(429, `방금 보냈어요. ${Math.ceil(wait / 60000)}분 뒤에 다시 보낼 수 있어요`);
+    const result = await remindUnplanned(ctx, s, "manual");
+    return { ...result, reminded_manual_at: result.at };
   },
 
   // 잘못 만든 모임 지우기: { id } → 조장 이상, 마감 전만
@@ -1680,6 +1749,14 @@ Deno.serve(async (req) => {
 
     // 로그인 전에도 쓰는 공개 기능: 로그인 버튼용 봇 아이디
     if (body.action === "public.bot") return json({ ok: true, data: { username: await getBotUsername() } });
+
+    // pg_cron(10분마다)이 부르는 자동 알림. 텔레그램 로그인 대신 vault의 비밀값으로 확인
+    if (body.action === "cron.reminders") {
+      const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+      const secret = req.headers.get("x-cron-secret") ?? "";
+      if (!secret || !must(await admin.rpc("check_cron_secret", { p_secret: secret }))) throw new HttpError(401, "인증 실패");
+      return json({ ok: true, data: await cronReminders(admin) });
+    }
 
     // 텔레그램 미니앱(initData) 또는 PC 브라우저 로그인 버튼(x-telegram-login) 중 하나로 확인
     const initData = req.headers.get("x-telegram-init-data") ?? "";

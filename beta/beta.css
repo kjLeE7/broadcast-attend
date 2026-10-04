@@ -550,3 +550,20 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
   .fx-edit { padding-right: 28px; }
   .fx-saved { margin-top: 0; padding: 0 0 0 28px; border-top: none; border-left: 1px solid var(--line); align-self: stretch; }
 }
+
+/* ===== 사전체크 알림 (모임 상세, 교관 이상) ===== */
+.b-remind { padding: 16px 18px; margin: 0 0 12px; }
+.rm-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rm-top b { display: block; font-size: 14.5px; }
+.rm-top small { display: block; margin-top: 3px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.rm-btn { flex: none; border: none; background: var(--accent); color: #fff; border-radius: 99px; padding: 10px 16px;
+  font-size: 13.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.rm-btn:disabled { opacity: .5; cursor: default; }
+.rm-auto { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 12.5px; color: var(--muted); }
+.rm-auto span { background: var(--card-soft); border-radius: 99px; padding: 4px 10px; }
+.rm-auto .rm-ok { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.rm-auto .rm-skip { opacity: .75; }
+.rm-last { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.b-remind .msg:empty { display: none; }
+@media (max-width: 420px) { .rm-top { flex-direction: column; align-items: stretch; } .rm-btn { width: 100%; } }
