@@ -2184,9 +2184,12 @@ var CI_EMOJI = { '기상': '☀️', '출발': '🚗', '도착': '📍' };
 function renderCheckins() {
   if (!S.team) return;
   var today = todayStr(), tmr = addDays(1);
-  var mine = C.list.filter(function (c) { return c.check_date === today || c.check_date === tmr; })
+  var mine = C.list.filter(function (c) { return (c.check_date === today || c.check_date === tmr) && (C.showDone || !ciDone(c)); })
     .sort(function (a, b) { return a.check_date < b.check_date ? -1 : 1; });
-  $('ciArea').innerHTML = mine.map(ciCard).join('');
+  var done = C.list.filter(function (c) { return c.check_date === today && ciDone(c); }).length;
+  // 끝난 체크인은 숨김 (시간을 고치려면 '끝난 체크인 보기')
+  $('ciArea').innerHTML = mine.map(ciCard).join('') + (done ? '<button type="button" class="ci-donelink" onclick="C.showDone=!C.showDone;renderCheckins()">' +
+    (C.showDone ? '끝난 체크인 접기' : '✅ 오늘 체크인 ' + done + '개 끝 · 기록 보기·고치기') + '</button>' : '');
   var lead = S.team.rank >= RANK.GROUP_LEADER;
   $('ciBoardWrap').style.display = lead && C.list.length ? 'block' : 'none';
   if (!lead || !C.list.length) return;
@@ -2195,6 +2198,11 @@ function renderCheckins() {
   Promise.all([loadMembers(), needRoster(C.list)]).then(renderCheckins).catch(function (err) { $('ciBoard').innerHTML = '<div class="empty inner">' + esc(err.message) + '</div>'; });
 }
 
+// 체크인이 끝났는지: 마지막으로 낸 항목 뒤에 남은 항목이 없으면 끝 ('도착'을 내면 기상·출발도 끝으로 봄, 서버 '지금 할 일'과 같은 규칙)
+function ciDone(c) {
+  var last = -1; c.items.forEach(function (it, i) { if (c.mine[it]) last = i; });
+  return last >= 0 && c.items.slice(last + 1).every(function (it) { return c.mine[it]; });
+}
 function ciCard(c) {
   var isToday = c.check_date === todayStr();
   return '<div class="ci-card"><div class="ci-head"><span class="hero-chip"><i></i>' +
