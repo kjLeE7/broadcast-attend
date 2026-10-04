@@ -58,6 +58,7 @@
      개인노트 맨 위 `#todoArea`(누르면 그 화면으로 `openTodo`), 아래 탭 아이콘에 빨간 숫자 배지 `#todoBadge`(PC 펼친 메뉴는 줄 오른쪽 끝).
      `refreshTodos(force)`: 처음 들어올 때·탭 바꿀 때(30초 간격)·3분마다·다시 보일 때·저장 뒤(사전체크·사유·업무가능·과제 제출·공지 읽음·체크인 보고).
      홈의 업무가능 미제출 배너는 없앰(출결 탭의 '사유/사전체크' 상자는 그대로).
+   - **홈 대시보드 개편**(함수 버전 27): 오늘의 트랙 → 준비 중·프로젝트·사명자 일정 세 칸 → 한 달 달력 → 12지파. 아래 '홈 대시보드' 참고.
    - 관리자 페이지에서 문구를 고치는 방법을 의논함 → **문구를 DB(`ui_texts` 같은 표)에 두는 방식이 좋다**고 정리했지만, 사용자가 "일단은 이대로"라고 해서 보류.
 
 ## 1. 누구와, 무엇을 만드는 중인지
@@ -124,7 +125,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `4d80330fce4ef093c26eed28b6618269f77a4ed0` (함수 버전 26, 개인노트 지금 할 일).
+- 현재 배포: SHA `75c57fc4ad9f518a9076e6693b5e3c5ed2e23779` (함수 버전 27, 홈 대시보드 개편).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -133,7 +134,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`dashboard.load`, `dashboard.scene`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`dashboard.load`, `dashboard.month`, `dashboard.scene`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -177,6 +178,17 @@
   출석률은 마감된 모임만. 녹음·실무·과제 부분은 하나가 실패해도 나머지는 보이게 `errors`에 이름만 남김(함수 로그 확인).
 - PC에서 '정보 고치기'를 누르면 오른쪽 패널(`#profileView.split`). 오른쪽 위 동그라미는 이제 프로필로 감, 로그아웃은 프로필 카드 아래.
 - 화면 제목은 한국어: 함께한 자리(출결) · 한 달의 발자취(리포트) · 전하는 말(공지) · 갈고닦는 시간(과제) · 업무가능 시간 취합(업무가능) · 개인노트(프로필 탭).
+
+### 홈 대시보드 (2026-10-04 개편, 함수 버전 27)
+- 위에서부터: **오늘의 트랙**(팀마다 한 줄, 9시~23시, 겹치면 줄을 나눔, 지난 건 흐리게, 지금 하는 건 색 채움 + 빨간 지금 선, 칸 누르면 아래에 자세히)
+  → **세 칸**(PC 가로 3칸, 폰 위아래): 우리는 준비 중(D-day, 2일 안이면 빨강, 팀 칩, 6건 넘으면 더 보기) · 프로젝트(상태 글자 + 세 칸 막대) · 사명자 일정(오늘~토요일, 날짜별)
+  → **한 달 달력**(‹ › 넘기기, PC는 칸에 3건 + '+N', 폰은 점, 날짜 누르면 아래 목록) → 12지파 지도.
+- 색(원래 팔레트): 모임 카키 · 녹음 파랑 #3F6A8A · 사회·촬영·편집 황토 · 사명자 일정 초록. CSS `.k-meet/.k-rec/.k-duty/.k-sched/.k-etc`(변수 `--k`, `--kb`).
+- 서버 공통 `sectionItems(ctx, sec, from, to, canDetail)` = 모임(취소 제외)·녹음(recording_sessions)·업무(duties, 녹음 세션과 이어진 건 뺌)·사명자 일정(staff_schedules)을
+  `{src, kind(모임|녹음|사회·촬영·편집|일정|기타), type, team, title, start, end, allDay, place, who, lead}`로. 녹음·사회 제목은 교관 이상만(`canSeeDetail`).
+- `dashboard.load`에 `track{date, items}`(오늘), `upcoming`(지금~30일, 40건), `teamCounts`(팀별 인원) 추가. 예전 `schedules`·`projects`는 그대로 씀(`tasksNow/tasksUpcoming`은 이제 화면에서 안 씀).
+- `dashboard.month { team_id, month:"YYYY-MM" }` → 달력 6주 범위 items. 화면은 `CALM`(달마다 저장), 홈을 새로 불러올 때 지금 보는 달도 새로.
+- 위 알약: 지금 진행 중(트랙에서 지금 하는 것) · 준비 중(upcoming) · 프로젝트.
 
 ### 공지 쓰기 (2026-10-04)
 - 오른쪽 아래 동그란 + 버튼(FAB, `#annFab`)으로 열림. 팝업(`#annModal`)으로 뜸 (2026-10-04 오른쪽 패널 → 팝업으로 바꿈).
