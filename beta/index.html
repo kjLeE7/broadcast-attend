@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004f">
+  <link rel="stylesheet" href="beta.css?v=20261004g">
 </head>
 <body>
   <div class="app">
@@ -228,26 +228,23 @@
 
     <!-- ===== 공지 ===== -->
     <section id="noticeView" style="display:none;">
-      <h1 class="page-title">전하는 말</h1>
-      <p class="page-desc">우리 팀 공지와 방송예술과 전체 공지예요</p>
+      <div id="annMain">
+        <h1 class="page-title">전하는 말</h1>
+        <p class="page-desc">우리 팀 공지와 방송예술과 전체 공지예요</p>
+        <div id="annList"></div>
+      </div>
 
-      <div class="card b-create" id="annCreateCard" style="display:none;">
-        <button class="b-toggle" type="button" onclick="toggleBox('annForm','annChev')">
-          <span><b>+ 공지 쓰기</b><small>교관 이상만 보이는 메뉴예요</small></span>
-          <span class="b-chev" id="annChev">›</span>
-        </button>
-        <div id="annForm" class="b-pad" style="display:none;">
-          <div id="annScopeWrap" style="display:none;">
-            <label class="field-label" for="annScope">범위</label>
-            <div class="select-wrap"><select id="annScope" onchange="onAnnScope()">
-              <option value="team">우리 팀</option>
-              <option value="section">방송예술과 전체</option>
-            </select></div>
-          </div>
-          <div id="annTargetWrap">
-            <label class="field-label" for="annTarget">대상</label>
-            <div class="select-wrap"><select id="annTarget" class="b-target"></select></div>
-          </div>
+      <!-- 공지 쓰기 (PC: 오른쪽 패널 / 폰: 화면 전환) -->
+      <div id="annEdit" style="display:none;">
+        <button class="back" onclick="closeAnnEdit()">‹ 전하는 말</button>
+        <button class="b-close" type="button" onclick="closeAnnEdit()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+        <div class="b-dhead"><h1>공지 쓰기</h1><p>받을 사람을 고르면 아래에 명단이 보여요</p></div>
+        <div class="card b-pad b-top">
+          <label class="field-label">대상</label>
+          <div class="b-pick-row"><span>팀</span><div class="b-picks" id="annTeams"></div></div>
+          <div class="b-pick-row" id="annPosRow"><span>직책</span><div class="b-picks" id="annPos"></div></div>
+          <div class="b-pick-row" id="annGrpRow"><span>조</span><div class="b-picks" id="annGrp"></div></div>
+          <div class="b-aud" id="annAud"></div>
           <label class="field-label" for="annTitle">제목</label>
           <input type="text" id="annTitle" class="b-input" maxlength="100" placeholder="예) 10월 정규수업 안내">
           <label class="field-label" for="annBody">내용</label>
@@ -258,7 +255,11 @@
         </div>
       </div>
 
-      <div id="annList"></div>
+      <div class="b-fab" id="annFab" style="display:none;">
+        <button class="fab" type="button" onclick="openAnnEdit()" aria-label="공지 쓰기" title="공지 쓰기">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
     </section>
 
     <!-- ===== 과제 ===== -->
@@ -483,6 +484,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004b"></script>
-  <script src="beta.js?v=20261004d"></script>
+  <script src="beta.js?v=20261004e"></script>
 </body>
 </html>

@@ -1372,14 +1372,12 @@ function deleteCheckin(id) {
 // =====================================================================
 function loadNotices() {
   if (!S.team) return;
-  $('annCreateCard').style.display = S.team.rank >= RANK.INSTRUCTOR ? 'block' : 'none';
-  $('annScopeWrap').style.display = S.team.rank >= RANK.TEAM_LEADER ? 'block' : 'none';
+  $('annFab').style.display = annTeams().length && $('annEdit').style.display === 'none' ? 'block' : 'none';
   if (N.list) { renderNotices(); return; }
   $('annList').innerHTML = '<div class="empty"><b>불러오는 중...</b></div>';
   api('notices.list', { team_id: S.team.id }).then(function (l) { N.list = l; renderNotices(); })
     .catch(function (err) { $('annList').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
-function onAnnScope() { $('annTargetWrap').style.display = $('annScope').value === 'team' ? 'block' : 'none'; }
 function toggleNotice(id) { N.open = N.open === id ? null : id; renderNotices(); }
 
 function renderNotices() {
@@ -1391,6 +1389,7 @@ function renderNotices() {
     return '<div class="ann' + (n.is_pinned ? ' pinned' : '') + '" onclick="toggleNotice(\'' + esc(n.id) + '\')">' +
       '<div class="ann-top">' + (n.is_pinned ? '<span class="chip dark">📌 고정</span>' : '') +
         '<span class="chip">' + (n.scope === 'section' ? '방송예술과 전체' : esc(S.team.name)) + '</span>' +
+        (n.target_names && n.target_names.length ? '<span class="chip">' + esc(n.target_names.join('·')) + '만</span>' : '') +
         (n.target_unit_id ? '<span class="chip">' + esc(groupName(n.target_unit_id)) + '만</span>' : '') +
         '<span class="ann-date">' + mdOf(n.published_at) + '</span></div>' +
       '<div class="ann-title">' + esc(n.title) + '</div>' +
@@ -1402,20 +1401,108 @@ function renderNotices() {
   }).join('');
 }
 
+// ----- 공지 쓰기: 팀 → 직책 → 조 칩으로 좁히면 받는 사람 명단이 바로 보임 -----
+// 팀 공지는 교관 이상인 팀, '전체'(방송예술과)는 팀장 이상일 때만
+function annTeams() {
+  var mine = S.me.teams.filter(function (t) { return t.rank >= RANK.INSTRUCTOR; });
+  var lead = S.me.teams.filter(function (t) { return t.rank >= RANK.TEAM_LEADER; })[0];
+  return (lead ? [{ key: 'section', name: '전체', team_id: lead.id, scope: 'section' }] : [])
+    .concat(mine.map(function (t) { return { key: t.id, name: t.name, team_id: t.id, scope: 'team' }; }));
+}
+function openAnnEdit() {
+  var teams = annTeams(), wide = isWide();
+  var cur = teams.filter(function (t) { return t.key === S.team.id; })[0] || teams[0];
+  N.f = { key: cur.key, pos: [], grp: '' };
+  N.aud = N.aud || {};
+  setMsg('annMsg', '');
+  $('annFab').style.display = 'none';
+  $('annMain').style.display = wide ? 'block' : 'none';
+  $('noticeView').classList.toggle('split', wide);
+  $('annEdit').style.display = 'block';
+  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+  if (!wide) window.scrollTo(0, 0);
+  annPickTeam(cur.key);
+}
+function closeAnnEdit() {
+  $('noticeView').classList.remove('split');
+  $('annEdit').style.display = 'none';
+  $('annMain').style.display = 'block';
+  $('annFab').style.display = annTeams().length ? 'block' : 'none';
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+}
+function annPickTeam(key) {
+  N.f = { key: key, pos: [], grp: '' };
+  renderAnnPicks();
+  if (N.aud[key]) return;
+  var t = annTeams().filter(function (x) { return x.key === key; })[0];
+  api('notices.audience', { team_id: t.team_id, scope: t.scope }).then(function (l) {
+    N.aud[key] = l;
+    if (N.f.key === key) renderAnnPicks();
+  }).catch(function (err) { $('annAud').innerHTML = '<b>명단을 불러오지 못했어요</b>' + esc(err.message); });
+}
+function annPickPos(code) {
+  var i = N.f.pos.indexOf(code);
+  if (!code) N.f.pos = [];
+  else if (i >= 0) N.f.pos.splice(i, 1);
+  else N.f.pos.push(code);
+  renderAnnPicks();
+}
+function annPickGrp(id) { N.f.grp = id; renderAnnPicks(); }
+function annRecipients() {
+  return (N.aud[N.f.key] || []).filter(function (m) {
+    return (!N.f.pos.length || N.f.pos.indexOf(m.code) >= 0) && (!N.f.grp || m.group_id === N.f.grp);
+  });
+}
+function renderAnnPicks() {
+  var chip = function (on, label, call) {
+    return '<button type="button" class="b-pick' + (on ? ' on' : '') + '" onclick="' + call + '">' + esc(label) + '</button>';
+  };
+  $('annTeams').innerHTML = annTeams().map(function (t) {
+    return chip(t.key === N.f.key, t.name, "annPickTeam('" + esc(t.key) + "')");
+  }).join('');
+  var all = N.aud[N.f.key];
+  if (!all) {
+    $('annPosRow').style.display = $('annGrpRow').style.display = 'none';
+    $('annAud').innerHTML = '<b>명단 불러오는 중...</b>';
+    return;
+  }
+  var pos = [], grps = [];
+  all.slice().sort(function (a, b) { return a.rank - b.rank; }).forEach(function (m) {
+    if (!pos.some(function (p) { return p.code === m.code; })) pos.push({ code: m.code, name: m.position });
+    if (m.group_id && !grps.some(function (g) { return g.id === m.group_id; })) grps.push({ id: m.group_id, name: m.group });
+  });
+  grps.sort(function (a, b) { return a.name.localeCompare(b.name); });
+  $('annPosRow').style.display = 'grid';
+  $('annPos').innerHTML = chip(!N.f.pos.length, '모두', "annPickPos('')") + pos.map(function (p) {
+    return chip(N.f.pos.indexOf(p.code) >= 0, p.name, "annPickPos('" + esc(p.code) + "')");
+  }).join('');
+  var showGrp = N.f.key !== 'section' && grps.length;
+  $('annGrpRow').style.display = showGrp ? 'grid' : 'none';
+  if (showGrp) $('annGrp').innerHTML = chip(!N.f.grp, '모든 조', "annPickGrp('')") + grps.map(function (g) {
+    return chip(N.f.grp === g.id, g.name, "annPickGrp('" + esc(g.id) + "')");
+  }).join('');
+  var who = annRecipients();
+  $('annAud').innerHTML = who.length
+    ? '<b>받는 사람 ' + who.length + '명</b><div class="who">' + who.map(function (m) {
+        return '<span>' + esc(m.name) + ' <small>' + esc(m.position) + (m.group ? '·' + esc(m.group) : '') + '</small></span>';
+      }).join('') + '</div>'
+    : '<b>조건에 맞는 사람이 없어요</b>';
+}
+
 function createNotice() {
-  var scope = S.team.rank >= RANK.TEAM_LEADER ? $('annScope').value : 'team';
-  var p = { team_id: S.team.id, scope: scope, title: $('annTitle').value.trim(), body: $('annBody').value.trim(),
-    is_pinned: $('annPinned').checked, target_unit_id: scope === 'team' ? ($('annTarget').value || null) : null };
+  var t = annTeams().filter(function (x) { return x.key === N.f.key; })[0];
+  var p = { team_id: t.team_id, scope: t.scope, title: $('annTitle').value.trim(), body: $('annBody').value.trim(),
+    is_pinned: $('annPinned').checked, target_positions: N.f.pos, target_unit_id: N.f.grp || null };
   if (!p.title) { setMsg('annMsg', '제목을 적어주세요!', true); return; }
+  if (N.aud[N.f.key] && !annRecipients().length) { setMsg('annMsg', '받는 사람이 없어요. 대상을 다시 골라주세요', true); return; }
   var btn = $('annBtn'); btn.disabled = true; setMsg('annMsg', '올리는 중...');
-  api('notices.create', p).then(function (n) {
+  api('notices.create', p).then(function () {
     N.list = null;   // 고정·순서 반영해서 새로 받기
     ['annTitle', 'annBody'].forEach(function (id) { $(id).value = ''; });
     $('annPinned').checked = false;
     btn.disabled = false; haptic('success');
-    setMsg('annMsg', '공지를 올렸어요!');
-    loadNotices();
-    setTimeout(function () { setMsg('annMsg', ''); toggleBox('annForm', 'annChev'); }, 1000);
+    setMsg('annMsg', t.scope === 'team' && t.team_id !== S.team.id ? '올렸어요! ' + t.name + ' 탭에서 보여요' : '공지를 올렸어요!');
+    setTimeout(function () { closeAnnEdit(); loadNotices(); }, 1000);
   }).catch(function (err) { setMsg('annMsg', err.message, true); btn.disabled = false; });
 }
 
@@ -1637,6 +1724,7 @@ document.addEventListener('keydown', function (e) {
   if (curTab === 'attend' && $('attendWrap').classList.contains('split')) showList();
   else if (curTab === 'task' && $('taskView').classList.contains('split')) closeTask();
   else if (curTab === 'profile' && $('profileView').classList.contains('split')) closePfEdit();
+  else if (curTab === 'notice' && $('noticeView').classList.contains('split')) closeAnnEdit();
 });
 
 // ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
@@ -1951,6 +2039,7 @@ if (tg && tg.BackButton) {
   tg.BackButton.onClick(function () {
     if (curTab === 'task' && A.current) closeTask();
     else if (curTab === 'profile' && $('pfEdit').style.display === 'block') closePfEdit();
+    else if (curTab === 'notice' && $('annEdit').style.display === 'block') closeAnnEdit();
     else if (S.current) showList();
   });
   var _open = openSession, _list = showList;

@@ -289,6 +289,14 @@ async function teamAndSection(ctx: Ctx, teamId: string): Promise<string[]> {
   const u = must(await ctx.db.from("org_units").select("parent_id").eq("id", teamId).maybeSingle());
   return [teamId, u?.parent_id].filter(Boolean);
 }
+// 공지를 올릴 단위 + 권한 확인: 팀 공지는 그 팀 교관 이상, 과 전체(scope "section")는 팀장 이상
+async function noticeUnit(ctx: Ctx, p: any): Promise<string> {
+  if (p.scope !== "section") { await requireRank(ctx, p.team_id, RANK.INSTRUCTOR); return p.team_id; }
+  await requireRank(ctx, p.team_id, RANK.TEAM_LEADER);
+  const u = must(await ctx.db.from("org_units").select("parent_id").eq("id", p.team_id).maybeSingle());
+  if (!u?.parent_id) throw new HttpError(400, "상위 과를 찾을 수 없습니다");
+  return u.parent_id;
+}
 // 글이 속한 팀
 async function ownerTeam(ctx: Ctx, table: string, id: string): Promise<string> {
   const r = must(await ctx.db.from(table).select("team_id").eq("id", id).maybeSingle());
@@ -386,6 +394,44 @@ async function sessionMembers(ctx: Ctx, s: any, withTelegram = false) {
   let list = [...byPerson.values()];
   if (s.target_unit_id) list = list.filter((m) => m.group_id === s.target_unit_id);
   return list.sort((a, b) => (a.group ?? "힣").localeCompare(b.group ?? "힣") || b.rank - a.rank || a.name.localeCompare(b.name));
+}
+
+// 공지 받을 사람: 그 단위(팀 또는 과)와 아래 단위의 직책 + 위로 문화부까지 상속된 직책. 사람마다 가장 높은 직책 하나
+async function unitAudience(ctx: Ctx, unitId: string) {
+  const units: any[] = must(await ctx.db.from("org_units").select("id,name,parent_id,is_permission_root,ended_on"));
+  const byId = new Map(units.map((u) => [u.id, u]));
+  const rel = new Set<string>();
+  const down = (id: string) => { rel.add(id); for (const u of units) if (u.parent_id === id && !u.ended_on) down(u.id); };
+  down(unitId);
+  let up = byId.get(unitId);
+  while (up && !up.is_permission_root && up.parent_id) { up = byId.get(up.parent_id); if (up) rel.add(up.id); }
+  const day = kstToday();
+  const pos: any[] = must(await ctx.db.from("position_history")
+    .select("person_id, org_unit_id, people(name, is_active), positions(code, name, rank)")
+    .in("org_unit_id", [...rel]).lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`)) ?? [];
+  const byPerson = new Map<string, any>();
+  for (const r of pos) {
+    if (!r.people?.is_active || !r.positions) continue;
+    const cur = byPerson.get(r.person_id);
+    if (!cur || r.positions.rank > cur.rank) {
+      byPerson.set(r.person_id, {
+        id: r.person_id, name: r.people.name, code: r.positions.code, position: r.positions.name, rank: r.positions.rank,
+        unit: byId.get(r.org_unit_id)?.name ?? "", group: null, group_id: null,
+      });
+    }
+  }
+  const ids = [...byPerson.keys()];
+  if (ids.length) {
+    const gs: any[] = must(await ctx.db.from("group_assignments")
+      .select("person_id, group_unit_id, org_units(name, parent_id)").in("person_id", ids)
+      .lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`)) ?? [];
+    for (const g of gs) {
+      if (!rel.has(g.org_units?.parent_id)) continue;
+      const p = byPerson.get(g.person_id);
+      p.group = g.org_units.name; p.group_id = g.group_unit_id;
+    }
+  }
+  return [...byPerson.values()].sort((a, b) => (a.group ?? "힣").localeCompare(b.group ?? "힣") || b.rank - a.rank || a.name.localeCompare(b.name));
 }
 
 // 마감: 확인 안 된 대상자는 불참 (사전 체크 때 적은 사유가 있으면 그대로 옮김)
@@ -1155,39 +1201,50 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const rank = await rankIn(ctx, team_id);
     if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
     const units = await teamAndSection(ctx, team_id);
-    const [rows, groups] = await Promise.all([
-      ctx.db.from("notices").select("id, team_id, title, body, target_unit_id, is_pinned, published_at, created_by")
+    const [rows, groups, posRes] = await Promise.all([
+      ctx.db.from("notices").select("id, team_id, title, body, target_unit_id, target_positions, is_pinned, published_at, created_by")
         .in("team_id", units).order("is_pinned", { ascending: false }).order("published_at", { ascending: false }).limit(60),
       myGroupIds(ctx),
+      ctx.db.from("positions").select("code, name, rank"),
     ]);
-    const list = (must(rows as any) ?? []).filter((r: any) => visibleToMe(r, rank, groups));
+    const pos = new Map((must(posRes as any) ?? []).map((p: any) => [p.code, p]));
+    // 직책을 콕 집은 공지: 그 직책인 사람 + 쓴 사람 + 관리하는 사람(팀 공지는 교관 이상, 과 공지는 팀장 이상)
+    const forMe = (r: any) => !r.target_positions?.length || r.created_by === ctx.me.id ||
+      rank >= (r.team_id === team_id ? RANK.INSTRUCTOR : RANK.TEAM_LEADER) ||
+      r.target_positions.some((c: string) => (pos.get(c) as any)?.rank === rank);
+    const list = (must(rows as any) ?? []).filter((r: any) => visibleToMe(r, rank, groups) && forMe(r));
     const names = await nameMap(ctx, list.map((r: any) => r.created_by));
     return list.map((r: any) => ({
       ...r, scope: r.team_id === team_id ? "team" : "section",
+      target_names: (r.target_positions ?? []).map((c: string) => (pos.get(c) as any)?.name).filter(Boolean),
       author: names.get(r.created_by) ?? null, mine: r.created_by === ctx.me.id,
     }));
   },
 
-  // 공지 쓰기: { team_id, scope: "team"(교관 이상) | "section"(팀장 이상, 방송예술과 전체), title, body, is_pinned, target_unit_id? }
+  // 공지 쓰기: { team_id, scope: "team"(교관 이상) | "section"(팀장 이상, 방송예술과 전체), title, body, is_pinned,
+  //             target_unit_id?(조, 팀 공지만), target_positions?(직책 코드 목록, 비우면 모두) }
   async "notices.create"(ctx) {
     const p = ctx.payload;
-    let unit = p.team_id;
-    const section = p.scope === "section";
-    if (section) {
-      await requireRank(ctx, p.team_id, RANK.TEAM_LEADER);
-      const u = must(await ctx.db.from("org_units").select("parent_id").eq("id", p.team_id).maybeSingle());
-      if (!u?.parent_id) throw new HttpError(400, "상위 과를 찾을 수 없습니다");
-      unit = u.parent_id;
-    } else {
-      await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
-    }
+    const unit = await noticeUnit(ctx, p);
+    const section = unit !== p.team_id;
     const title = String(p.title ?? "").trim().slice(0, 100);
     if (!title) throw new HttpError(400, "제목을 입력해주세요");
+    const codes = Array.isArray(p.target_positions) ? [...new Set(p.target_positions.map(String))] : [];
+    if (codes.length) {
+      const ok: any[] = must(await ctx.db.from("positions").select("code").in("code", codes)) ?? [];
+      if (ok.length !== codes.length) throw new HttpError(400, "직책이 올바르지 않습니다");
+    }
     return must(await ctx.db.from("notices").insert({
       team_id: unit, title, body: String(p.body ?? "").trim().slice(0, 3000) || null,
       is_pinned: !!p.is_pinned, target_unit_id: section ? null : (p.target_unit_id || null),
+      target_positions: codes.length ? codes : null,
       created_by: ctx.me.id,
     }).select().single());
+  },
+
+  // 공지 받을 사람 명단(대상 고르기용): { team_id, scope } → 그 범위에 공지를 쓸 수 있는 사람만
+  async "notices.audience"(ctx) {
+    return await unitAudience(ctx, await noticeUnit(ctx, ctx.payload));
   },
 
   // 공지 고치기·지우기: { id, title?, body?, is_pinned? } / { id } → 쓴 사람 또는 교관 이상
