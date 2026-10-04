@@ -32,6 +32,7 @@
    - 화면 제목 한국어로(함께한 자리·한 달의 발자취·전하는 말·갈고닦는 시간·목소리 시간표·나의 기록).
    - 프로필 '나의 기록' 탭(내 정보 고치기, 한 달 활동 리포트). 함수 버전 14.
    - 홈: 파트 사이 줄·여백, 파트 제목 크게 + 왼쪽 색 막대, PC 반반 사이 세로줄.
+   - 공지 쓰기를 FAB + 팀·직책·조 칩으로 바꿈. 함수 버전 15.
    - 관리자 페이지에서 문구를 고치는 방법을 의논함 → **문구를 DB(`ui_texts` 같은 표)에 두는 방식이 좋다**고 정리했지만, 사용자가 "일단은 이대로"라고 해서 보류.
 
 ## 1. 누구와, 무엇을 만드는 중인지
@@ -92,14 +93,14 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `8039964687f2d90f3c2f770b06459a5c476d927c` (함수 버전 14, 프로필 나의 기록).
+- 현재 배포: SHA `e7ceec2ed7eba24706d72821efa73cd20bd0677a` (함수 버전 15, 공지 대상 칩).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
 `sessions.create/update/delete/list/board/close`, `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
-`notices.list/create/update/delete`, `assignments.list/create/update/delete`,
+`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
 `dashboard.load`, `dashboard.scene`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
@@ -145,6 +146,14 @@
   출석률은 마감된 모임만. 녹음·실무·과제 부분은 하나가 실패해도 나머지는 보이게 `errors`에 이름만 남김(함수 로그 확인).
 - PC에서 '정보 고치기'를 누르면 오른쪽 패널(`#profileView.split`). 오른쪽 위 동그라미는 이제 프로필로 감, 로그아웃은 프로필 카드 아래.
 - 화면 제목은 한국어: 함께한 자리(출결) · 한 달의 발자취(리포트) · 전하는 말(공지) · 갈고닦는 시간(과제) · 목소리 시간표(녹음가능) · 나의 기록(프로필).
+
+### 공지 쓰기 (2026-10-04)
+- 오른쪽 아래 동그란 + 버튼(FAB, `#annFab`)으로 열림. PC는 오른쪽 패널(`#noticeView.split`), 폰은 화면 전환.
+  운영 앱 `style.css`는 PC에서 `.fab-wrap`을 숨기므로 베타는 따로 `.b-fab`를 씀.
+- 대상은 칩으로 좁힘: 팀(전체·성우팀·아나운서팀·엔지니어팀) → 직책(여러 개 콕 집기) → 조(팀이고 조가 있을 때만). 아래에 받는 사람 명단.
+  '전체'는 어느 팀이든 팀장 이상일 때만, 팀 칩은 내가 교관 이상인 팀만. 직책·조 칩은 실제 명단에 있는 것만 보임.
+- `notices.target_positions`(직책 코드 배열, 비면 모두). `notices.audience { team_id, scope }` = 그 단위·아래 단위 직책 + 문화부까지 상속된 직책, 사람마다 가장 높은 직책.
+- 직책을 콕 집은 공지는 그 직책인 사람 + 쓴 사람 + 관리자(팀 공지 교관 이상, 과 공지 팀장 이상)만 봄. 보는 사람의 직책은 그 팀에서의 서열(rank)로 맞춤.
 
 ### 모임·출결 흐름 (2026-10-03 완성)
 1. **모임 만들기**: 조장 이상. 대상(팀 전체 또는 조)을 고르고, 만들면 봇이 대상자에게 개인 메시지로 알림
