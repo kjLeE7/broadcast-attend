@@ -151,7 +151,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `8f7d1e2`의 main.ts (함수 버전 34, 녹음 배역 30개까지). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `ccea54e`의 main.ts (함수 버전 35, 모임에 체크인 붙이기). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -323,6 +323,9 @@
    - 내 양식: `user_templates`(사람·kind·name 유일, data jsonb, 종류마다 20개). 모임은 kind `session`.
      날짜 빼고 유형·제목·시간·장소·내용·알림·대상(팀 key·조 subs·뺀 사람 off)을 저장. 팝업 맨 위 칩을 누르면 채움(`useSessTpl`), ×로 지움.
      대상은 명단이 온 뒤 맞춤(`MA.pending` → `applyPendingTarget`), 지금 고를 수 없는 팀이면 건너뜀. 개인용(다른 사람과 공유 안 됨).
+11. **모임에 체크인 붙이기** (2026-10-05, 함수 버전 35): 모임 만들기 팝업 '체크인도 받기' 칩(`#cCiItems`, 기상·출발·도착 각각, 기본 꺼짐 — 오후 수업은 출발·도착만, 이른 아침은 기상까지).
+   `sessions.create { checkin_items }` → 같은 날짜·대상으로 `checkins`(session_id) 생성. `SESSION_COLS`에 `checkins(id, items)` 포함 → 상세 '⏰ 체크인' 칩(`sessCiItems`), 알림에 한 줄(`sessionCheckinItems`).
+   날짜·제목 바꾸면 체크인도 따라감, 취소하면 체크인 지움, 모임 지우면 cascade. 양식에도 `ci`. 따로 있는 '체크인 만들기'는 그대로(모임 없는 녹음·촬영·이동용).
 8. **사전체크 알림** (2026-10-04, 함수 버전 16)
    - 만들 때: 대상자 전원에게 알림(1번, 원래 있던 것).
    - 자동: 시작 **72시간 전·24시간 전**에 사전체크 안 한 사람(사전·최종 출결 둘 다 없음)에게만. pg_cron 작업 `session-reminders`가 **10분마다**
