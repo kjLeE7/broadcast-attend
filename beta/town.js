@@ -455,15 +455,14 @@ function parts(p, face, seated, legA, phones) {
   return A;
 }
 // ---------- 타는 것 (look.ride): 이동할 때만 차로 보임, 도착하면 내려서 사람으로 ----------
-// ford: 짙은 파랑 머스탱풍 쿠페, 흰 줄무늬, 크롬 범퍼. 오른쪽 보는 모양 기준, 왼쪽이면 좌우 뒤집음
-function fordParts(p) {
-  const B = '#1d4e89', BL = shade(B, 1.25), BD = shade(B, .72), GL = '#9fd0de', CH = '#cfc9bf', TY = '#1f1b20', L = p.look;
+// ford: 짙은 파랑 머스탱풍 오픈카(지붕 없음), 흰 줄무늬, 크롬 범퍼. 운전하는 사람 얼굴이 차 위로 쏙 올라옴.
+// 오른쪽 보는 모양 기준, 왼쪽이면 좌우 뒤집음
+function fordParts() {
+  const B = '#1d4e89', BD = shade(B, .72), CH = '#cfc9bf', TY = '#1f1b20';
   return [
-    [0, 3, 5, 1, B], [4, 1, 9, 1, BL], [4, 2, 1, 2, B], [12, 2, 2, 2, B], [13, 3, 7, 1, B],   // 트렁크·지붕·기둥·보닛
-    [5, 2, 3, 2, GL], [8, 2, 1, 2, B], [9, 2, 3, 2, GL],                                      // 창문
-    [10, 2, 2, 1, L.hair], [10, 3, 2, 1, L.skin],                                             // 운전석의 그 사람
+    [0, 3, 5, 1, B], [5, 3, 8, 1, '#3a2a24'], [13, 3, 7, 1, B], [3, 2, 2, 1, BD],             // 트렁크·실내(열린 지붕)·보닛·뒷좌석 등받이
     [0, 4, 20, 2, B], [0, 6, 20, 1, BD], [1, 5, 18, 1, '#f3efe6'],                            // 차체·아랫단·흰 줄
-    [14, 3, 1, 1, '#f3efe6'], [16, 3, 1, 1, '#f3efe6'],                                       // 보닛 레이싱 줄
+    [15, 3, 1, 1, '#f3efe6'], [17, 3, 1, 1, '#f3efe6'],                                       // 보닛 레이싱 줄
     [19, 4, 1, 1, '#ffe9a3'], [0, 4, 1, 1, '#e8584a'],                                       // 전조등·후미등
     [0, 6, 2, 1, CH], [18, 6, 2, 1, CH],                                                      // 범퍼
     [2, 6, 4, 3, TY], [14, 6, 4, 3, TY], [3, 7, 2, 1, CH], [15, 7, 2, 1, CH],                 // 바퀴
@@ -473,16 +472,25 @@ function drawRide(c, p, t) {
   const x = Math.round(p.x), y = Math.round(p.y), dir = p.dir || 1;
   const bob = reduce ? 0 : (Math.floor(t * 10 + p.seed) % 2 ? -1 : 0);
   const ox = x - 10, oy = y - 9;
+  const flip = q => [dir > 0 ? q[0] : 20 - q[0] - q[2], q[1], q[2], q[3], q[4]];
+  const fill = (list, bx, by, fixed) => {
+    c.fillStyle = OUT;
+    for (const q of list) c.fillRect(bx + q[0] - 1, by + q[1] + (fixed && fixed(q) ? 0 : bob) - 1, q[2] + 2, q[3] + 2);
+    for (const q of list) { c.fillStyle = q[4]; c.fillRect(bx + q[0], by + q[1] + (fixed && fixed(q) ? 0 : bob), q[2], q[3]); }
+  };
   R(c, 'rgba(20,16,24,.3)', ox, y - 1, 20, 2);
-  const A = fordParts(p).map(q => [dir > 0 ? q[0] : 20 - q[0] - q[2], q[1], q[2], q[3], q[4], q[4] === '#1f1b20' || q[4] === '#cfc9bf' && q[1] === 7]);
-  c.fillStyle = OUT;
-  for (const q of A) c.fillRect(ox + q[0] - 1, oy + q[1] + (q[5] ? 0 : bob) - 1, q[2] + 2, q[3] + 2);
-  for (const q of A) { c.fillStyle = q[4]; c.fillRect(ox + q[0], oy + q[1] + (q[5] ? 0 : bob), q[2], q[3]); }
+  fill(fordParts().map(flip), ox, oy, q => q[1] >= 6 && (q[4] === '#1f1b20' || q[1] === 7));   // 바퀴는 안 흔들림
+  // 운전하는 사람 얼굴: 사람 그림의 머리 부분(위 7칸)만, 차 위로 올라오게
+  const head = parts(p, dir > 0 ? 'right' : 'left', true, 0, false)
+    .filter(q => q[1] < 7).map(q => [q[0], q[1], q[2], Math.min(q[3], 7 - q[1]), q[4]]);
+  const hx = ox + (dir > 0 ? 3 : 7), hy = oy - 4;
+  fill(head, hx, hy);
+  fill([flip([14, 1, 1, 3, '#bfe3ec'])], ox, oy);   // 앞 유리 (얼굴 앞)
   if (!reduce) {   // 배기 연기
     const k = (t * 3 + p.seed) % 1, ex = dir > 0 ? ox - 2 - Math.round(k * 4) : ox + 21 + Math.round(k * 4);
     c.fillStyle = `rgba(230,224,214,${(0.55 * (1 - k)).toFixed(2)})`; c.fillRect(ex, oy + 5 - Math.round(k * 2), 2, 2);
   }
-  p._top = oy - 2; p._seated = false;
+  p._top = hy + bob - 3; p._seated = false;
 }
 
 function drawPerson(c, p, t) {
