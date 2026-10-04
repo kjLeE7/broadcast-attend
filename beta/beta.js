@@ -671,7 +671,7 @@ function renderRemind() {
   };
   var rr = s.remind_result, last = rr && rr.kind === 'manual'
     ? '<div class="rm-last">마지막: ' + dtLabel(rr.at) + ' ' + esc(rr.by || '') + '님이 ' + rr.sent + '명에게 보냄' +
-      (rr.failed && rr.failed.length ? ' · 못 받은 사람 ' + esc(rr.failed.join(', ')) : '') + '</div>' : '';
+      (rr.failed && rr.failed.length ? ' · 못 받은 사람 ' + esc(failText(rr)) : '') + '</div>' : '';
   box.innerHTML = '<div class="card b-remind">' +
     '<div class="rm-top"><div><b>🔔 사전체크 알림</b><small>' +
       (left.length ? '아직 체크 안 한 사람 ' + left.length + '명: ' + esc(left.map(function (m) { return m.name; }).join(', ')) : '모두 사전체크를 했어요') + '</small></div>' +
@@ -679,15 +679,19 @@ function renderRemind() {
     (start ? '<div class="rm-auto">자동 알림 ' + auto(72, s.reminded_72h_at) + auto(24, s.reminded_24h_at) + '</div>' : '') +
     last + '<div class="msg" id="remindMsg"></div></div>';
 }
+// '신효지(봇과 대화를 시작하지 않음), …'
+function failText(r) {
+  return r.failed.map(function (n) { return r.why && r.why[n] ? n + '(' + r.why[n] + ')' : n; }).join(', ');
+}
 function sendRemind() {
   var b = M.board, s = S.current;
   var n = b.members.filter(function (m) { return !(m.att && (m.att.planned_status || m.att.status)); }).length;
-  if (!confirm('사전체크 안 한 ' + n + '명에게 텔레그램 알림을 보낼까요?')) return;
+  if (!confirm('사전체크 안 한 ' + n + '명에게 텔레그램 알림을 보낼까요?\n(나도 아직 체크 안 했으면 같이 받아요)')) return;
   var btn = $('remindBtn'); btn.disabled = true; setMsg('remindMsg', '보내는 중...');
   api('sessions.remind', { id: s.id }).then(function (r) {
     s.reminded_manual_at = r.reminded_manual_at; s.remind_result = r;
     haptic('success'); renderRemind();
-    setMsg('remindMsg', r.sent + '명에게 보냈어요' + (r.failed.length ? '\n못 받은 사람: ' + r.failed.join(', ') + ' (봇을 아직 시작하지 않았을 수 있어요)' : ''));
+    setMsg('remindMsg', r.sent + '명에게 보냈어요' + (r.failed.length ? '\n못 받은 사람: ' + failText(r) : ''), !r.sent && r.failed.length);
   }).catch(function (err) { btn.disabled = false; setMsg('remindMsg', err.message, true); haptic('error'); });
 }
 

@@ -473,8 +473,8 @@ async function notifyMembers(ctx: Ctx, s: any, kind: "new" | "cancel" | "change"
   const text = `<b>${head}</b>\n\n<b>${escHtml(sessionName(s))}</b>\n${escHtml(sessionWhen(s))}${s.location ? " · " + escHtml(s.location) : ""}` +
     (kind === "cancel" ? "" : "\n\n미니앱에서 참석·지각·불참을 미리 체크해주세요.");
   const markup = kind === "cancel" ? undefined : checkButton(s);
-  const { sent, failed } = await sendToMembers(members, text, markup);
-  const result = { kind, sent, failed, at: new Date().toISOString() };
+  const { sent, failed, why } = await sendToMembers(members, text, markup);
+  const result = { kind, sent, failed, why, at: new Date().toISOString() };
   await ctx.db.from("meeting_sessions").update({ notified_at: result.at, notify_result: result }).eq("id", s.id);
   return result;
 }
@@ -482,22 +482,32 @@ function checkButton(s: any) {
   return { inline_keyboard: [[{ text: "출결 체크하기", web_app: { url: `${MINIAPP_URL}?s=${s.id}` } }]] };
 }
 // 여러 사람에게 봇 메시지 (텔레그램 초당 제한 때문에 20명씩). 봇을 시작하지 않은 사람은 failed에 이름
+// 텔레그램이 거절한 이유를 쉬운 말로 (원문은 함수 로그에)
+function tgWhy(desc: string) {
+  if (/initiate conversation|chat not found/i.test(desc)) return "봇과 대화를 시작하지 않음";
+  if (/blocked/i.test(desc)) return "봇을 차단함";
+  if (/deactivated/i.test(desc)) return "텔레그램 계정 없음";
+  if (/Unauthorized/i.test(desc)) return "봇 토큰 오류";
+  return desc.slice(0, 80);
+}
 async function sendToMembers(members: any[], text: string, markup?: unknown) {
   const failed: string[] = [];
+  const why: Record<string, string> = {};
   let sent = 0;
   for (let i = 0; i < members.length; i += 20) {
     await Promise.all(members.slice(i, i + 20).map(async (m) => {
-      if (!m.telegram_user_id) { failed.push(m.name); return; }
+      if (!m.telegram_user_id) { failed.push(m.name); why[m.name] = "텔레그램 번호 없음"; return; }
       try {
         const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ chat_id: m.telegram_user_id, text, parse_mode: "HTML", reply_markup: markup }),
         }).then((x) => x.json());
-        if (r?.ok) sent++; else failed.push(m.name);
-      } catch { failed.push(m.name); }
+        if (r?.ok) sent++;
+        else { failed.push(m.name); why[m.name] = tgWhy(String(r?.description ?? "알 수 없음")); console.error("tg send", m.name, r?.error_code, r?.description); }
+      } catch (e: any) { failed.push(m.name); why[m.name] = "보내기 실패: " + String(e?.message ?? e).slice(0, 60); console.error("tg fetch", m.name, e); }
     }));
   }
-  return { sent, failed };
+  return { sent, failed, why };
 }
 
 // ----- 사전체크 안 한 사람에게 다시 알림 -----
@@ -515,12 +525,12 @@ function leftText(ms: number) {
 }
 const REMIND_COOLDOWN = 10 * 60000;
 async function remindUnplanned(ctx: Ctx, s: any, kind: "72h" | "24h" | "manual") {
-  const targets = (await unplannedMembers(ctx, s)).filter((m) => m.id !== ctx.me?.id);
+  const targets = await unplannedMembers(ctx, s);   // 누른 사람도 미체크면 같이 받음 (버튼에 보이는 인원과 같게)
   const head = kind === "manual" ? "🔔 출결 사전체크를 부탁드려요" : "⏰ 아직 출결 사전체크를 안 하셨어요";
   const text = `<b>${head}</b>\n\n<b>${escHtml(sessionName(s))}</b>\n${escHtml(sessionWhen(s))}${s.location ? " · " + escHtml(s.location) : ""}` +
     `\n\n시작까지 ${leftText(planDeadline(s) - Date.now())} 남았어요. 미니앱에서 참석·지각·불참을 미리 체크해주세요.`;
-  const { sent, failed } = targets.length ? await sendToMembers(targets, text, checkButton(s)) : { sent: 0, failed: [] as string[] };
-  const result = { kind, sent, failed, total: targets.length, by: kind === "manual" ? ctx.me?.name ?? null : null, at: new Date().toISOString() };
+  const { sent, failed, why } = targets.length ? await sendToMembers(targets, text, checkButton(s)) : { sent: 0, failed: [] as string[], why: {} };
+  const result = { kind, sent, failed, why, total: targets.length, by: kind === "manual" ? ctx.me?.name ?? null : null, at: new Date().toISOString() };
   const patch: any = { remind_result: result };
   patch[kind === "manual" ? "reminded_manual_at" : kind === "72h" ? "reminded_72h_at" : "reminded_24h_at"] = result.at;
   must(await ctx.db.from("meeting_sessions").update(patch).eq("id", s.id));
