@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261005g">
+  <link rel="stylesheet" href="beta.css?v=20261005h">
 </head>
 <body>
   <div class="app">
@@ -702,10 +702,10 @@
         </div>
         <label class="field-label" for="rcNeed">필요한 성우</label>
         <div class="rc-need">
-          <button type="button" class="rc-step" onclick="rcNeedStep(-1)" aria-label="한 명 줄이기">−</button>
+          <button type="button" class="rc-num-btn" onclick="rcNeedStep(-1)" aria-label="한 명 줄이기">−</button>
           <input type="number" id="rcNeed" class="b-input" min="1" max="30" value="1" inputmode="numeric" oninput="rcNeedInput()" onblur="rcNeedFix()">
           <span class="rc-unit">명</span>
-          <button type="button" class="rc-step" onclick="rcNeedStep(1)" aria-label="한 명 늘리기">+</button>
+          <button type="button" class="rc-num-btn" onclick="rcNeedStep(1)" aria-label="한 명 늘리기">+</button>
         </div>
         <!-- 배역마다 이름 + 지정/후보/미정 + 사람 (1명이면 '성우' 한 줄) -->
         <div id="rcRoles"></div>
@@ -744,6 +744,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261005g"></script>
+  <script src="beta.js?v=20261005h"></script>
 </body>
 </html>

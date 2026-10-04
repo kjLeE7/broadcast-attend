@@ -829,7 +829,8 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
 .rc-sw span { font-size: 14px; font-weight: 700; color: var(--accent); }
 .rc-role { display: grid; grid-template-columns: 60px 1fr; gap: 8px; padding: 3px 0; font-size: 13.5px; }
 .rc-role span { color: var(--muted); font-weight: 600; }
-.rc-hint { margin: 10px 4px 4px; text-align: left; }
+.rc-hint { margin: -6px 2px 12px; text-align: left; }
+.rc-roles-hint { margin: 10px 4px 4px; text-align: left; }
 .rc-days { margin-bottom: 10px; }
 .rc-days .b-pick small { font-size: 11px; opacity: .7; margin-left: 2px; }
 .rc-times { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
@@ -990,6 +991,6 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
 .rc-need .b-input { width: 84px; height: 44px; padding: 0 8px; flex: none; margin: 0; text-align: center; font-weight: 700; -moz-appearance: textfield; }
 .rc-need .b-input::-webkit-outer-spin-button, .rc-need .b-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .rc-unit { font-weight: 700; color: var(--muted); margin-right: 4px; }
-.rc-step { flex: none; width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; border-radius: 99px; border: 1.5px solid var(--line); background: var(--card); color: var(--text); font-size: 22px; font-weight: 600; cursor: pointer; font-family: inherit; }
-.rc-step:active { transform: scale(.95); }
+.rc-num-btn { flex: none; width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; border-radius: 99px; border: 1.5px solid var(--line); background: var(--card); color: var(--text); font-size: 22px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.rc-num-btn:active { transform: scale(.95); }
 #recModal .tp-row > .select-wrap { flex: 0 0 38%; }

@@ -2529,7 +2529,7 @@ function rcRolesDraw() {
       }).join('') : '<span class="rc-none">성우팀 명단이 없어요</span>') + '</div>' +
       '<small class="rcr-hint">' + (r.method === '지정' ? '한 명만 골라요. 이 사람이 되는 시간만 찾아요' : '여러 명 골라도 돼요. 후보 중 한 명이라도 되는 시간을 찾아요') + '</small>' : '') +
     '</div>';
-  }).join('') + '<p class="b-note rc-hint">시간·장소를 정해 \'요청 보내기\'를 누르면 그때 고른 사람에게 알림이 가요</p>';
+  }).join('') + '<p class="b-note rc-roles-hint">시간·장소를 정해 \'요청 보내기\'를 누르면 그때 고른 사람에게 알림이 가요</p>';
 }
 $('rcRoles').addEventListener('click', function (e) {
   var row = e.target.closest('.rcr'); if (!row) return;
