@@ -3002,6 +3002,7 @@ function sessCard(r, s) {
     '<div class="rb-bar">' + slots.map(function (x) { return '<i class="' + x.st + '" title="' + esc(x.label + ' · ' + ST_TXT[x.st]) + '"></i>'; }).join('') + '</div>' +
     '<div class="rb-sum"><b>확정 ' + c.ok + '</b> / ' + slots.length + (c.wait ? ' · <span class="t-wait">대기 ' + c.wait + '</span>' : '') +
       (c.adj ? ' · <span class="t-adj">조율 필요 ' + c.adj + '</span>' : '') + (c.pick ? ' · <span class="t-pick">고르기 ' + c.pick + '</span>' : '') + '</div>' +
+    recFlow(r, s) +
     '<div class="rb-rows">' + rbRow('ok', '장소', '<span class="rp a-ok"><b>' + esc(s.location) + '</b><i>확보</i></span>', '');
   sessRoles(r, s).forEach(function (x) {
     var ps = s.people.filter(function (p) { return p.role === '녹음자' && p.role_id === x.id; });
@@ -3016,7 +3017,8 @@ function sessCard(r, s) {
   var wait = s.people.filter(function (p) { return p.answer === '대기'; }).length;
   if (live) h += '<div class="rc-acts">' + (wait ? '<button type="button" class="rc-act" data-act="remind">🔔 답 없는 ' + wait + '명에게 다시 알림</button>' : '') +
     '<button type="button" class="rc-act bad" data-act="cancel">회차 취소</button></div>';
-  else if (s.status === '예정') h += '<div class="rc-acts"><button type="button" class="rc-act ok" data-act="done">녹음 완료</button><button type="button" class="rc-act bad" data-act="cancel">회차 취소</button></div>';
+  else if (s.status === '예정') h += '<div class="rc-acts">' + (s.started_at ? '' : '<button type="button" class="rc-act" data-act="start">▶ 시작 보고</button>') +
+    '<button type="button" class="rc-act ok" data-act="end">녹음 마쳤습니다</button><button type="button" class="rc-act bad" data-act="cancel">회차 취소</button></div>';
   return h + '<div class="msg" id="rbMsg-' + esc(s.id) + '"></div></div>';
 }
 function rbRow(st, label, chips, add) {
@@ -3067,6 +3069,9 @@ $('rdSession').addEventListener('click', function (e) {
     msg('보내는 중...');
     api('rec.remind', { session_id: sid }).then(function (x) { haptic('success'); msg(x.notify.sent + '명에게 다시 알렸어요' + (x.notify.failed.length ? ' (못 받음: ' + x.notify.failed.join(', ') + ')' : '')); }).catch(fail); return;
   }
+  if (act === 'start' || act === 'end') { if (act === 'end' && !confirm('녹음을 마쳤다고 보고할까요? 회차가 완료로 바뀌어요')) return;
+    msg('보내는 중...'); api(act === 'end' ? 'rec.end' : 'rec.start', { session_id: sid }).then(done('')).catch(fail); return; }
+  if (act === 'arrive') { msg('기록하는 중...'); api('rec.arrive', { participant_id: b.getAttribute('data-pid') }).then(done('')).catch(fail); return; }
   if (act === 'cancel' || act === 'done') {
     if (act === 'cancel' && !confirm('이 회차를 취소할까요? 들어간 사람에게 취소 알림이 가요')) return;
     msg('바꾸는 중...');
@@ -3266,8 +3271,36 @@ function renderAsk() {
       '<textarea id="askNote" rows="3" maxlength="300" placeholder="예) 20시 이후면 가능해요">' + esc(d.note || '') + '</textarea>' +
       '<div class="ask-btns"><button type="button" class="btn-primary" id="askYes" onclick="sendAsk(\'수락\')">수락</button>' +
       '<button type="button" class="btn-ghost ask-adj" id="askNo" onclick="sendAsk(\'조율\')">조율 필요</button></div><div class="msg" id="askMsg"></div>';
-  } else if (!d.mine) h += '<p class="b-note b-center">다른 사람에게 온 요청이라 응답은 본인만 할 수 있어요</p>';
+  } else if (!d.mine && !d.can_run) h += '<p class="b-note b-center">다른 사람에게 온 요청이라 응답은 본인만 할 수 있어요</p>';
+  h += askRunBox(d);
   $('askBody').innerHTML = h;
+}
+// 녹음 당일: 성우는 '녹음실 도착', 엔지니어는 성우 도착 확인 + 시작 보고 + '녹음 마쳤습니다'
+function askRunBox(d) {
+  var s = d.session; if (s.status !== '예정' && !s.ended_at) return '';
+  if (s.ended_at) return '<div class="ask-run"><b>✅ 녹음을 마쳤어요</b> <small>' + hmMs(Date.parse(s.ended_at)) + ' 종료 보고</small></div>';
+  var h = '<div class="ask-run"><div class="ask-run-h"><b>' + (s.started_at ? '🔴 녹음 중' : '오늘 녹음') + '</b>' + (s.started_at ? '<small>' + hmMs(Date.parse(s.started_at)) + ' 시작</small>' : '') + '</div>';
+  if (d.mine && d.role === '녹음자') h += d.arrived_at ? '<p class="ask-ok">✓ ' + hmMs(Date.parse(d.arrived_at)) + ' 녹음실 도착</p>'
+    : d.can_arrive ? '<button class="btn-primary" onclick="recArrive(\'' + d.id + '\')">🎙 녹음실 도착</button><small class="ask-hint">봇 채팅에 \'도착\'이라고 쳐도 돼요</small>' : '<p class="ask-hint">녹음 시작 2시간 전부터 도착을 누를 수 있어요</p>';
+  if (d.can_run && d.can_arrive) {
+    var voices = d.mates.filter(function (m) { return m.selected && m.role === '성우'; });
+    if (d.role === '녹음자' && !d.mine) voices.unshift({ id: d.id, name: '이 성우', arrived_at: d.arrived_at });
+    if (voices.length) h += '<div class="ask-arr">' + voices.map(function (m) {
+      return m.arrived_at ? '<span class="st st-참석">✓ ' + esc(m.name) + ' 도착</span>' : '<button class="st st-none" onclick="recArrive(\'' + m.id + '\')">' + esc(m.name) + ' 도착 확인</button>';
+    }).join('') + '</div>';
+    h += '<div class="ask-btns">' + (s.started_at ? '' : '<button class="btn-ghost" onclick="recRun(\'start\',\'' + s.id + '\')">▶ 시작 보고</button>') +
+      '<button class="btn-primary" onclick="recRun(\'end\',\'' + s.id + '\')">녹음 마쳤습니다</button></div>';
+  }
+  return h + '<div class="msg" id="askRunMsg"></div></div>';
+}
+function recArrive(pid) {
+  api('rec.arrive', { participant_id: pid }).then(function () { haptic('success'); refreshTodos(true); if (RC.list) loadRec(); if (MODAL === 'askModal') openAsk(ASK.id); })
+    .catch(function (err) { alertMsg(err.message); });
+}
+function recRun(step, sid) {
+  if (step === 'end' && !confirm('녹음을 마쳤다고 보고할까요? 회차가 완료로 바뀌어요')) return;
+  api(step === 'end' ? 'rec.end' : 'rec.start', { session_id: sid }).then(function () { haptic('success'); refreshTodos(true); if (RC.list) loadRec(); if (MODAL === 'askModal') openAsk(ASK.id); })
+    .catch(function (err) { alertMsg(err.message); });
 }
 function sendAsk(answer) {
   var note = $('askNote').value.trim();
@@ -3723,6 +3756,8 @@ function renderTodos() {
       if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
       if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
       if (t.kind === 'poll') return row(i, '📅', '가능시간 입력 · ' + t.name, '마감 ' + mdw(Date.parse(t.due)) + ' ' + hmMs(Date.parse(t.due)), t.urgent);
+      if (t.kind === 'recarrive') return row(i, '🎙', '녹음실 도착 · ' + t.name, hmMs(t.start) + ' 시작' + (t.place ? ' · ' + t.place : '') + ' · 도착하면 눌러주세요', true);
+      if (t.kind === 'recrun') return row(i, t.step === 'start' ? '▶' : '✅', (t.step === 'start' ? '녹음 시작 보고 · ' : '녹음 종료 보고 · ') + t.name, hmMs(t.start) + ' 시작' + (t.place ? ' · ' + t.place : ''), true);
       if (t.kind === 'recask') return row(i, '🎙', '녹음 요청 응답 · ' + t.name, t.role + ' · ' + mdw(t.start) + ' ' + hmMs(t.start) + (t.place ? ' · ' + t.place : ''), t.urgent);
       return '';
     }).join('') + '</div>');
@@ -3736,7 +3771,7 @@ function openTodo(i) {
     return Promise.resolve(fn());
   };
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
-  if (t.kind === 'recask') { openAsk(t.id); return; }
+  if (t.kind === 'recask' || t.kind === 'recarrive' || t.kind === 'recrun') { openAsk(t.id); return; }
   if (t.kind === 'poll') { PL.pending = t.id; if (curTab === 'poll') loadPolls(); else goTab('poll'); return; }
   if (t.kind === 'reason' || t.kind === 'plan') {
     inTeam(function () { goTab('attend'); return refreshSessions().then(function () { if (byId(S.sessions, t.id)) openSession(t.id); }); });
@@ -4575,4 +4610,32 @@ function saveLook() {
     haptic('success'); LK.look = Object.assign({}, r.look); LK.saved = JSON.stringify(r.look); renderLook();
     setMsg('lkMsg', '저장했어요! 동네지도에 곧 반영돼요'); townTeam = null;
   }).catch(function (err) { btn.disabled = false; setMsg('lkMsg', err.message, true); });
+}
+
+// ----- 녹음 진행 흐름 (회차마다 단계 + 단계별 사람): 배치 → 요청 확인 → 수락 → 확정 → 도착 → 녹음 중 → 마침 -----
+// 지난 단계 ✓, 지금 단계 진하게, 앞 단계 흐리게. 조율이 있으면 아래 빨간 가지
+function recFlow(r, s) {
+  var ppl = s.people.filter(function (p) { return p.answer !== '미선정'; });
+  var RK = { '녹음자': '성우', '엔지니어': '엔지니어', '감독자': '감독' };
+  var chip = function (p, ok, extra) { return '<span class="fl-p r-' + (RK[p.role] || '') + (ok ? ' ok' : '') + '" title="' + esc(RK[p.role] || p.role) + '">' + esc(p.name) + (extra || '') + '</span>'; };
+  var voices = ppl.filter(function (p) { return p.role === '녹음자' && p.selected; });
+  var live = s.status === '조율중', done = s.status === '완료', conf = s.status === '예정' || done;
+  var steps = [
+    ['배치', true, ppl.map(function (p) { return chip(p, true); }).join('')],
+    ['요청 확인', ppl.every(function (p) { return p.seen_at || p.answer !== '대기'; }), ppl.map(function (p) { return chip(p, p.seen_at || p.answer !== '대기', p.seen_at || p.answer !== '대기' ? '' : ' <i>안 봄</i>'); }).join('')],
+    ['수락', conf, ppl.map(function (p) { return chip(p, p.answer === '수락', p.answer === '조율' ? ' <i class="bad">조율</i>' : p.answer === '대기' ? ' <i>대기</i>' : ''); }).join('')],
+    ['확정', conf, conf ? '<span class="fl-t">' + mdw(s.start) + ' ' + hmMs(s.start) + '</span>' : ''],
+    ['도착', conf && voices.length && voices.every(function (p) { return p.arrived_at; }), conf ? voices.map(function (p) {
+      return p.arrived_at ? chip(p, true, ' <i>' + hmMs(Date.parse(p.arrived_at)) + '</i>') : chip(p, false) + (s.status === '예정' ? '<button class="fl-btn" data-act="arrive" data-pid="' + esc(p.id) + '">도착</button>' : '');
+    }).join('') : ''],
+    ['녹음 중', !!s.started_at, s.started_at ? '<span class="fl-t">' + hmMs(Date.parse(s.started_at)) + ' 시작</span>' : ''],
+    ['마침', done, s.ended_at ? '<span class="fl-t">' + hmMs(Date.parse(s.ended_at)) + ' 종료</span>' : done ? '<span class="fl-t">완료</span>' : '']
+  ];
+  var cur = steps.findIndex(function (x) { return !x[1]; }); if (cur < 0) cur = steps.length;
+  var adj = ppl.filter(function (p) { return p.answer === '조율'; });
+  return '<div class="fl"><div class="fl-row">' + steps.map(function (x, i) {
+      var k = x[1] ? 'past' : i === cur ? 'now' : 'next';
+      return '<div class="fl-step ' + k + '"><div class="fl-h"><i>' + (k === 'past' ? '✓' : i + 1) + '</i>' + x[0] + '</div><div class="fl-b">' + (x[2] || '') + '</div></div>';
+    }).join('') + '</div>' +
+    (adj.length && live ? '<div class="fl-branch"><b>조율 필요</b>' + adj.map(function (p) { return chip(p, false, p.note ? ' <i>' + esc(p.note) + '</i>' : ''); }).join('') + '<small>시간·사람을 다시 맞춰주세요</small></div>' : '') + '</div>';
 }

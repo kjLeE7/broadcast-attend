@@ -161,7 +161,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -239,6 +239,14 @@
 - 딥링크: `?rec=요청id`(교관 이상, 녹음 탭 상세), `?ask=participant_id`(누구나 본인 것 응답).
 - 녹음 장소를 바꾸려면 `update places set can_record = true/false where code = ...`.
 - 2026-10-04 기준: 시범 인원에 엔지니어팀이 없고 업무가능 시간도 아직 없어서 '가능한 시간'은 비어 보임.
+
+### 녹음 진행 흐름 (2026-10-05, 함수 버전 44)
+- 현황판 회차 카드 맨 위 단계 흐름도(`recFlow`): 배치 → 요청 확인(`seen_at`) → 수락 → 확정 → 도착(성우 `arrived_at`) → 녹음 중(`started_at`) → 마침(`ended_at`). 칸마다 사람 칩(성우 파랑·엔지니어 황토·감독 보라 줄), 조율이 있으면 아래 빨간 점선 가지.
+- DB(`supabase/migrations/20261005_rec_flow.sql`): `recording_participants.seen_at/arrived_at/arrived_by`, `recording_sessions.started_at/started_by/ended_at/ended_by`.
+- 요청 확인 = 받은 사람이 응답 팝업(`rec.ask`)을 처음 연 때. 도착 = 성우 본인(앱 버튼·봇 채팅 '도착') 또는 그 회차 엔지니어·교관 이상이 대신(`rec.arrive`), 시작 2시간 전 ~ 끝+1시간, 엔지니어에게 알림.
+- 엔지니어(그 회차 selected) 또는 교관 이상: `rec.start`(시작 보고, 회차 만든 사람에게 알림) / `rec.end`('녹음 마쳤습니다' = 회차 완료 + 배지 판정 + 요청 상태). 현황판의 예전 '녹음 완료' 버튼은 이걸로 바뀜.
+- 엔지니어는 교관이 아니어도 응답 팝업(`?ask=`)에서 성우 도착 확인·시작·종료 보고를 함. 개인노트 '지금 할 일'에 당일 `recarrive`(성우)·`recrun`(엔지니어) 항목.
+- 봇 '도착': 지금 도착할 수 있는 녹음이 있으면 녹음 도착도 기록(체크인이 없어도).
 
 ### 시간취합 (2026-10-04, 함수 버전 32, 운영 앱에서 옮겨 옴)
 - 개인노트 칩 [나의 기록|내 과제|업무가능|**시간취합**] → `pollView`(화면 제목 '함께할 시간 찾기', `curTab` 'poll', 부모 탭 profile). 목록(진행 중·마감 7일) | PC는 오른쪽 상세(`#pollView.split`).
