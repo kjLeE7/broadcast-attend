@@ -466,16 +466,18 @@ async function sectionRoster(ctx: Ctx, teamId: string) {
   };
 }
 
-// 대상 고르기 화면에서 사람으로 집은 경우 검사: 팀 범위면 그 팀 사람만(teamRank 이상), 전체(과)면 과 사람 누구나(allRank 이상)
+// 대상 고르기 화면에서 사람으로 집은 경우 검사: 만드는 팀(team_id)에서 teamRank 이상(전체면 allRank 이상)
+// 사람은 같은 과 안이면 다른 팀 사람도 됨(타팀과 함께하는 모임·공지·체크인·과제, 2026-10-05)
 // { team_id, scope: team|all|section, target_people? } → 사람 id 배열 또는 null(예전처럼 팀·조 대상)
 async function pickedPeople(ctx: Ctx, p: any, teamRank: number, allRank: number): Promise<string[] | null> {
   if (!Array.isArray(p.target_people)) return null;
   const ids = [...new Set(p.target_people.map(String))] as string[];
   if (!ids.length) throw new HttpError(400, "대상자를 한 명 이상 골라주세요");
+  if (ids.length > 300) throw new HttpError(400, "대상이 너무 많아요");
   const all = p.scope === "all" || p.scope === "section";
   await requireRank(ctx, p.team_id, all ? allRank : teamRank);
   const roster = await sectionRoster(ctx, p.team_id);
-  const ok = new Set(roster.members.filter((m: any) => all || m.ranks[p.team_id]).map((m: any) => m.id));
+  const ok = new Set(roster.members.map((m: any) => m.id));
   if (ids.some((id) => !ok.has(id))) throw new HttpError(400, "대상자 명단이 올바르지 않습니다");
   return ids;
 }
@@ -1780,8 +1782,29 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (patch.status === "취소" && before.status !== "취소") {
       must(await ctx.db.from("checkins").delete().eq("session_id", s.id));
       s = { ...s, checkins: [] };
-    } else if ((s.checkins ?? []).length && ("session_date" in patch || "title" in patch)) {
-      must(await ctx.db.from("checkins").update({ check_date: s.session_date, title: sessionName(s) }).eq("session_id", s.id));
+    } else {
+      if ((s.checkins ?? []).length && ("session_date" in patch || "title" in patch)) {
+        must(await ctx.db.from("checkins").update({ check_date: s.session_date, title: sessionName(s) }).eq("session_id", s.id));
+      }
+      // 체크인 항목 고치기: 비우면 체크인을 지우고, 없던 체크인이면 새로 붙임
+      if (Array.isArray(ctx.payload.checkin_items)) {
+        const items = ["기상", "출발", "도착"].filter((x) => ctx.payload.checkin_items.includes(x));
+        const cur: any[] = s.checkins ?? [];
+        if (!items.length && cur.length) must(await ctx.db.from("checkins").delete().eq("session_id", s.id));
+        else if (items.length && cur.length) {
+          for (const c of cur) {
+            const gone = (c.items ?? []).filter((x: string) => !items.includes(x));
+            if (gone.length) must(await ctx.db.from("checkin_reports").delete().eq("checkin_id", c.id).in("item", gone));
+          }
+          must(await ctx.db.from("checkins").update({ items }).eq("session_id", s.id));
+        } else if (items.length) {
+          must(await ctx.db.from("checkins").insert({
+            team_id: s.team_id, session_id: s.id, title: sessionName(s), check_date: s.session_date, items,
+            target_unit_id: s.target_unit_id, target_people: s.target_people, target_label: s.target_label, created_by: ctx.me.id,
+          }));
+        }
+        s = must(await ctx.db.from("meeting_sessions").select(SESSION_COLS).eq("id", s.id).single());
+      }
     }
     let notify = null;
     if (ctx.payload.notify !== false && patch.status === "취소" && before.status !== "취소") {
@@ -2172,6 +2195,49 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     };
   },
 
+  // 업무 탭 아래 '업무가능 시간 2주 한눈에': 오늘부터 14일, 볼 수 있는 팀(모아보기와 같음: 내가 조장 이상인 팀 + 녹음 관계자면 녹음 팀)
+  // → { dates, hours, teams, mine:[내 팀 이름], weeks:[월요일…], people:[{ id, name, teams, group, slots:{날짜번호:[칸]}, weeks:{월요일: 낸 여부}, memo:{월요일: 특이사항} }] }
+  async "weekly.overview"(ctx) {
+    const teams = await boardTeams(ctx);
+    if (!teams.length) throw new HttpError(403, "권한이 없습니다");
+    const teamIds = teams.map((t) => t.id);
+    const today = kstToday();
+    const dates = Array.from({ length: 14 }, (_, i) => addDaysStr(today, i));
+    const dow = new Date(today + "T00:00:00Z").getUTCDay();
+    const mon = addDaysStr(today, -((dow + 6) % 7));
+    const weeks = [mon, addDaysStr(mon, 7), addDaysStr(mon, 14)].filter((w) => w <= dates[13]);
+    const pos: any[] = must(await ctx.db.from("position_history").select("person_id, org_unit_id, people(name, is_active)")
+      .in("org_unit_id", teamIds).lte("started_on", today).or(`ended_on.is.null,ended_on.gte.${today}`)) ?? [];
+    const people = new Map<string, any>();
+    for (const p of pos) {
+      if (!p.people?.is_active) continue;
+      const cur = people.get(p.person_id) ?? { id: p.person_id, name: p.people.name, teams: [] as string[], group: null, slots: {}, weeks: {}, memo: {} };
+      const tname = teams.find((t) => t.id === p.org_unit_id)?.name;
+      if (tname && !cur.teams.includes(tname)) cur.teams.push(tname);
+      people.set(p.person_id, cur);
+    }
+    const ids = [...people.keys()];
+    if (ids.length) {
+      const [groups, avail, subs] = await Promise.all([
+        ctx.db.from("group_assignments").select("person_id, org_units(name, parent_id)").in("person_id", ids).lte("started_on", today).or(`ended_on.is.null,ended_on.gte.${today}`),
+        ctx.db.from("availability").select("person_id, avail_date, slots").in("person_id", ids).in("avail_date", dates),
+        ctx.db.from("weekly_submissions").select("person_id, week_start, memo").in("person_id", ids).in("week_start", weeks),
+      ]);
+      for (const g of must(groups as any) ?? []) if (teamIds.includes(g.org_units?.parent_id)) people.get(g.person_id).group = g.org_units.name;
+      for (const a of must(avail as any) ?? []) {
+        if (!a.slots?.length) continue;
+        people.get(a.person_id).slots[String(dates.indexOf(a.avail_date))] = a.slots;
+      }
+      for (const w of must(subs as any) ?? []) { const p = people.get(w.person_id); p.weeks[w.week_start] = true; if (w.memo) p.memo[w.week_start] = w.memo; }
+    }
+    const { teams: mineT } = await myTeams(ctx);
+    return {
+      dates, weeks, hours: await weeklyHours(ctx), teams: teams.map((t) => t.name),
+      mine: mineT.filter((t: any) => teamIds.includes(t.id)).map((t: any) => t.name),
+      people: [...people.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  },
+
   // ----- 고정 일정 -----
   // 내 고정 일정: 이름·시간이 같은 줄을 묶어서 [{ title, weekdays:[0=일…6=토], start, end }]
   async "fixed.list"(ctx) {
@@ -2496,6 +2562,23 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       target_unit_id: target_people ? null : p.target_unit_id || null, target_people, target_label: target_people ? labelOf(p) : null, session_id: p.session_id || null, created_by: ctx.me.id,
     }).select().single());
   },
+  // 체크인 고치기: { id, title?, check_date?, items? } → 만든 사람 또는 그 팀 교관 이상. 모임에 붙은 체크인은 날짜를 모임이 정함
+  async "checkins.update"(ctx) {
+    const c = must(await ctx.db.from("checkins").select("id, team_id, created_by, session_id, items").eq("id", ctx.payload.id).maybeSingle());
+    if (!c) throw new HttpError(404, "체크인을 찾을 수 없습니다");
+    if (c.created_by !== ctx.me.id) await requireRank(ctx, c.team_id, RANK.INSTRUCTOR);
+    const patch: any = {};
+    if ("title" in ctx.payload) { patch.title = String(ctx.payload.title ?? "").trim().slice(0, 60); if (!patch.title) throw new HttpError(400, "제목을 입력해주세요"); }
+    if ("check_date" in ctx.payload && !c.session_id) { if (!isDate(ctx.payload.check_date)) throw new HttpError(400, "날짜를 골라주세요"); patch.check_date = ctx.payload.check_date; }
+    if ("items" in ctx.payload) {
+      patch.items = ["기상", "출발", "도착"].filter((x) => Array.isArray(ctx.payload.items) && ctx.payload.items.includes(x));
+      if (!patch.items.length) throw new HttpError(400, "받을 항목을 하나 이상 골라주세요");
+      // 뺀 항목의 보고 기록은 지움
+      const gone = (c.items ?? []).filter((x: string) => !patch.items.includes(x));
+      if (gone.length) must(await ctx.db.from("checkin_reports").delete().eq("checkin_id", c.id).in("item", gone));
+    }
+    return must(await ctx.db.from("checkins").update(patch).eq("id", c.id).select().single());
+  },
   async "checkins.delete"(ctx) {
     await requireRank(ctx, await ownerTeam(ctx, "checkins", ctx.payload.id), RANK.INSTRUCTOR);
     must(await ctx.db.from("checkins").delete().eq("id", ctx.payload.id));
@@ -2754,9 +2837,14 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // { team_id } → 과의 녹음 요청 (진행 중 전부 + 지난 60일) + 배역 + 회차(사람·응답)
   async "rec.list"(ctx) {
     const sec = await recSection(ctx, ctx.payload.team_id);
-    const rows: any[] = must(await ctx.db.from("recording_requests")
+    // 내 소속팀의 업무만 (2026-10-05): 내 팀이 올린 요청 + 내가 올렸거나 사람으로 들어간 요청
+    const myTeamIds = new Set((await myTeams(ctx)).teams.filter((t: any) => t.rank >= RANK.MEMBER).map((t: any) => t.id));
+    const mineIn: any[] = must(await ctx.db.from("recording_participants").select("recording_sessions!inner(request_id)").eq("person_id", ctx.me.id)) ?? [];
+    const joined = new Set(mineIn.map((x) => x.recording_sessions?.request_id).filter(Boolean));
+    const rows: any[] = (must(await ctx.db.from("recording_requests")
       .select("id, team_id, title, request_code, request_dept, requester_name, volume_desc, note, due_at, duration_min, voices_needed, status, received_by, received_at, notify_result")
-      .in("team_id", sec.teamIds).order("received_at", { ascending: false }).limit(300)) ?? [];
+      .in("team_id", sec.teamIds).order("received_at", { ascending: false }).limit(300)) ?? [])
+      .filter((r: any) => myTeamIds.has(r.team_id) || r.received_by === ctx.me.id || joined.has(r.id));
     const old = Date.now() - 60 * 86400000;
     const list = rows.filter((r) => !["녹음완료", "편집완료", "전달완료", "취소"].includes(r.status) || Date.parse(r.received_at) >= old);
     const ids = list.map((r) => r.id);

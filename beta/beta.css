@@ -994,3 +994,28 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
 .rc-num-btn { flex: none; width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; border-radius: 99px; border: 1.5px solid var(--line); background: var(--card); color: var(--text); font-size: 22px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .rc-num-btn:active { transform: scale(.95); }
 #recModal .tp-row > .select-wrap { flex: 0 0 38%; }
+
+/* 고치기 모드: 대상 대신 '받는 사람' 안내 */
+.edit-target { margin: 6px 0 4px; padding: 12px 14px; border-radius: 14px; background: var(--card-soft); font-size: 13.5px; }
+.edit-target b { margin-right: 6px; }
+.edit-target small { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+/* 고치기·지우기 버튼 나란히 */
+.b-row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.b-row-btns .ghost-btn { flex: 1; min-width: 140px; }
+.pk-multi { margin: -2px 0 8px 46px; }
+
+/* 업무 탭 아래: 업무가능 시간 2주 한눈에 */
+.rec-avail { margin-top: 8px; }
+/* PC: 목록·오른쪽 패널 아래 한 줄을 통째로. 오른쪽 패널이 따라 내려와도 표가 위에 덮이게 */
+@media (min-width: 1000px) { #recView.split .rec-avail { grid-column: 1 / -1; position: relative; z-index: 3; background: var(--bg); padding-top: 4px; } }
+.av-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.av-bar .wk-chips { margin: 0; }
+.av-grid { overflow-x: auto; }
+.av-table { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); overflow-x: auto; }
+.av-table .sched th, .av-table .sched td { white-space: nowrap; text-align: center; padding: 9px 10px; font-size: 12.5px; }
+.av-table .sched th.sun { color: var(--bad); } .av-table .sched th.sat { color: #3F6A8A; }
+.av-table .av-name { position: sticky; left: 0; background: var(--card); text-align: left !important; z-index: 1; }
+.av-table td.av-name b { display: block; font-size: 13.5px; } .av-table td.av-name span { font-size: 11px; color: var(--muted); }
+.av-table td.av-ok { color: var(--accent); font-weight: 700; background: var(--accent-soft); }
+.av-table td.av-no { color: var(--muted); }
+.av-table td.av-none { color: var(--muted); opacity: .55; font-size: 11px; }

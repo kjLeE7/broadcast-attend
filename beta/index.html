@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261005h">
+  <link rel="stylesheet" href="beta.css?v=20261005l">
 </head>
 <body>
   <div class="app">
@@ -271,6 +271,12 @@
         <div id="rdSession"></div>
         <div id="rdPlan"></div>
       </div>
+
+      <!-- 업무가능 시간 2주 한눈에 (PC는 아래에 화면 폭 가득) -->
+      <div id="recAvail" class="rec-avail">
+        <div class="section-head b-gap"><h2>업무가능 시간 · 2주</h2><span class="section-count">오늘부터 14일 · 각자 낸 업무가능 시간</span></div>
+        <div id="avBody"></div>
+      </div>
     </section>
 
     <section id="profileView" style="display:none;">
@@ -479,9 +485,9 @@
       <svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg>
       <span>공지</span>
     </button>
-    <button class="tab" data-tab="rec" title="녹음" id="recTab" onclick="goTab('rec')" style="display:none;">
+    <button class="tab" data-tab="rec" title="업무" id="recTab" onclick="goTab('rec')" style="display:none;">
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
-      <span>녹음</span>
+      <span>업무</span>
     </button>
     <button class="tab" data-tab="profile" title="개인노트" onclick="goTab('profile')">
       <i class="tab-ic"><svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M16 3v3h3"/><path d="M9 10h7M9 14h7M9 18h4"/></svg><b class="tab-badge" id="todoBadge" hidden></b></i>
@@ -751,6 +757,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261005i"></script>
+  <script src="beta.js?v=20261005k"></script>
 </body>
 </html>

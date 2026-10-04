@@ -414,25 +414,35 @@ var PCFG = {
   tp: { min: RANK.MEMBER, all: RANK.MEMBER, people: true }   // 시간취합: 과 사람 누구나, 언제나 사람 목록으로
 };
 var PK = {};
-function pk(k) { return PK[k] || (PK[k] = { key: '', teamOf: null, subs: [], pos: [], off: {}, pending: null }); }
-function pkTeams(k) { return ROSTER.data.teams.filter(function (t) { return t.my_rank >= PCFG[k].min; }); }
+// 팀은 여러 개 고를 수 있음(다른 팀과 함께하는 모임·공지 등). keys = 고른 팀 id들, all = 과 전체
+function pk(k) { return PK[k] || (PK[k] = { all: false, keys: [], teamOf: null, subs: [], pos: [], off: {}, pending: null }); }
+function pkMine(k) { return ROSTER.data.teams.filter(function (t) { return t.my_rank >= PCFG[k].min; }); }   // 내가 만들 수 있는 팀
+function pkTeams(k) { return pkMine(k).length ? ROSTER.data.teams : []; }   // 고를 수 있는 팀 칩: 만들 수 있는 팀이 하나라도 있으면 과의 모든 팀
 function pkCanAll(k) { return ROSTER.data.teams.some(function (t) { return t.my_rank >= PCFG[k].all; }); }
 function pkAllTeam(k) {   // '전체'로 만들 때 소속 팀: 지금 팀이 되면 지금 팀
   var ok = ROSTER.data.teams.filter(function (t) { return t.my_rank >= PCFG[k].all; });
   return (ok.filter(function (t) { return t.id === S.team.id; })[0] || ok[0] || {}).id;
+}
+// 만드는 팀(글·모임의 주인): 고른 팀 중 내가 만들 수 있는 팀(지금 팀 먼저) → 없으면 내가 만들 수 있는 팀(지금 팀 먼저)
+function pkOwner(k) {
+  var P = pk(k), mine = pkMine(k), can = function (id) { return mine.some(function (t) { return t.id === id; }); };
+  if (P.keys.indexOf(S.team.id) !== -1 && can(S.team.id)) return S.team.id;
+  for (var i = 0; i < P.keys.length; i++) if (can(P.keys[i])) return P.keys[i];
+  return can(S.team.id) ? S.team.id : (mine[0] || {}).id;
 }
 function pkOpen(k) {
   var P = pk(k), box = $(k + 'Pick');
   if (!ROSTER.data || ROSTER.teamOf !== S.team.id) box.innerHTML = '<div class="b-aud"><b>명단 불러오는 중...</b></div>';
   return loadRoster().then(function () {
     if (P.teamOf !== S.team.id) {   // 처음이거나 팀을 바꿨으면 지금 팀으로
-      var ts = pkTeams(k), mine = ts.filter(function (t) { return t.id === S.team.id; })[0] || ts[0];
-      P.key = mine ? mine.id : (pkCanAll(k) ? 'all' : ''); P.subs = []; P.pos = []; P.off = {}; P.teamOf = S.team.id;
+      var ms = pkMine(k), mine = ms.filter(function (t) { return t.id === S.team.id; })[0] || ms[0];
+      P.all = !mine && pkCanAll(k); P.keys = mine ? [mine.id] : []; P.subs = []; P.pos = []; P.off = {}; P.teamOf = S.team.id;
     }
     pkRender(k); pkApplyPending(k);
   }).catch(function (err) { box.innerHTML = '<div class="b-aud"><b>명단을 불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
-function pkTeam(k) { var P = pk(k); return P.key === 'all' ? null : ROSTER.data.teams.filter(function (t) { return t.id === P.key; })[0]; }
+// 팀을 딱 하나 골랐을 때만 그 팀 (조·직책을 그 팀 기준으로)
+function pkTeam(k) { var P = pk(k); return !P.all && P.keys.length === 1 ? ROSTER.data.teams.filter(function (t) { return t.id === P.keys[0]; })[0] : null; }
 function pkSubOpts(t) {
   if (!t || !t.groups.length) return [];
   return [{ key: STAFF, name: '운영진' }].concat(t.groups.filter(function (g) { return g.name !== '4조'; }).map(function (g) { return { key: g.id, name: g.name }; }));
@@ -442,9 +452,9 @@ function pkPosOf(k, m) { var t = pkTeam(k); return (t && m.pos && m.pos[t.id]) |
 // 팀·조까지 고른 범위
 function pkBase(k) {
   var P = pk(k), t = pkTeam(k), list = ROSTER.data.members;
-  if (!t) return list;
-  list = list.filter(function (m) { return m.ranks[t.id]; });
-  if (!P.subs.length) return list;
+  if (P.all) return list;
+  list = list.filter(function (m) { return P.keys.some(function (id) { return m.ranks[id]; }); });
+  if (!t || !P.subs.length) return list;
   return list.filter(function (m) {
     return P.subs.some(function (s) { return s === STAFF ? (m.ranks[t.id] >= RANK.INSTRUCTOR || m.group === '4조') : m.group_id === s; });
   });
@@ -461,7 +471,8 @@ function pkPicked(k) { var P = pk(k); return pkPool(k).filter(function (m) { ret
 function pkLabel(k) {
   var P = pk(k), t = pkTeam(k), off = pkPool(k).length - pkPicked(k).length;
   var whole = P.pos.length ? '' : ' 전체';
-  var base = !t ? ROSTER.data.section.name + whole
+  var base = P.all ? ROSTER.data.section.name + whole
+    : !t ? P.keys.map(pkTeamName).join('·') + (P.pos.length ? '' : ' 함께')
     : P.subs.length ? t.name + ' · ' + pkSubOpts(t).filter(function (o) { return P.subs.indexOf(o.key) !== -1; }).map(function (o) { return o.name; }).join('·')
     : t.name + whole;
   return base + (P.pos.length ? ' · ' + P.pos.join('·') : '') + (off ? ' (' + off + '명 빼고)' : '');
@@ -472,8 +483,9 @@ function pkRender(k) {
   var chip = function (on, label, fn) { return '<button type="button" class="b-pick' + (on ? ' on' : '') + '" onclick="' + fn + '">' + esc(label) + '</button>'; };
   var teams = pkTeams(k), canAll = pkCanAll(k);
   if (!teams.length && !canAll) { box.innerHTML = '<div class="b-aud"><b>대상을 고를 수 있는 팀이 없어요</b></div>'; return; }
-  var h = '<div class="b-pick-row"><span>팀</span><div class="b-picks">' + (canAll ? chip(P.key === 'all', '전체', "pkSetTeam('" + k + "','all')") : '') +
-    teams.map(function (t) { return chip(P.key === t.id, t.name, "pkSetTeam('" + k + "','" + t.id + "')"); }).join('') + '</div></div>';
+  var h = '<div class="b-pick-row"><span>팀</span><div class="b-picks">' + (canAll ? chip(P.all, '전체', "pkSetTeam('" + k + "','all')") : '') +
+    teams.map(function (t) { return chip(!P.all && P.keys.indexOf(t.id) !== -1, t.name, "pkSetTeam('" + k + "','" + t.id + "')"); }).join('') + '</div></div>';
+  if (!P.all && P.keys.length > 1) h += '<small class="ma-hint pk-multi">여러 팀을 함께 골랐어요 · ' + esc(pkTeamName(pkOwner(k))) + ' 이름으로 만들어져요</small>';
   var subs = pkSubOpts(pkTeam(k));
   if (subs.length) h += '<div class="b-pick-row"><span>조</span><div class="b-picks">' +
     subs.map(function (o) { return chip(P.subs.indexOf(o.key) !== -1, o.name, "pkToggleSub('" + k + "','" + o.key + "')"); }).join('') + '</div></div>';
@@ -486,41 +498,54 @@ function pkRender(k) {
   h += '<div class="b-aud"><b>받는 사람 ' + n + '명</b>' + (pool.length ? '<div class="who">' + pool.map(function (m) {
       return '<button type="button" class="ma-p' + (P.off[m.id] ? ' off' : '') + '" onclick="pkToggleOff(\'' + k + '\',\'' + m.id + '\')">' + esc(m.name) +
         ' <small>' + esc([pkPosOf(k, m), m.group].filter(Boolean).join('·')) + '</small></button>';
-    }).join('') + '</div><small class="ma-hint">이름을 누르면 빼거나 다시 넣을 수 있어요</small>' : '<small>이 범위에는 사람이 없어요</small>') + '</div>';
+    }).join('') + '</div><small class="ma-hint">이름을 누르면 빼거나 다시 넣을 수 있어요</small>' : '<small>' + (P.all || P.keys.length ? '이 범위에는 사람이 없어요' : '위에서 팀을 골라주세요') + '</small>') + '</div>';
   box.innerHTML = h;
-  if (k === 'c') {   // 모임 유형은 지금 보고 있는 팀 것만: 다른 팀 모임이면 제목으로
-    var other = P.key !== 'all' && P.key !== S.team.id;
+  if (k === 'c') {   // 모임 유형은 지금 보고 있는 팀 것만: 만드는 팀이 다른 팀이면 제목으로
+    var other = !P.all && pkOwner(k) !== S.team.id;
     $('cType').disabled = other; if (other) $('cType').value = '';
   }
 }
-function pkSetTeam(k, id) { var P = pk(k); P.key = id; P.subs = []; P.pos = []; P.off = {}; pkRender(k); }
+// 팀 칩: '전체'는 혼자, 팀은 여러 개 켜고 끄기
+function pkSetTeam(k, id) {
+  var P = pk(k);
+  if (id === 'all') { P.all = !P.all; P.keys = P.all ? [] : (pkMine(k)[0] ? [pkOwner(k)] : []); }
+  else { P.all = false; var i = P.keys.indexOf(id); if (i === -1) P.keys.push(id); else P.keys.splice(i, 1); }
+  P.subs = []; P.pos = []; P.off = {}; pkRender(k);
+}
 function pkToggleSub(k, s) { var P = pk(k), i = P.subs.indexOf(s); if (i === -1) P.subs.push(s); else P.subs.splice(i, 1); P.pos = []; P.off = {}; pkRender(k); }
 function pkTogglePos(k, p) { var P = pk(k), i = P.pos.indexOf(p); if (!p) P.pos = []; else if (i === -1) P.pos.push(p); else P.pos.splice(i, 1); P.off = {}; pkRender(k); }
 function pkToggleOff(k, id) { var P = pk(k); if (P.off[id]) delete P.off[id]; else P.off[id] = true; pkRender(k); }
 function pkReset(k) { var P = pk(k); P.subs = []; P.pos = []; P.off = {}; if (ROSTER.data) pkRender(k); }
-// 보낼 대상: { team_id, scope: team|all, target_people?, target_label? } — 팀 하나를 통째로 고르면 예전처럼 팀 대상(사람 목록 없음)
+// 보낼 대상: { team_id(만드는 팀), scope: team|all, target_people?, target_label? }
+// 내가 만들 수 있는 팀 하나를 통째로 고르면 예전처럼 팀 대상(사람 목록 없음), 다른 팀이 섞이면 언제나 사람 목록
 function pkPayload(k) {
   var P = pk(k);
-  if (!ROSTER.data || !P.key) return { error: '대상 명단을 불러오는 중이에요. 잠시 뒤 다시 눌러주세요' };
+  if (!ROSTER.data || (!P.all && !P.keys.length)) return { error: ROSTER.data ? '받는 팀을 골라주세요' : '대상 명단을 불러오는 중이에요. 잠시 뒤 다시 눌러주세요' };
   var picked = pkPicked(k);
   if (!picked.length) return { error: '받는 사람이 없어요. 대상을 다시 골라주세요' };
-  var all = P.key === 'all', whole = !P.subs.length && !P.pos.length && picked.length === pkPool(k).length;
-  var out = { team_id: all ? pkAllTeam(k) : P.key, scope: all ? 'all' : 'team' };
-  if (!whole || (all && !PCFG[k].dynAll) || PCFG[k].people) {
+  var owner = P.all ? pkAllTeam(k) : pkOwner(k);
+  if (!owner) return { error: '대상을 고를 수 있는 팀이 없어요' };
+  var single = !P.all && P.keys.length === 1 && P.keys[0] === owner;
+  var whole = !P.subs.length && !P.pos.length && picked.length === pkPool(k).length;
+  var out = { team_id: owner, scope: P.all ? 'all' : 'team' };
+  if (!whole || PCFG[k].people || (P.all ? !PCFG[k].dynAll : !single)) {
     out.target_people = picked.map(function (m) { return m.id; });
     out.target_label = pkLabel(k);
   }
   return out;
 }
 function pkTeamName(id) { var t = ROSTER.data && ROSTER.data.teams.filter(function (x) { return x.id === id; })[0]; return t ? t.name : ''; }
-// 양식에 담을 대상 / 양식에서 되살리기(명단이 온 뒤, 지금 고를 수 없는 팀이면 건너뜀)
-function pkGet(k) { var P = pk(k); return P.key ? { key: P.key, subs: P.subs.slice(), pos: P.pos.slice(), off: Object.keys(P.off) } : null; }
+// 양식에 담을 대상 / 양식에서 되살리기(명단이 온 뒤, 지금 고를 수 없는 팀은 뺌). 예전 양식은 key 하나
+function pkGet(k) { var P = pk(k); return P.all || P.keys.length ? { key: P.all ? 'all' : P.keys[0], keys: P.keys.slice(), all: P.all, subs: P.subs.slice(), pos: P.pos.slice(), off: Object.keys(P.off) } : null; }
 function pkApplyPending(k) {
   var P = pk(k), g = P.pending; if (!g || !ROSTER.data) return;
   P.pending = null;
-  var ok = g.key === 'all' ? pkCanAll(k) : pkTeams(k).some(function (t) { return t.id === g.key; });
-  if (!ok) { pkRender(k); return; }
-  P.key = g.key;
+  var all = g.all || g.key === 'all';
+  if (all && !pkCanAll(k)) { pkRender(k); return; }
+  var ids = ROSTER.data.teams.map(function (t) { return t.id; });
+  var keys = all ? [] : (g.keys || [g.key]).filter(function (id) { return ids.indexOf(id) !== -1; });
+  if (!all && (!keys.length || !pkMine(k).length)) { pkRender(k); return; }
+  P.all = all; P.keys = keys;
   var opts = pkSubOpts(pkTeam(k)).map(function (o) { return o.key; });
   P.subs = (g.subs || []).filter(function (s) { return opts.indexOf(s) !== -1; });
   P.pos = (g.pos || []).slice();
@@ -648,6 +673,7 @@ function notifyText(r) {
 function cCiItems() { return [].slice.call(document.querySelectorAll('#cCiItems input:checked')).map(function (x) { return x.value; }); }
 function setCCiItems(list) { document.querySelectorAll('#cCiItems input').forEach(function (x) { x.checked = (list || []).indexOf(x.value) !== -1; }); }
 function createSession() {
+  if (EDIT.k === 'c') { saveSessEdit(); return; }
   var p = {
     team_id: S.team.id,
     meeting_type_id: $('cType').value || null,
@@ -1017,6 +1043,7 @@ function renderActs() {
   } else {
     h += '<p class="b-note b-center">모임 당일 시작 시간(' + hmMs(s.start_ms || s.end_ms) + ')부터 현장 출결확인을 해요.<br>이름을 누르면 출결확인 버튼이 나와요.</p>';
   }
+  h += '<button class="ghost-btn" onclick="editSession()">✏️ 모임 고치기</button>';
   if (ph !== 'closed') {
     h += '<button class="ghost-btn b-danger" onclick="cancelSess()">모임 취소 (대상자에게 알림)</button>' +
       '<button class="ghost-btn" onclick="deleteSess()">잘못 만들었어요 · 지우기</button>';
@@ -1857,6 +1884,169 @@ function createPoll() {
   }).catch(function (err) { btn.disabled = false; setMsg('tpMsg', err.message, true); });
 }
 
+// =====================================================================
+// 고치기: 만들기 팝업(모임 c·체크인 ci·공지 ann·과제 hw)을 '고치기'로 다시 씀
+// 받는 사람(대상)은 그대로 두고 내용만 고침. 닫으면 만들던 입력은 그대로 돌아옴
+// =====================================================================
+var EDIT = { k: null, id: null, snap: null };
+var EDIT_TXT = {
+  c: ['모임 고치기', '바꾼 내용은 저장을 눌러야 남아요'],
+  ci: ['체크인 고치기', '뺀 항목의 보고 기록은 지워져요'],
+  ann: ['공지 고치기', '바꾼 내용은 저장을 눌러야 남아요'],
+  hw: ['과제 고치기', '바꾼 내용은 저장을 눌러야 남아요']
+};
+function editFields(k) { return [].slice.call($(k + 'Modal').querySelectorAll('.b-modal-body input, .b-modal-body textarea, .b-modal-body select')); }
+function editOn(k, id, targetText) {
+  if (EDIT.k) editOff();
+  var head = $(k + 'ModalT');
+  EDIT = { k: k, id: id, snap: {
+    fields: editFields(k).map(function (el) { return { el: el, v: el.value, c: el.checked, d: el.disabled }; }),
+    h1: head.textContent, p: head.nextElementSibling ? head.nextElementSibling.textContent : '', btn: $(k + 'Btn').textContent
+  } };
+  head.textContent = EDIT_TXT[k][0];
+  if (head.nextElementSibling) head.nextElementSibling.textContent = EDIT_TXT[k][1];
+  $(k + 'Btn').textContent = '저장';
+  ['TplBar', 'TplSave'].forEach(function (x) { if ($(k + x)) $(k + x).style.display = 'none'; });
+  var pick = $(k + 'Pick'), lab = pick.previousElementSibling;
+  pick.style.display = 'none'; if (lab && lab.tagName === 'LABEL') lab.style.display = 'none';
+  var note = document.createElement('div');
+  note.className = 'edit-target'; note.id = k + 'EditNote';
+  note.innerHTML = '<b>받는 사람</b> ' + esc(targetText || '') + '<small>받는 사람은 고칠 수 없어요. 바꿔야 하면 지우고 새로 만들어주세요.</small>';
+  pick.parentNode.insertBefore(note, pick.nextSibling);
+  setMsg(k + 'Msg', '');
+}
+function editOff() {
+  var k = EDIT.k; if (!k) return;
+  var sn = EDIT.snap, head = $(k + 'ModalT');
+  sn.fields.forEach(function (f) { f.el.value = f.v; f.el.checked = f.c; f.el.disabled = f.d; });
+  head.textContent = sn.h1; if (head.nextElementSibling) head.nextElementSibling.textContent = sn.p;
+  $(k + 'Btn').textContent = sn.btn;
+  ['TplBar', 'TplSave'].forEach(function (x) { if ($(k + x)) $(k + x).style.display = ''; });
+  var pick = $(k + 'Pick'), lab = pick.previousElementSibling;
+  pick.style.display = ''; if (lab && lab.tagName === 'LABEL') lab.style.display = '';
+  var note = $(k + 'EditNote'); if (note) note.remove();
+  if (k === 'c') { $('cNotify').nextElementSibling.textContent = '대상자에게 텔레그램 알림 보내기'; if (ROSTER.data) pkRender('c'); }
+  EDIT = { k: null, id: null, snap: null };
+}
+function targetText(x, teamName) {
+  return x.target_label || (x.target_unit_id ? groupName(x.target_unit_id) + '만' : (teamName || S.team.name) + ' 전체');
+}
+function toLocalInput(iso) { if (!iso) return ''; var d = new Date(iso); return ymd(d) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+function editDone(k, text, after) {
+  haptic('success'); setMsg(k + 'Msg', text);
+  setTimeout(function () { setMsg(k + 'Msg', ''); closeModal(k + 'Modal'); if (after) after(); }, 900);
+}
+
+// ----- 모임 -----
+function editSession() {
+  var s = S.current; if (!s) return;
+  fillTypeSelect();
+  editOn('c', s.id, targetText(s));
+  $('cType').value = s.meeting_type_id || ''; $('cType').disabled = true;
+  $('cTitle').value = s.title || ''; $('cDate').value = s.session_date;
+  $('cStart').value = hm(s.start_time); $('cEnd').value = hm(s.end_time);
+  setPlace(s.location || ''); $('cDesc').value = s.description || '';
+  setCCiItems(sessCiItems(s));
+  $('cNotify').checked = false; $('cNotify').nextElementSibling.textContent = '바뀐 날짜·시간·장소를 대상자에게 알리기';
+  if (s.closed_at) { $('cDate').disabled = true; $('cStart').disabled = true; setMsg('cMsg', '출결이 마감된 모임이라 날짜·시작 시간은 못 바꿔요'); }
+  openModal('cModal');
+}
+function saveSessEdit() {
+  var s = S.current; if (!s || s.id !== EDIT.id) return;
+  var cand = { title: $('cTitle').value.trim() || null, session_date: $('cDate').value, start_time: $('cStart').value || null,
+    end_time: $('cEnd').value || null, location: getPlace() || null, description: $('cDesc').value.trim() || null };
+  var cur = { title: s.title || null, session_date: s.session_date, start_time: s.start_time ? hm(s.start_time) : null,
+    end_time: s.end_time ? hm(s.end_time) : null, location: s.location || null, description: s.description || null };
+  if (!cand.session_date) { setMsg('cMsg', '날짜를 골라주세요!', true); return; }
+  if (!cand.start_time) { setMsg('cMsg', '시작 시간을 넣어주세요!', true); return; }
+  if (cand.end_time && cand.end_time <= cand.start_time) { setMsg('cMsg', '끝나는 시간이 시작보다 늦어야 해요!', true); return; }
+  if (!s.meeting_type_id && !cand.title) { setMsg('cMsg', '제목을 적어주세요!', true); return; }
+  var p = { id: s.id, notify: $('cNotify').checked };
+  Object.keys(cand).forEach(function (key) { if (cand[key] !== cur[key]) p[key] = cand[key]; });
+  var ci = cCiItems(); if (ci.join() !== sessCiItems(s).join()) p.checkin_items = ci;
+  if (Object.keys(p).length === 2) { setMsg('cMsg', '바뀐 내용이 없어요'); return; }
+  var btn = $('cBtn'); btn.disabled = true; setMsg('cMsg', '저장 중...');
+  api('sessions.update', p).then(function (ns) {
+    btn.disabled = false;
+    Object.assign(s, ns, { start_ms: kstMs(ns.session_date, ns.start_time), end_ms: ns.end_time ? kstMs(ns.session_date, ns.end_time) : kstMs(ns.session_date, ns.start_time) + 3 * 3600000 });
+    renderHead();
+    if (p.checkin_items || p.session_date || p.title) api('checkins.list', { team_id: S.team.id }).then(function (l) { C.list = l || []; renderCheckins(); }).catch(function () {});
+    editDone('c', '저장했어요!' + (ns.notify ? '\n' + notifyText(ns.notify) : ''), refreshSessions);
+  }).catch(function (err) { btn.disabled = false; setMsg('cMsg', err.message, true); haptic('error'); });
+}
+
+// ----- 체크인 -----
+function editCheckin(id) {
+  var c = byId(C.list, id); if (!c) return;
+  editOn('ci', id, targetText(c));
+  $('ciTitle').value = c.title; $('ciDate').value = c.check_date;
+  document.querySelectorAll('#ciItems input').forEach(function (x) { x.checked = c.items.indexOf(x.value) !== -1; });
+  if (c.session_id) { $('ciDate').disabled = true; setMsg('ciMsg', '모임에 붙은 체크인이라 날짜는 모임을 따라가요'); }
+  openModal('ciModal');
+}
+function saveCiEdit() {
+  var c = byId(C.list, EDIT.id); if (!c) return;
+  var items = [].slice.call(document.querySelectorAll('#ciItems input:checked')).map(function (x) { return x.value; });
+  var p = { id: c.id, title: $('ciTitle').value.trim(), items: items };
+  if (!c.session_id) p.check_date = $('ciDate').value;
+  if (!p.title) { setMsg('ciMsg', '제목을 적어주세요!', true); return; }
+  if (!items.length) { setMsg('ciMsg', '받을 항목을 하나 이상 골라주세요!', true); return; }
+  var gone = c.items.filter(function (x) { return items.indexOf(x) === -1; });
+  if (gone.length && !confirm(gone.join('·') + ' 항목을 빼면 그 보고 기록도 지워져요. 저장할까요?')) return;
+  var btn = $('ciBtn'); btn.disabled = true; setMsg('ciMsg', '저장 중...');
+  api('checkins.update', p).then(function (r) {
+    btn.disabled = false;
+    Object.assign(c, { title: r.title, check_date: r.check_date, items: r.items });
+    if (c.reports) c.reports = c.reports.filter(function (x) { return r.items.indexOf(x.item) !== -1; });
+    gone.forEach(function (x) { delete c.mine[x]; });
+    renderCheckins(); refreshTodos(true);
+    editDone('ci', '저장했어요!');
+  }).catch(function (err) { btn.disabled = false; setMsg('ciMsg', err.message, true); });
+}
+
+// ----- 공지 -----
+function editNotice(id) {
+  var n = byId(N.list, id); if (!n) return;
+  editOn('ann', id, n.target_label || (n.scope === 'section' ? '방송예술과 전체' : S.team.name + ' 전체'));
+  $('annTitle').value = n.title; $('annBody').value = n.body || ''; $('annPinned').checked = !!n.is_pinned;
+  openModal('annModal');
+}
+function saveAnnEdit() {
+  var n = byId(N.list, EDIT.id); if (!n) return;
+  var p = { id: n.id, title: $('annTitle').value.trim(), body: $('annBody').value.trim(), is_pinned: $('annPinned').checked };
+  if (!p.title) { setMsg('annMsg', '제목을 적어주세요!', true); return; }
+  var btn = $('annBtn'); btn.disabled = true; setMsg('annMsg', '저장 중...');
+  api('notices.update', p).then(function (r) {
+    btn.disabled = false;
+    Object.assign(n, { title: r.title, body: r.body, is_pinned: r.is_pinned });
+    renderNotices();
+    editDone('ann', '저장했어요!', p.is_pinned !== !!n.is_pinned ? loadNotices : null);
+  }).catch(function (err) { btn.disabled = false; setMsg('annMsg', err.message, true); });
+}
+
+// ----- 과제 -----
+function editTask() {
+  var a = A.current; if (!a) return;
+  editOn('hw', a.id, targetText(a));
+  $('hwCat').value = a.category || ''; $('hwTitle').value = a.title; $('hwDesc').value = a.description || '';
+  $('hwDue').value = toLocalInput(a.due_at); $('hwFeedback').checked = a.needs_feedback !== false;
+  openModal('hwModal');
+}
+function saveTaskEdit() {
+  var a = A.current; if (!a || a.id !== EDIT.id) return;
+  var due = $('hwDue').value;
+  var p = { id: a.id, category: $('hwCat').value.trim() || null, title: $('hwTitle').value.trim(),
+    description: $('hwDesc').value.trim() || null, due_at: due ? new Date(due).toISOString() : null, needs_feedback: $('hwFeedback').checked };
+  if (!p.title) { setMsg('hwMsg', '과제 제목을 적어주세요!', true); return; }
+  var btn = $('hwBtn'); btn.disabled = true; setMsg('hwMsg', '저장 중...');
+  api('assignments.update', p).then(function (r) {
+    btn.disabled = false;
+    ['category', 'title', 'description', 'due_at', 'needs_feedback'].forEach(function (key) { a[key] = r[key]; });
+    renderTasks(); openTask(a.id);
+    editDone('hw', '저장했어요!');
+  }).catch(function (err) { btn.disabled = false; setMsg('hwMsg', err.message, true); });
+}
+
 var N = { list: null, open: null };                  // 공지
 var A = { list: null, current: null, subs: null, openSub: null };   // 과제
 var C = { list: [], open: null };                     // 체크인
@@ -1885,6 +2075,7 @@ function closeModal(id) {
   var m = $(MODAL);
   m.classList.remove('show'); m.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('modal-open');
+  if (EDIT.k && MODAL === EDIT.k + 'Modal') editOff();
   MODAL = null;
   try { if (tg && tg.BackButton && !S.current && !A.current && !RC.current && !PL.cur) tg.BackButton.hide(); } catch (e) {}
 }
@@ -2033,12 +2224,14 @@ function ciBoardCard(c) {
             return '<td class="' + (r ? 'ci-ok' : 'ci-miss') + '">' + (r ? hmOf(r.reported_at) + (r.note ? '<small>' + esc(r.note) + '</small>' : '') : '–') + '</td>';
           }).join('') + '</tr>';
       }).join('') + '</tbody></table></div>' +
-      (S.team.rank >= RANK.INSTRUCTOR ? '<button class="ghost-btn b-danger" onclick="deleteCheckin(\'' + esc(c.id) + '\')">이 체크인 지우기</button>' : '');
+      (S.team.rank >= RANK.INSTRUCTOR || c.created_by === S.me.profile.id ? '<div class="b-row-btns"><button class="ghost-btn" onclick="editCheckin(\'' + esc(c.id) + '\')">✏️ 체크인 고치기</button>' +
+        '<button class="ghost-btn b-danger" onclick="deleteCheckin(\'' + esc(c.id) + '\')">이 체크인 지우기</button></div>' : '');
   }
   return html + '</div>';
 }
 
 function createCheckin() {
+  if (EDIT.k === 'ci') { saveCiEdit(); return; }
   var items = [].slice.call(document.querySelectorAll('#ciItems input:checked')).map(function (x) { return x.value; });
   var p = { title: $('ciTitle').value.trim(), check_date: $('ciDate').value, items: items };
   if (!p.title) { setMsg('ciMsg', '제목을 적어주세요!', true); return; }
@@ -2136,7 +2329,8 @@ function renderNotices() {
       (n.body ? '<div class="ann-body' + (open ? '' : ' clamp') + '">' + esc(n.body) + '</div>' : '') +
       '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' + readChip('notice', n) +
         (long && !open ? '<span class="ann-more">더보기</span>' : '') +
-        (canDel ? '<button class="ann-hide" onclick="event.stopPropagation();deleteNotice(\'' + esc(n.id) + '\')">삭제</button>' : '') +
+        (canDel ? '<button class="ann-hide" onclick="event.stopPropagation();editNotice(\'' + esc(n.id) + '\')">고치기</button>' +
+          '<button class="ann-hide" onclick="event.stopPropagation();deleteNotice(\'' + esc(n.id) + '\')">삭제</button>' : '') +
       '</div></div>';
   }).join('');
 }
@@ -2158,6 +2352,7 @@ function openAnnEdit() {
 function closeAnnEdit() { closeModal('annModal'); }
 
 function createNotice() {
+  if (EDIT.k === 'ann') { saveAnnEdit(); return; }
   var p = { title: $('annTitle').value.trim(), body: $('annBody').value.trim(), is_pinned: $('annPinned').checked };
   if (!p.title) { setMsg('annMsg', '제목을 적어주세요!', true); return; }
   var tg = pkPayload('ann');
@@ -2232,6 +2427,7 @@ function renderTasks() {
 }
 
 function createTask() {
+  if (EDIT.k === 'hw') { saveTaskEdit(); return; }
   var due = $('hwDue').value;
   var p = { category: $('hwCat').value.trim() || null, title: $('hwTitle').value.trim(),
     description: $('hwDesc').value.trim() || null, due_at: due ? new Date(due).toISOString() : null,
@@ -2343,7 +2539,7 @@ function renderTaskBoard() {
       '</div>';
     }
     return html + '</div>';
-  }).join('') + (S.team.rank >= RANK.INSTRUCTOR ? '<div class="b-pad b-top"><button class="ghost-btn b-danger" onclick="deleteTask()">이 과제 지우기</button></div>' : '');
+  }).join('') + (S.team.rank >= RANK.INSTRUCTOR ? '<div class="b-pad b-top b-row-btns"><button class="ghost-btn" onclick="editTask()">✏️ 과제 고치기</button><button class="ghost-btn b-danger" onclick="deleteTask()">이 과제 지우기</button></div>' : '');
 }
 
 function saveFeedback(subId) {
@@ -2394,6 +2590,7 @@ function freeRoles(r) {
 function loadRec() {
   if (!S.team || !recAllowed()) return Promise.resolve();
   if (!RC.list) $('recOpen').innerHTML = '<div class="skeleton row-skel"></div>';
+  loadAvail();
   return api('rec.list', { team_id: S.team.id }).then(function (d) {
     RC.list = d.requests; RC.people = d.people || [];
     renderRecList();
@@ -2591,6 +2788,87 @@ function createRec() {
 }
 
 // ----- 상세 -----
+// =====================================================================
+// 업무 탭 아래: 업무가능 시간 2주 한눈에 (오늘부터 14일)
+// 시간대별 = 30분 칸마다 되는 사람 수(누르면 명단) / 사람별 = 날짜마다 되는 시간
+// =====================================================================
+var AV = { data: null, at: 0, team: null, view: 'time', sel: '' };
+function loadAvail(force) {
+  if (!force && AV.data && Date.now() - AV.at < 3 * 60 * 1000) { renderAvail(); return; }
+  if (!AV.data) $('avBody').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  api('weekly.overview').then(function (d) {
+    AV.data = d; AV.at = Date.now();
+    if (AV.team === null) AV.team = d.mine.length === 1 ? d.mine[0] : '';
+    renderAvail();
+  }).catch(function (err) { $('avBody').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function avTeam(t) { AV.team = t; AV.sel = ''; renderAvail(); }
+function avView(v) { AV.view = v; AV.sel = ''; renderAvail(); }
+function avPick(k) { AV.sel = AV.sel === k ? '' : k; renderAvail(); }
+// 같은 주에 업무가능을 냈는지 (날짜 → 그 주 월요일)
+function avWeekOf(d) { var x = parseDate(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return ymd(x); }
+// [19,20,21,…] → '9:30~11, 19~22'
+function avRanges(slots) {
+  var s = (slots || []).slice().sort(function (a, b) { return a - b; }), out = [], i = 0;
+  var t = function (n) { return n % 2 ? Math.floor(n / 2) + ':30' : String(n / 2); };
+  while (i < s.length) { var a = s[i]; while (i + 1 < s.length && s[i + 1] === s[i] + 1) i++; out.push(t(a) + '~' + t(s[i] + 1)); i++; }
+  return out;
+}
+function renderAvail() {
+  var d = AV.data; if (!d) return;
+  var ppl = AV.team ? d.people.filter(function (p) { return p.teams.indexOf(AV.team) !== -1; }) : d.people;
+  var chips = (d.teams.length > 1 ? [''].concat(d.teams) : []).map(function (t) {
+    return '<button type="button" class="wkchip' + (t === AV.team ? ' active' : '') + '" data-t="' + esc(t) + '" onclick="avTeam(this.getAttribute(\'data-t\'))">' + (t ? esc(t) : '전체') + '</button>';
+  }).join('');
+  var h = '<div class="av-bar"><div class="wk-chips">' + chips + '</div>' +
+    '<div class="rcr-seg">' + [['time', '시간대별'], ['person', '사람별']].map(function (v) {
+      return '<button type="button" class="' + (AV.view === v[0] ? 'on' : '') + '" onclick="avView(\'' + v[0] + '\')">' + v[1] + '</button>';
+    }).join('') + '</div></div>';
+  if (!ppl.length) { $('avBody').innerHTML = h + '<div class="empty"><b>이 팀에는 사람이 없어요</b></div>'; return; }
+  var n = d.dates.length, total = ppl.length;
+  if (AV.view === 'time') {
+    var who = {};
+    ppl.forEach(function (p) { Object.keys(p.slots).forEach(function (di) { p.slots[di].forEach(function (s) { (who[di + '-' + s] = who[di + '-' + s] || []).push(p.name); }); }); });
+    h += '<div class="grid-wrap av-grid"><div class="tgrid res half" style="grid-template-columns: 34px repeat(' + n + ', minmax(36px, 1fr));">' + gridHead(d.dates);
+    for (var s = d.hours.from * 2; s < d.hours.to * 2; s++) {
+      var top = s % 2 === 0;
+      h += '<div class="gt' + (top ? ' hr' : '') + '">' + (top ? (s / 2) + '시' : '') + '</div>';
+      for (var di = 0; di < n; di++) {
+        var key = di + '-' + s, c = (who[key] || []).length, a = c ? 0.15 + 0.85 * c / total : 0;
+        h += '<div class="gc' + (top ? ' hr' : '') + (c === total ? ' full' : '') + (AV.sel === key ? ' sel' : '') + '"' +
+          (c ? ' style="background: rgba(79,78,48,' + a.toFixed(2) + '); border-color: transparent;' + (a > 0.55 ? ' color:#fff;' : '') + '"' : '') +
+          ' onclick="avPick(\'' + key + '\')">' + (c || '') + '</div>';
+      }
+    }
+    h += '</div></div>';
+    if (AV.sel) {
+      var k = AV.sel.split('-'), date = d.dates[+k[0]], yes = who[AV.sel] || [], wk = avWeekOf(date);
+      var no = ppl.filter(function (p) { return p.weeks[wk] && yes.indexOf(p.name) === -1; }).map(function (p) { return p.name; });
+      var none = ppl.filter(function (p) { return !p.weeks[wk]; }).map(function (p) { return p.name; });
+      h += '<div class="pd-cell-info"><b>' + shortD(date) + ' ' + slotHm(+k[1]) + '~' + slotHm(+k[1] + 1) + '</b><br>가능 ' + yes.length + '명: ' + (yes.length ? esc(yes.join(', ')) : '없음') +
+        (no.length ? '<br>안 됨: ' + esc(no.join(', ')) : '') + (none.length ? '<br>아직 안 냄: ' + esc(none.join(', ')) : '') + '</div>';
+    } else h += '<div class="pd-cell-info">칸을 누르면 그 시간에 누가 되는지 보여요</div>';
+  } else {
+    h += '<div class="table-scroll av-table"><table class="sched"><thead><tr><th class="av-name">이름</th>' + d.dates.map(function (x) {
+      var w = parseDate(x).getDay();
+      return '<th class="' + (w === 0 ? 'sun' : w === 6 ? 'sat' : '') + '">' + shortD(x) + '</th>';
+    }).join('') + '</tr></thead><tbody>' + ppl.map(function (p) {
+      return '<tr><td class="av-name"><b>' + esc(p.name) + '</b><span>' + esc(p.group || p.teams.join('·')) + '</span></td>' + d.dates.map(function (x, di) {
+        var r = avRanges(p.slots[String(di)]);
+        if (r.length) return '<td class="av-ok">' + r.map(esc).join('<br>') + '</td>';
+        return p.weeks[avWeekOf(x)] ? '<td class="av-no">–</td>' : '<td class="av-none">미제출</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+  // 주마다 아직 안 낸 사람
+  var miss = d.weeks.map(function (w) {
+    var names = ppl.filter(function (p) { return !p.weeks[w]; }).map(function (p) { return p.name; });
+    var e = parseDate(w); e.setDate(e.getDate() + 6);
+    return names.length ? '<div class="who-row">' + shortD(w) + '~' + shortD(ymd(e)) + ' 아직 안 냄 <b>' + names.length + '명</b>: ' + esc(names.join(', ')) + '</div>' : '';
+  }).join('');
+  $('avBody').innerHTML = h + (miss || '<div class="who-row"><b>2주 모두 냈어요 🎉</b></div>');
+}
+
 function openRec(id) {
   var r = byId(RC.list || [], id); if (!r) return;
   if (!RC.current || RC.current.id !== id) { RC.plan = null; RC.want = null; RC.day = null; RC.slot = null; RC.sel = null; RC.place = null; RC.adding = null; RC.planOpen = false; }
@@ -2598,6 +2876,7 @@ function openRec(id) {
   if (!activeSess(r).length && freeRoles(r).length && recIsOpen(r) && r.status !== '보류') RC.planOpen = true;
   var wide = isWide();
   $('recListWrap').style.display = wide ? 'block' : 'none';
+  $('recAvail').style.display = wide ? '' : 'none';
   $('recView').classList.toggle('split', wide);
   renderRecList();
   $('recOverview').style.display = 'none';
@@ -2613,6 +2892,7 @@ function closeRec() {
   $('recView').classList.toggle('split', isWide());
   $('recDetail').style.display = 'none';
   $('recListWrap').style.display = 'block';
+  $('recAvail').style.display = '';
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
   if (RC.list) renderRecList();
 }
