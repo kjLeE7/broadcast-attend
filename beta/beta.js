@@ -4344,7 +4344,9 @@ function recapCards() {
   if (d.with_voice || d.with_engineer) c.push(['<div class="rp-c"><p class="rp-k">🤝 가장 많이 함께한 사람</p>' +
     (d.with_voice ? '<p class="rp-s">성우 <b>' + esc(d.with_voice.name) + '</b> · ' + d.with_voice.count + '번</p>' : '') +
     (d.with_engineer ? '<p class="rp-s">엔지니어 <b>' + esc(d.with_engineer.name) + '</b> · ' + d.with_engineer.count + '번</p>' : '') + '</div>']);
-  if (d.meetings) c.push(['<div class="rp-c"><p class="rp-k">👣 함께한 모임</p>' + big(d.meetings, '번') + '<p class="rp-s">자리를 지켜줘서 고마워요</p></div>']);
+  if (d.meetings || d.absent) c.push(['<div class="rp-c"><p class="rp-k">👣 함께한 모임</p>' + big(d.meetings, '번') +
+    ((d.late || d.absent) ? '<p class="rp-s">' + [d.late ? '그중 지각 <b>' + d.late + '</b>번' : '', d.absent ? '결석 <b>' + d.absent + '</b>번' : ''].filter(Boolean).join(' · ') + '</p>' : '') +
+    '<p class="rp-s">자리를 지켜줘서 고마워요</p><small class="rp-foot">지각·결석 수는 나만 봐요 (요약 이미지엔 안 들어가요)</small></div>']);
   var t = RP.team;
   if (t) c.push(['<div class="rp-c"><p class="rp-k">👥 ' + esc(S.team.name) + ' 결산 (교관 이상만)</p><div class="rp-grid">' +
     [['녹음', t.recordings, '건'], ['모임', t.meetings, '번'], ['함께한 자리', t.attendance, '명'], ['스탯 피드백', t.grants, '번'], ['얻은 배지', t.badges, '개']].map(function (x) {

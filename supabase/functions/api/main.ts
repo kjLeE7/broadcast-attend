@@ -1785,9 +1785,12 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       return b ? { name: b.name, count: b.n } : null;
     };
     // 7) 참석한 모임 (마감된 모임에서 참석·지각·조퇴)
-    const att: any[] = must(await ctx.db.from("attendance").select("session_id, meeting_sessions!inner(session_date, closed_at, location, meeting_types(default_location))")
-      .eq("person_id", me).in("status", ["참석", "지각", "조퇴"]).not("meeting_sessions.closed_at", "is", null)
+    const attAll: any[] = must(await ctx.db.from("attendance").select("session_id, status, meeting_sessions!inner(session_date, closed_at, location, meeting_types(default_location))")
+      .eq("person_id", me).in("status", ["참석", "지각", "조퇴", "불참"]).not("meeting_sessions.closed_at", "is", null)
       .gte("meeting_sessions.session_date", day[0]).lt("meeting_sessions.session_date", day[1])) ?? [];
+    const att = attAll.filter((a) => a.status !== "불참");
+    // 지각·결석 수는 본인 화면에만 (summary·공유 이미지엔 안 넣음)
+    const late = attAll.filter((a) => a.status === "지각").length, absent = attAll.filter((a) => a.status === "불참").length;
     // 2) 제일 많이 간 장소 (모임 + 녹음)
     const pc = new Map<string, number>();
     for (const a of att) { const n = nameOf(a.meeting_sessions?.location || a.meeting_sessions?.meeting_types?.default_location); if (n) pc.set(n, (pc.get(n) ?? 0) + 1); }
@@ -1817,7 +1820,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     return {
       year: st.year, open: st.open, custom, from: day[0], to: addDaysStr(day[1], -1),
       recordings: recIds.length, roles, place: topPlace ? { name: topPlace[0], count: topPlace[1] } : null,
-      stats, comments, badges, with_voice: top("녹음자"), with_engineer: top("엔지니어"), meetings: att.length,
+      stats, comments, badges, with_voice: top("녹음자"), with_engineer: top("엔지니어"), meetings: att.length, late, absent,
       summary: {
         year: st.year, recordings: recIds.length, roles, meetings: att.length, badges: badges.map((b) => b.icon),
         stats: stats ? { max_level: stats.max_level, levels: stats.axes.map((a: any) => a.now), labels: stats.axes.map((a: any) => a.name) } : null,

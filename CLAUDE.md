@@ -305,7 +305,7 @@
 ### 연말 결산 '올해의 성우 리포트' (2026-10-05, 함수 버전 40)
 - 나의 기록 맨 위 카드(`#recapArea`, `renderRecapCard`) → 스토리 화면(`#recapView`, `openRecap`/`recapStep`/`closeRecap`, 오른쪽 누르면 다음·왼쪽 이전, ✕·Esc·뒤로가기).
   카드: 표지 · 녹음 수·배역 수 · 제일 많이 간 곳(모임+녹음 장소를 places 이름으로) · 연초 vs 지금 육각형(`statSvg` 재사용) · 교관 코멘트 3개(받은 XP 큰 순) · 올해 배지 · 가장 많이 함께한 성우·엔지니어 · 참석한 모임 수 · (교관 이상) 팀 결산 · 요약.
-  데이터 없는 카드는 건너뜀. 결석·지각 수는 안 넣음.
+  데이터 없는 카드는 건너뜀. 지각·결석 수(`late`, `absent`)는 모임 카드에 본인 화면에만, summary·공유 이미지엔 안 넣음(2026-10-05 사용자 결정).
 - 서버 `recap.status`(공개일·open·preview·admin) / `recap.get { year, from?, to? }` 본인 것만(다른 사람 id 안 받음) / `recap.team { team_id, year }` 팀 교관 이상, 합계만 / `recap.setOpen { md }` 관리자만.
   공개 전엔 `preview`(관리자 또는 어느 팀이든 교관 이상)만, 기간 바꿔 보기(from/to)도 preview만.
 - 공유 이미지: `recapImage(summary)` canvas → PNG(1080×1350). `summary`엔 숫자·스탯 레벨·축 이름·배지 아이콘만(서버에서 제목·코드·배역·코멘트·이름을 아예 안 넣음). PC는 다운로드, 폰은 길게 눌러 저장.
