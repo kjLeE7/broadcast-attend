@@ -894,9 +894,28 @@ function goTab(t) {
   refreshTab();
   window.scrollTo(0, 0);
 }
+// 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
+var taskFrom = 'notice';
+function parentTab(t) { return t === 'weekly' ? 'profile' : t === 'task' ? taskFrom : t; }
+function goTask(from) {
+  taskFrom = from;
+  if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
+  goTab('task');
+}
+function renderTaskSeg() {
+  var seg = taskFrom === 'profile'
+    ? [['나의 기록', "goTab('profile')", 0], ['내 과제', '', 1], ['업무가능', "goTab('weekly')", 0]]
+    : [['공지', "goTab('notice')", 0], ['과제', '', 1]];
+  $('taskSeg').innerHTML = seg.map(function (x) {
+    return '<button class="wkchip' + (x[2] ? ' active' : '') + '"' + (x[1] ? ' onclick="' + x[1] + '"' : '') + '>' + x[0] + '</button>';
+  }).join('');
+  $('taskDesc').textContent = taskFrom === 'profile' ? '나에게 하달된 과제예요. 눌러서 제출해주세요' : '과제를 눌러 제출하고, 제출 현황을 봐요';
+}
 function setTabUI(t) {
   curTab = t;
-  document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === t); });
+  var pt = parentTab(t);
+  document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
+  if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
   $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && t !== 'town' && t !== 'profile' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
@@ -1618,7 +1637,7 @@ function deleteNotice(id) {
 // =====================================================================
 function loadTasks() {
   if (!S.team) return;
-  $('hwFab').style.display = S.team.rank >= RANK.INSTRUCTOR ? '' : 'none';
+  $('hwFab').style.display = S.team.rank >= RANK.INSTRUCTOR && taskFrom === 'notice' ? '' : 'none';
   if (A.current) { openTask(A.current.id); return; }
   $('taskDetail').style.display = 'none';
   $('taskList').style.display = 'block';
@@ -1851,14 +1870,19 @@ function isPhone() {
   return window.matchMedia('(pointer: coarse) and (max-width: 860px)').matches;
 }
 var townTeam = null;
-// 동네지도 탭은 PC에서만 보임
+// 동네지도 탭은 PC 배치(가로 1000px 이상)일 때만. 폰·좁은 창에선 숨김 (창 크기를 바꾸면 다시 판단)
+function townAllowed() { return !isPhone() && isWide(); }
 function setupTownTab() {
-  if (isPhone()) return;
-  $('townTab').style.display = '';
-  $('tabbar').style.gridTemplateColumns = 'repeat(7, 1fr)';   // 좁은 PC 창의 아래 탭 7칸
+  var ok = townAllowed();
+  $('townTab').style.display = ok ? '' : 'none';
+  var n = [].filter.call(document.querySelectorAll('#tabbar .tab'), function (b) { return b.style.display !== 'none'; }).length;
+  $('tabbar').style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
+  if (!ok && curTab === 'town') goTab('home');
 }
+var townResizeT = null;
+window.addEventListener('resize', function () { clearTimeout(townResizeT); townResizeT = setTimeout(setupTownTab, 200); });
 function startTown() {
-  if (!window.Town || isPhone() || !S.team) return;
+  if (!window.Town || !townAllowed() || !S.team) return;
   if (townTeam === S.team.id) return;   // 이미 이 팀으로 그리는 중 (3분마다 알아서 새로고침)
   townTeam = S.team.id;
   var teamId = S.team.id;

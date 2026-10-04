@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004j">
+  <link rel="stylesheet" href="beta.css?v=20261004k">
 </head>
 <body>
   <div class="app">
@@ -194,6 +194,7 @@
     <section id="noticeView" style="display:none;">
       <h1 class="page-title">전하는 말</h1>
       <p class="page-desc">우리 팀 공지와 방송예술과 전체 공지예요</p>
+      <div class="b-attseg"><button class="wkchip active" onclick="goTab('notice')">공지</button><button class="wkchip" onclick="goTask('notice')">과제</button></div>
       <div id="annList"></div>
 
       <div class="b-fab" id="annFab" style="display:none;">
@@ -207,7 +208,9 @@
     <section id="taskView" style="display:none;">
       <div id="taskList">
         <h1 class="page-title">갈고닦는 시간</h1>
-        <p class="page-desc">과제를 눌러 제출해주세요</p>
+        <p class="page-desc" id="taskDesc">과제를 눌러 제출해주세요</p>
+        <!-- 공지에서 오면 [공지|과제], 프로필에서 오면 [나의 기록|내 과제|업무가능] (renderTaskSeg) -->
+        <div class="b-attseg" id="taskSeg"></div>
 
         <div class="b-fab" id="hwFab" style="display:none;">
           <button class="fab" type="button" onclick="openHwModal()" aria-label="과제 내기" title="과제 내기"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
@@ -245,6 +248,7 @@
       <div id="pfMain">
         <h1 class="page-title">나의 기록</h1>
         <p class="page-desc">내 정보와 한 달 동안 걸어온 길을 모아봐요</p>
+        <div class="b-attseg"><button class="wkchip active" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip" onclick="goTab('weekly')">업무가능</button></div>
 
         <div class="card pf-card" id="pfCard"><div class="b-wait">불러오는 중...</div></div>
 
@@ -311,6 +315,7 @@
     <section id="weeklyView" style="display:none;">
       <h1 class="page-title">업무가능 시간 취합</h1>
       <p class="page-desc">녹음·사회·촬영 등 업무가 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
+      <div class="b-attseg"><button class="wkchip" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip active" onclick="goTab('weekly')">업무가능</button></div>
 
       <div class="subtabs">
         <button class="subtab wk-which" data-wk="next" onclick="openWeekly('next')">다음 주</button>
@@ -394,14 +399,6 @@
     <button class="tab" data-tab="notice" title="공지" onclick="goTab('notice')">
       <svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg>
       <span>공지</span>
-    </button>
-    <button class="tab" data-tab="task" title="과제" onclick="goTab('task')">
-      <svg viewBox="0 0 24 24"><path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2"/><path d="M9 12h6M9 16h4"/></svg>
-      <span>과제</span>
-    </button>
-    <button class="tab" data-tab="weekly" title="업무가능 시간 취합" onclick="goTab('weekly')">
-      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
-      <span>업무가능</span>
     </button>
     <button class="tab" data-tab="profile" title="나의 기록" onclick="goTab('profile')">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
@@ -514,6 +511,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004b"></script>
-  <script src="beta.js?v=20261004i"></script>
+  <script src="beta.js?v=20261004j"></script>
 </body>
 </html>
