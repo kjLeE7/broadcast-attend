@@ -127,7 +127,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `7f3961b85944aa3718755ea7cea7239e611140d6` (함수 버전 30, 보안 점검 후 고침).
+- 현재 배포: SHA `3f6c2a4ca51e219f28abe87c9a30d82dcb609de7` (함수 버전 31, 보안 마무리: 횟수 제한·대상 확인·CSP).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -220,6 +220,9 @@
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
   ⑥ 모임 `notify_result/remind_result`는 조장 이상만 ⑦ DB: anon·authenticated의 표·순서값 권한 전부 회수(+기본 권한), `effective_rank`·`set_updated_at` search_path 고정.
 - 확인된 것: 서명 검사(상수 시간 비교, 만료), 비활성 차단, cron 비밀값, 모든 id 기능이 그 항목의 팀으로 권한 확인, 텔레그램 HTML 이스케이프, DB 오류는 일반 문구, 뷰는 security_invoker, PIN 5회 잠금.
+- 함수 버전 31: 알림 보내는 기능에 사람마다 횟수 제한(`rateLimit`, 표 `action_limits`, 하루 지나면 cron이 지움), 과제 제출·체크인 보고는 대상만(`requireItemTarget`),
+  조·모임이 그 팀 것인지(`checkGroup`), 글자 수 제한, 양식 종류 고정, 요청 200KB 제한. 화면: PC 로그인은 '이 PC에서 로그인 유지'(`#loginKeep`)를 켤 때만 localStorage 7일, 아니면 sessionStorage.
+  `beta/index.html`에 CSP 메타(연결은 자기 주소·Supabase만, 스크립트는 자기·telegram.org, 프레임은 oauth.telegram.org). **새 외부 주소를 쓰면 CSP에 추가해야 함.**
 - 남은 것은 사용자와 정리 중이에요. **저장소가 공개라 약점 목록은 여기에 적지 않아요** (대화로만 다루기).
 
 ### 공지 쓰기 (2026-10-04)
@@ -373,3 +376,4 @@
 - [ ] NAS 대본 연동
 - [ ] 조직현황.md의 [확인 필요] 항목 정리
 - [ ] 과장님 컨펌 후 방예과 계정으로 Supabase 이전
+- [ ] 정식 배포 전: 서버 키(service_role) 새로 바꾸기, 테스트 데이터 초기화
