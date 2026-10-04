@@ -110,7 +110,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `b7cbe2a7c18292bc99ef2f13b63227ac993e7133` (함수 버전 23, 모임 내용·개인 양식).
+- 현재 배포: SHA `d8670e183030ca1bea30f606d96d201f9f6b84b2` (함수 버전 24, 캐릭터 꾸미기 look).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
