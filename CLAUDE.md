@@ -1,7 +1,7 @@
 # CLAUDE.md — 방송예술과 텔레그램 미니앱 인수인계
 
 새 대화에서 이 저장소 작업을 이어갈 때 먼저 읽는 문서예요.
-(마지막 정리: 2026-10-04 밤, 홈 개편·녹음 요청(배역·회차·수락/조율)·보안 점검까지. 함수 버전 31)
+(마지막 정리: 2026-10-04 밤, 홈 개편·녹음 요청(배역·회차·수락/조율)·보안 점검·시간취합 이전까지. 함수 버전 32)
 
 ## 0. 클로드 코드(터미널)에서 이어서 할 때
 
@@ -81,6 +81,8 @@
    - **녹음 요청**(함수 버전 28): 아래 탭 '녹음'(세 팀 교관 이상만). 아래 '녹음 요청' 참고.
    - **녹음 배역·회차·수락/조율**(함수 버전 29): 배역별 지정/후보, 회차 여러 개, 엔지니어 교대, 받은 사람 수락/조율, 인력 배치 현황판.
    - **보안 점검**(함수 버전 30·31): 아래 '보안 점검' 참고. 사용자는 계정 2단계 인증을 진행 중(상세는 메모리).
+   - **운영 앱 → 베타 완전 이전 시작**(2026-10-04): 목표는 Apps Script를 없애고 '레시피는 GitHub, 주방은 Supabase'로. 첫 단계로 **시간취합** 옮김(함수 버전 32, 아래 '시간취합').
+     남은 것: 봇 채팅 단어 답장('출결'·'기상' 등, 지금은 Apps Script 웹훅) 옮기기 → 과장님 컨펌 뒤 실제 인원 넣기 → BotFather 기본 메뉴를 베타로 → Apps Script 트리거·배포 정리, 스크립트 속성의 봇 토큰 지우기.
    - 관리자 페이지에서 문구를 고치는 방법을 의논함 → **문구를 DB(`ui_texts` 같은 표)에 두는 방식이 좋다**고 정리했지만, 사용자가 "일단은 이대로"라고 해서 보류.
 
 ## 1. 누구와, 무엇을 만드는 중인지
@@ -147,7 +149,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `3f6c2a4`의 main.ts (함수 버전 31, 보안 마무리: 횟수 제한·대상 확인·CSP). 다음 배포부터 파일 직접 올리기.
+- 현재 배포: 커밋 `2d07698`의 main.ts (함수 버전 32, 시간취합). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -156,7 +158,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -234,6 +236,18 @@
 - 딥링크: `?rec=요청id`(교관 이상, 녹음 탭 상세), `?ask=participant_id`(누구나 본인 것 응답).
 - 녹음 장소를 바꾸려면 `update places set can_record = true/false where code = ...`.
 - 2026-10-04 기준: 시범 인원에 엔지니어팀이 없고 업무가능 시간도 아직 없어서 '가능한 시간'은 비어 보임.
+
+### 시간취합 (2026-10-04, 함수 버전 32, 운영 앱에서 옮겨 옴)
+- 개인노트 칩 [나의 기록|내 과제|업무가능|**시간취합**] → `pollView`(화면 제목 '함께할 시간 찾기', `curTab` 'poll', 부모 탭 profile). 목록(진행 중·마감 7일) | PC는 오른쪽 상세(`#pollView.split`).
+- **누구나 만듦**: FAB → `#tpModal`(`openTpModal`/`createPoll`): 주제·후보 날짜(최대 14일)·시간대(시)·마감(datetime-local, 한국 시간)·대상(`pk('tp')`, `PCFG.tp` = 팀원부터, 언제나 사람 목록 `people: true`). 만든 사람은 자동으로 대상.
+  서버 `polls.create`: `pickedPeople(ctx, p, MEMBER, MEMBER)`, 하루 5개(`rateLimit poll_new`), 대상자에게 봇 알림(버튼 `beta/?poll=id`).
+- 칠하기: 업무가능과 같은 `bindPaint(grid, get, dirty)`(저장소·dirty 함수를 받게 바꿈, 기본은 업무가능). 내 고정 일정(`fixed_schedules`) 음영. 칸 키 화면 '날짜번호-30분칸', 서버 `날짜번호*48+30분칸`(`time_poll_answers.slots smallint[]`).
+- 모아보기: 대상자 누구나 봄(운영 앱과 같음). 가장 많이 되는 시간 3개(같은 사람들이 되는 연속 칸 묶음), 칸 인원·명단, 특이사항, 입력 전 명단.
+- 만든 사람: 다시 알림(`polls.remind`, 10분에 한 번), 지금 마감(`polls.close`, 결과 알림 없음), 지우기(`polls.delete`, 입력도 같이).
+- 자동(`cron.reminders` 안 `cronPolls`): 마감 24시간 전 미응답자에게 한 번(`reminded_at`, 밤 0~8시 제외, 만든 지 24시간 안 된 건 건너뜀), 마감 지나면 '마감' + 만든 사람에게 결과(`close_result`).
+- 개인노트 '지금 할 일' kind `poll`(대상인데 아직 안 칠한 것, 내가 만든 건 빼고).
+- 표: `time_polls`(team_id, title, start/end_date, hour_from/to, deadline, target_people, target_label, status 진행중/마감/취소, reminded_at, closed_at, close_result, created_by), `time_poll_answers`(poll_id, person_id, slots, memo).
+- `sessions.audience`(대상 고르기 명단)는 이제 과 사람이면 받음(예전엔 조장 이상). 만들 수 있는지는 각 create에서 서열로 다시 확인.
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
@@ -387,7 +401,7 @@
 - [ ] 사용자: BotFather `/newapp`(베타), `/setdomain`, 시범 인원에게 베타 링크 공유 → 의견 모으기
 - [ ] 실제 서버로 한 번씩 확인: `dashboard.scene`, `profile.get/update/report`, 미등록자 화면(`not_registered`). 클로드 코드에서 함수 로그로 오류 확인
 - [ ] 모임: 월간 리포트 자동 발송(매달 1일 팀장에게 봇으로), 모임 전날 미체크자 알림, 모임 고치기 화면
-- [ ] 베타로 아직 안 옮긴 기능: 시간취합(투표), 녹음자 배치
+- [ ] 베타로 아직 안 옮긴 기능: 봇 채팅 단어 답장(Apps Script 웹훅). (시간취합은 옮김, 녹음자 배치는 녹음 요청으로 대신)
 - [ ] `churches` 표 채우기(지파별 본부교회·지교회), 팀장 이상이 다른 사람의 '나의 기록' 보기
 - [ ] 녹음: 재녹음·편집완료·전달완료 흐름, 요청·배역 고치기 화면, 감독 교대
 - [ ] 관리자 페이지 (PIN 초기화, 설정값 수정, 비활성화)
