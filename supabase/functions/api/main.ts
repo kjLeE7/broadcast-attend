@@ -510,7 +510,7 @@ function checkButton(s: any) {
 // 여러 사람에게 봇 메시지 (텔레그램 초당 제한 때문에 20명씩). 봇을 시작하지 않은 사람은 failed에 이름
 // 텔레그램이 거절한 이유를 쉬운 말로 (원문은 함수 로그에)
 function tgWhy(desc: string) {
-  if (/initiate conversation|chat not found/i.test(desc)) return "봇과 대화를 시작하지 않음";
+  if (/initiate conversation|chat not found|user not found/i.test(desc)) return "봇과 대화를 시작하지 않음";
   if (/blocked/i.test(desc)) return "봇을 차단함";
   if (/deactivated/i.test(desc)) return "텔레그램 계정 없음";
   if (/Unauthorized/i.test(desc)) return "봇 토큰 오류";
