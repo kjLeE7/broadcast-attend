@@ -44,6 +44,14 @@
      과제 = 공지 안 [공지|과제] 칩(`goTask('notice')`, 과제 내기 FAB는 여기서만) + 프로필 [나의 기록|내 과제|업무가능] 칩(`goTask('profile')`).
      업무가능 = 프로필 안 칩. 아래 탭 강조는 `parentTab()`(weekly→profile, task→`taskFrom`). 칩 줄은 `.b-attseg` + `.wkchip`, 과제 쪽은 `renderTaskSeg()`.
      동네지도는 `townAllowed()` = 폰 아님 + 가로 1000px 이상. 창 크기 바뀌면 `setupTownTab()`으로 다시 판단, 탭 칸 수도 보이는 개수로.
+   - **대상 고르기·내 양식 공통화**(함수 버전 25): 모임·과제·체크인·공지 팝업 모두 같은 고르기 + 같은 양식 줄.
+     beta.js `pk*` 함수(팝업 키 k: c=모임, hw=과제, ci=체크인, ann=공지, 그리는 곳 `#{k}Pick`), 명단은 `loadRoster()` = `sessions.audience`(팀별 `my_rank` 포함) 한 번만.
+     `PCFG[k]` = 팀 칩이 보이는 서열(min: 모임 조장, 나머지 교관) / 전체 칩 서열(all: 팀장) / 직책 줄(pos: 공지만) / dynAll(공지만: 과 전체를 통째로면 예전 section 공지).
+     `pkPayload(k)` → `{team_id, scope, target_people?, target_label?}`. 팀 하나 통째면 사람 목록 없이 예전처럼 팀 대상.
+     양식은 `tpl*` 함수 + `TPLF[k].get/set`(날짜·마감은 안 담음), kind = session·assignment·checkin·notice, 대상은 `data.target`(key·subs·pos·off).
+     서버 공통 검사 `pickedPeople(ctx, p, 팀서열, 전체서열)`, 사람으로 집은 과제·체크인 보고·제출은 `requireItemMember`.
+     `notices`·`assignments`·`checkins`에도 `target_people`·`target_label`. 목록은 다른 팀 글이라도 `target_people`에 내가 있으면 같이 보임(공지 scope 'other').
+     제출·체크인 현황 명단은 `targetList(item)`(사람으로 집었으면 roster에서 이름). 공지 직책은 사람의 그 팀 직책(roster `pos[unit]`) 이름으로 거름.
    - 관리자 페이지에서 문구를 고치는 방법을 의논함 → **문구를 DB(`ui_texts` 같은 표)에 두는 방식이 좋다**고 정리했지만, 사용자가 "일단은 이대로"라고 해서 보류.
 
 ## 1. 누구와, 무엇을 만드는 중인지
@@ -110,7 +118,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `d8670e183030ca1bea30f606d96d201f9f6b84b2` (함수 버전 24, 캐릭터 꾸미기 look).
+- 현재 배포: SHA `182b16f56851874456d44b5bcf03f38ca56433fa` (함수 버전 25, 대상 고르기·양식 공통화).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
