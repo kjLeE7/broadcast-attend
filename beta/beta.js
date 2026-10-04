@@ -168,6 +168,11 @@ function boot() {
       try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
       Promise.resolve(selectTeam(me.teams[0].id)).then(function () { goWeekly(ws === mondayOf('next') ? 'next' : 'this'); });
     }
+    else if (lastTab()) {
+      // 새로고침: 보던 화면으로 (탭 이름만 기억, 열어 둔 상세는 안 기억)
+      var lt = lastTab();
+      Promise.resolve(selectTeam(me.teams[0].id)).then(function () { if (lt === 'task') goTask(lsGetS('betaTaskFrom') || 'notice'); else goTab(lt); });
+    }
     else { if (curTab === 'home') $('teamTabs').style.display = 'none'; selectTeam(me.teams[0].id); }
   }).catch(function (err) {
     if (err.status === 401 && !initData) return;   // 로그인 화면으로 이미 넘어감
@@ -1274,8 +1279,18 @@ document.addEventListener('click', function (e) {
   if (!pfFloating() || !$('pfSub').classList.contains('open')) return;
   if (!e.target.closest('#pfSub, #pfTab')) togglePfSub(false);
 });
+// 새로고침해도 보던 화면으로 돌아오게 지금 탭을 창(sessionStorage)에 기억
+function lsGetS(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+function lastTab() {
+  var t = lsGetS('betaTab');
+  if (!t || t === 'home' || !VIEWS[t]) return null;
+  if (t === 'town' && !townAllowed()) return null;
+  if (t === 'rec' && !recAllowed()) return null;
+  return t;
+}
 function setTabUI(t) {
   curTab = t;
+  try { sessionStorage.setItem('betaTab', t); sessionStorage.setItem('betaTaskFrom', taskFrom); } catch (e) {}
   var pt = parentTab(t);
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
   var sub = t === 'task' && taskFrom !== 'profile' ? '' : t;
