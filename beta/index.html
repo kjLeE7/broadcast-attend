@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261005a">
+  <link rel="stylesheet" href="beta.css?v=20261005c">
 </head>
 <body>
   <div class="app">
@@ -210,6 +210,8 @@
       <div id="taskList">
         <h1 class="page-title">갈고닦는 시간</h1>
         <p class="page-desc" id="taskDesc">과제를 눌러 제출해주세요</p>
+        <!-- 개인노트(내 과제)에서 왔을 때만 보임 -->
+        <div class="todo-area" id="todoAreaTask"></div>
         <!-- 공지에서 오면 [공지|과제], 프로필에서 오면 [나의 기록|내 과제|업무가능] (renderTaskSeg) -->
         <div class="b-attseg" id="taskSeg"></div>
 
@@ -273,7 +275,7 @@
         <h1 class="page-title">개인노트</h1>
         <p class="page-desc">지금 할 일, 내 정보와 한 달 동안 걸어온 길을 모아봐요</p>
         <!-- 지금 할 일 (업무가능 미제출·사전체크·사유·과제·공지·체크인) -->
-        <div id="todoArea"></div>
+        <div class="todo-area" id="todoArea"></div>
         <div class="b-attseg"><button class="wkchip active" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip" onclick="goTab('weekly')">업무가능</button><button class="wkchip" onclick="goTab('poll')">시간취합</button></div>
 
         <div class="card pf-card" id="pfCard"><div class="b-wait">불러오는 중...</div></div>
@@ -341,6 +343,7 @@
     <section id="weeklyView" style="display:none;">
       <h1 class="page-title">업무가능 시간 취합</h1>
       <p class="page-desc">녹음·사회·촬영 등 업무가 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
+      <div class="todo-area"></div>
       <div class="b-attseg"><button class="wkchip" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip active" onclick="goTab('weekly')">업무가능</button><button class="wkchip" onclick="goTab('poll')">시간취합</button></div>
 
       <div class="subtabs">
@@ -405,6 +408,7 @@
       <div id="pollList">
         <h1 class="page-title">함께할 시간 찾기</h1>
         <p class="page-desc">모일 사람을 고르고 후보 날짜를 정하면, 각자 되는 시간을 칠해서 다 같이 되는 때를 찾아요</p>
+        <div class="todo-area"></div>
         <div class="b-attseg"><button class="wkchip" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip" onclick="goTab('weekly')">업무가능</button><button class="wkchip active" onclick="goTab('poll')">시간취합</button></div>
         <div class="b-fab" id="pollFab">
           <button class="fab" type="button" onclick="openTpModal()" aria-label="시간취합 만들기" title="시간취합 만들기"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
@@ -727,6 +731,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261005b"></script>
+  <script src="beta.js?v=20261005c"></script>
 </body>
 </html>

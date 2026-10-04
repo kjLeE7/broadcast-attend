@@ -1208,6 +1208,7 @@ function renderTaskSeg() {
   $('taskSeg').innerHTML = seg.map(function (x) {
     return '<button class="wkchip' + (x[2] ? ' active' : '') + '"' + (x[1] ? ' onclick="' + x[1] + '"' : '') + '>' + x[0] + '</button>';
   }).join('');
+  $('todoAreaTask').style.display = taskFrom === 'profile' ? '' : 'none';
   $('taskDesc').textContent = taskFrom === 'profile' ? '나에게 하달된 과제예요. 눌러서 제출해주세요' : '과제를 눌러 제출하고, 제출 현황을 봐요';
 }
 function setTabUI(t) {
@@ -3287,17 +3288,19 @@ function refreshTodos(force) {
   TODO.wait = api('todos.list').then(function (d) { TODO.data = d; renderTodos(); })
     .catch(function () {}).then(function () { TODO.wait = null; });
 }
+// '지금 할 일'은 개인노트와 그 아래 칩 화면(내 과제·업무가능·시간취합) 모두 위에 같이 보임
+function setTodoHtml(html) { document.querySelectorAll('.todo-area').forEach(function (el) { el.innerHTML = html; }); }
 function renderTodos() {
   var d = TODO.data, n = d ? d.count : 0, bd = $('todoBadge');
   bd.hidden = !n; bd.textContent = n > 99 ? '99+' : String(n);
   if (!d) return;
-  if (!d.items.length) { $('todoArea').innerHTML = '<div class="todo-ok">✅ 지금 할 일을 다 했어요</div>'; return; }
+  if (!d.items.length) { setTodoHtml('<div class="todo-ok">✅ 지금 할 일을 다 했어요</div>'); return; }
   var wkLabel = function (ws) { var m = parseDate(ws), e = parseDate(ws); e.setDate(e.getDate() + 6); return (m.getMonth() + 1) + '/' + m.getDate() + '~' + (e.getMonth() + 1) + '/' + e.getDate(); };
   var row = function (i, ic, title, sub, urgent) {
     return '<button type="button" class="todo' + (urgent ? ' urgent' : '') + '" onclick="openTodo(' + i + ')"><span class="todo-ic">' + ic + '</span>' +
       '<span class="todo-tx"><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></span><span class="todo-go">›</span></button>';
   };
-  $('todoArea').innerHTML = '<div class="section-head"><h2>지금 할 일</h2><span class="section-count">' + d.items.length + '개</span></div><div class="todo-list">' +
+  setTodoHtml('<div class="section-head"><h2>지금 할 일</h2><span class="section-count">' + d.items.length + '개</span></div><div class="todo-list">' +
     d.items.map(function (t, i) {
       if (t.kind === 'weekly') return row(i, '🎙', (t.which === 'this' ? '이번 주' : '다음 주') + ' 업무가능 시간 미제출',
         wkLabel(t.week_start) + (t.which === 'next' ? ' · 마감 ' + mdw(t.due) + ' ' + hmMs(t.due) : ' · 지금이라도 입력해주세요'), t.urgent);
@@ -3309,7 +3312,7 @@ function renderTodos() {
       if (t.kind === 'poll') return row(i, '📅', '가능시간 입력 · ' + t.name, '마감 ' + mdw(Date.parse(t.due)) + ' ' + hmMs(Date.parse(t.due)), t.urgent);
       if (t.kind === 'recask') return row(i, '🎙', '녹음 요청 응답 · ' + t.name, t.role + ' · ' + mdw(t.start) + ' ' + hmMs(t.start) + (t.place ? ' · ' + t.place : ''), t.urgent);
       return '';
-    }).join('') + '</div>';
+    }).join('') + '</div>');
 }
 // 할 일을 누르면 그 화면으로
 function openTodo(i) {
