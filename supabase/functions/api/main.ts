@@ -478,6 +478,32 @@ async function notifyMembers(ctx: Ctx, s: any, kind: "new" | "cancel" | "change"
   await ctx.db.from("meeting_sessions").update({ notified_at: result.at, notify_result: result }).eq("id", s.id);
   return result;
 }
+// 왼쪽 아래 메뉴 버튼: 베타에 등록된 사람만 그 사람 채팅에서 베타로 (다른 사람은 BotFather 기본값 = 운영 앱 그대로)
+const MENU_TEXT = "방송예술과";
+async function setBetaMenu(chatId: number | string) {
+  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, menu_button: { type: "web_app", text: MENU_TEXT, web_app: { url: MINIAPP_URL } } }),
+  }).then((x) => x.json()).catch((e) => ({ ok: false, description: String(e) }));
+  if (!r?.ok) console.error("menu", chatId, r?.description);
+  return !!r?.ok;
+}
+async function ensureBetaMenu(db: any, me: any, chatId: number | string) {
+  if (me.bot_menu_url === MINIAPP_URL) return;
+  if (await setBetaMenu(chatId)) await db.from("people").update({ bot_menu_url: MINIAPP_URL }).eq("id", me.id);
+}
+// 한 번에: 베타에 등록된 활성 인원 모두 (pg_cron 비밀값으로만 부름)
+async function betaMenuAll(db: any) {
+  const ppl: any[] = must(await db.from("people").select("id, name, telegram_user_id, bot_menu_url").eq("is_active", true).not("telegram_user_id", "is", null)) ?? [];
+  const out: any[] = [];
+  for (const p of ppl) {
+    const ok = await setBetaMenu(p.telegram_user_id);
+    if (ok) await db.from("people").update({ bot_menu_url: MINIAPP_URL }).eq("id", p.id);
+    out.push({ name: p.name, ok });
+  }
+  return out;
+}
+
 function checkButton(s: any) {
   return { inline_keyboard: [[{ text: "출결 체크하기", web_app: { url: `${MINIAPP_URL}?s=${s.id}` } }]] };
 }
@@ -1761,11 +1787,11 @@ Deno.serve(async (req) => {
     if (body.action === "public.bot") return json({ ok: true, data: { username: await getBotUsername() } });
 
     // pg_cron(10분마다)이 부르는 자동 알림. 텔레그램 로그인 대신 vault의 비밀값으로 확인
-    if (body.action === "cron.reminders") {
+    if (body.action === "cron.reminders" || body.action === "cron.betaMenu") {
       const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
       const secret = req.headers.get("x-cron-secret") ?? "";
       if (!secret || !must(await admin.rpc("check_cron_secret", { p_secret: secret }))) throw new HttpError(401, "인증 실패");
-      return json({ ok: true, data: await cronReminders(admin) });
+      return json({ ok: true, data: body.action === "cron.betaMenu" ? await betaMenuAll(admin) : await cronReminders(admin) });
     }
 
     // 텔레그램 미니앱(initData) 또는 PC 브라우저 로그인 버튼(x-telegram-login) 중 하나로 확인
@@ -1776,7 +1802,7 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
     const me = must(await admin.from("people")
-      .select("id, name, is_active")
+      .select("id, name, is_active, bot_menu_url")
       .eq("telegram_user_id", tgUser.id)
       .maybeSingle());
     // 등록 안 된 사람: 본인 텔레그램 번호를 돌려줘서 화면에 띄움 (본인 번호라 비밀 아님) → 캡처해서 팀장에게 보내면 등록
@@ -1784,6 +1810,8 @@ Deno.serve(async (req) => {
       code: "not_registered", tg_id: tgUser.id, tg_name: (tgUser as { first_name?: string }).first_name ?? null,
     });
     if (!me.is_active) throw new HttpError(403, "비활성화된 계정입니다. 관리자에게 문의하세요");
+    // 앱을 켤 때(me) 한 번: 이 사람 채팅의 왼쪽 아래 메뉴 버튼을 베타로 (이미 했으면 건너뜀)
+    if (body.action === "me") await ensureBetaMenu(admin, me, tgUser.id).catch((e) => console.error("menu", e));
 
     // 수정 이력에 '누가'를 남기기 위해 요청 헤더에 행위자 id를 실어 보냄
     const db = createClient(SUPABASE_URL, SERVICE_KEY, {
