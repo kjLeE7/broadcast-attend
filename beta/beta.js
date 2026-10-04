@@ -2064,8 +2064,9 @@ function saveAnnEdit() {
   var p = { id: n.id, title: $('annTitle').value.trim(), body: $('annBody').value.trim(), is_pinned: $('annPinned').checked };
   if (!p.title) { setMsg('annMsg', '제목을 적어주세요!', true); return; }
   var btn = $('annBtn'); btn.disabled = true; setMsg('annMsg', '저장 중...');
-  api('notices.update', p).then(function (r) {
-    btn.disabled = false;
+  if (!fileCheck('ann')) { btn.disabled = false; return; }
+  api('notices.update', p).then(function (r) { return fileUpload('ann', 'notice', n.id).then(function () { return r; }); }).then(function (r) {
+    btn.disabled = false; FL.notice = null;
     Object.assign(n, { title: r.title, body: r.body, is_pinned: r.is_pinned });
     renderNotices();
     editDone('ann', '저장했어요!', p.is_pinned !== !!n.is_pinned ? loadNotices : null);
@@ -2087,8 +2088,9 @@ function saveTaskEdit() {
     description: $('hwDesc').value.trim() || null, due_at: due ? new Date(due).toISOString() : null, needs_feedback: $('hwFeedback').checked };
   if (!p.title) { setMsg('hwMsg', '과제 제목을 적어주세요!', true); return; }
   var btn = $('hwBtn'); btn.disabled = true; setMsg('hwMsg', '저장 중...');
-  api('assignments.update', p).then(function (r) {
-    btn.disabled = false;
+  if (!fileCheck('hw')) { btn.disabled = false; return; }
+  api('assignments.update', p).then(function (r) { return fileUpload('hw', 'assignment', a.id).then(function () { return r; }); }).then(function (r) {
+    btn.disabled = false; FL.assignment = null;
     ['category', 'title', 'description', 'due_at', 'needs_feedback'].forEach(function (key) { a[key] = r[key]; });
     renderTasks(); openTask(a.id);
     editDone('hw', '저장했어요!');
@@ -2338,7 +2340,7 @@ function loadNotices() {
   $('annFab').style.display = annTeams().length ? '' : 'none';
   if (N.list) { renderNotices(); return; }
   $('annList').innerHTML = '<div class="empty"><b>불러오는 중...</b></div>';
-  api('notices.list', { team_id: S.team.id }).then(function (l) { N.list = l; renderNotices(); })
+  api('notices.list', { team_id: S.team.id }).then(function (l) { N.list = l; renderNotices(); loadFiles('notice', l, renderNotices); })
     .catch(function (err) { $('annList').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
 function toggleNotice(id) {
@@ -2394,7 +2396,7 @@ function renderNotices() {
         (n.target_unit_id ? '<span class="chip">' + esc(groupName(n.target_unit_id)) + '만</span>' : '') +
         '<span class="ann-date">' + mdOf(n.published_at) + '</span></div>' +
       '<div class="ann-title">' + esc(n.title) + '</div>' +
-      (n.body ? '<div class="ann-body' + (open ? '' : ' clamp') + '">' + esc(n.body) + '</div>' : '') +
+      (n.body ? '<div class="ann-body' + (open ? '' : ' clamp') + '">' + esc(n.body) + '</div>' : '') + fileChips('notice', n.id) +
       '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' + readChip('notice', n) +
         (long && !open ? '<span class="ann-more">더보기</span>' : '') +
         (canDel ? '<button class="ann-hide" onclick="event.stopPropagation();editNotice(\'' + esc(n.id) + '\')">고치기</button>' +
@@ -2428,7 +2430,8 @@ function createNotice() {
   Object.assign(p, tg); p.scope = tg.scope === 'all' ? 'section' : 'team';   // 공지는 과 전체 = section
   var other = p.scope === 'team' && p.team_id !== S.team.id, otherName = pkTeamName(p.team_id);
   var btn = $('annBtn'); btn.disabled = true; setMsg('annMsg', '올리는 중...');
-  api('notices.create', p).then(function () {
+  if (!fileCheck('ann')) { btn.disabled = false; return; }
+  api('notices.create', p).then(function (row) { return fileUpload('ann', 'notice', row.id).then(function () { return row; }); }).then(function () {
     N.list = null;   // 고정·순서 반영해서 새로 받기
     ['annTitle', 'annBody'].forEach(function (id) { $(id).value = ''; });
     $('annPinned').checked = false;
@@ -2460,7 +2463,7 @@ function loadTasks() {
   if (A.list) { renderTasks(); return; }
   $('hwOpen').innerHTML = '<div class="empty"><b>불러오는 중...</b></div>';
   $('hwPast').innerHTML = '';
-  api('assignments.list', { team_id: S.team.id }).then(function (l) { A.list = l; renderTasks(); })
+  api('assignments.list', { team_id: S.team.id }).then(function (l) { A.list = l; renderTasks(); loadFiles('assignment', l, function () { renderTasks(); if (A.current) openTask(A.current.id); }); })
     .catch(function (err) { $('hwOpen').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
 
@@ -2505,7 +2508,8 @@ function createTask() {
   if (tg.error) { setMsg('hwMsg', tg.error, true); return; }
   Object.assign(p, tg);
   var btn = $('hwBtn'); btn.disabled = true; setMsg('hwMsg', '올리는 중...');
-  api('assignments.create', p).then(function (a) {
+  if (!fileCheck('hw')) { btn.disabled = false; return; }
+  api('assignments.create', p).then(function (a) { return fileUpload('hw', 'assignment', a.id).then(function () { return a; }); }).then(function (a) {
     a.my = null; a.submitted_count = S.team.rank >= RANK.GROUP_LEADER ? 0 : null; a.read_count = 0; a.seen = true;
     if (a.team_id === S.team.id || (a.target_people || []).indexOf(S.me.profile.id) !== -1) A.list.unshift(a);
     pkReset('hw');
@@ -2532,7 +2536,7 @@ function openTask(id) {
     '<h1>' + esc(a.title) + '</h1><p>' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') +
     (a.target_label ? ' · ' + esc(a.target_label) : a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + ' · <span class="st ' + st.c + '">' + st.t + '</span></p>' +
     (a.read_count != null ? '<div class="b-chips">' + readChip('assignment', a) + '</div>' : '') +
-    (a.description ? '<div class="card b-desc">' + esc(a.description) + '</div>' : '') + '</div>';
+    (a.description ? '<div class="card b-desc">' + esc(a.description) + '</div>' : '') + fileChips('assignment', a.id) + '</div>';
   $('tdContent').value = (a.my && a.my.content) || '';
   $('tdLink').value = (a.my && a.my.file_url) || '';
   $('tdBtn').textContent = a.my ? '다시 제출' : '제출';
@@ -4706,4 +4710,56 @@ function writeGuest() {
 function delGuest(id) {
   if (!confirm('이 글을 지울까요?')) return;
   api('guest.delete', { id: id }).then(loadGuest).catch(function (err) { alertMsg(err.message); });
+}
+
+// =====================================================================
+// 첨부 대본 (공지·과제): 우리 교회 대본이 아닐 때만. 비공개 보관함에 바로 올리고, 열 때마다 문지기가 5분짜리 주소를 줌. 14일 뒤 자동 삭제
+// =====================================================================
+var FL = { notice: null, assignment: null };   // { item_id: [파일] }
+function loadFiles(kind, list, done) {
+  var ids = (list || []).map(function (x) { return x.id; }); if (!ids.length) return;
+  api('files.list', { kind: kind, ids: ids }).then(function (r) {
+    var m = {}; r.files.forEach(function (f) { (m[f.item_id] = m[f.item_id] || []).push(f); }); FL[kind] = m; if (done) done();
+  }).catch(function () {});
+}
+function fileChips(kind, id) {
+  var fs = FL[kind] && FL[kind][id]; if (!fs || !fs.length) return '';
+  return '<div class="fl-chips">' + fs.map(function (f) {
+    var left = Math.max(0, Math.ceil((Date.parse(f.expires_at) - Date.now()) / 86400000));
+    return '<button type="button" class="fl-chip" onclick="event.stopPropagation();openFile(\'' + f.id + '\')" title="' + left + '일 뒤 자동으로 지워져요">📄 ' + esc(f.name) +
+      ' <small>' + Math.max(1, Math.round(f.size / 1024 / 1024 * 10) / 10) + 'MB · ' + left + '일 남음</small></button>' +
+      (f.mine ? '<button type="button" class="fl-x" onclick="event.stopPropagation();delFile(\'' + kind + '\',\'' + f.id + '\')" title="파일 지우기">✕</button>' : '');
+  }).join('') + '</div>';
+}
+function fileCheck(k) {
+  var f = $(k + 'File').files[0]; if (!f) return true;
+  var msg = k + 'Msg';
+  if (!$(k + 'NotChurch').checked) { setMsg(msg, "우리 교회 대본이 아닌지 확인 칸에 체크해주세요. 교회 대본은 올리지 말고 NAS 위치만 적어주세요", true); return false; }
+  if (f.size > 20 * 1024 * 1024) { setMsg(msg, '20MB까지 올릴 수 있어요', true); return false; }
+  if (!/\.(pdf|hwp|hwpx|doc|docx|txt|rtf)$/i.test(f.name)) { setMsg(msg, 'PDF·한글·워드·텍스트 파일만 올릴 수 있어요', true); return false; }
+  return true;
+}
+function fileUpload(k, kind, itemId) {
+  var f = $(k + 'File').files[0]; if (!f) return Promise.resolve();
+  setMsg(k + 'Msg', '대본 올리는 중...');
+  return api('files.prepare', { kind: kind, item_id: itemId, name: f.name, size: f.size, not_church: $(k + 'NotChurch').checked })
+    .then(function (r) {
+      return fetch(r.url, { method: 'PUT', body: f, headers: { 'content-type': f.type || 'application/octet-stream', 'x-upsert': 'false' } })
+        .then(function (res) { if (!res.ok) throw new Error('대본을 올리지 못했어요 (' + res.status + ')'); return api('files.done', { id: r.id }); });
+    })
+    .then(function () { $(k + 'File').value = ''; $(k + 'NotChurch').checked = false; FL[kind] = null; })
+    .catch(function (err) { alertMsg('글은 올렸지만 대본 파일은 못 올렸어요: ' + err.message + '\n글을 고치기로 열어 다시 올려주세요'); });
+}
+function openFile(id) {
+  api('files.open', { id: id }).then(function (r) {
+    try { if (tg && tg.openLink) { tg.openLink(r.url); return; } } catch (e) {}
+    window.open(r.url, '_blank', 'noopener');
+  }).catch(function (err) { alertMsg(err.message); });
+}
+function delFile(kind, id) {
+  if (!confirm('이 대본 파일을 지울까요?')) return;
+  api('files.delete', { id: id }).then(function () {
+    Object.keys(FL[kind] || {}).forEach(function (k) { FL[kind][k] = FL[kind][k].filter(function (f) { return f.id !== id; }); });
+    if (kind === 'notice') renderNotices(); else { renderTasks(); if (A.current) openTask(A.current.id); }
+  }).catch(function (err) { alertMsg(err.message); });
 }

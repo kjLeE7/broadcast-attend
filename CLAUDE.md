@@ -161,7 +161,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -350,6 +350,13 @@
 - 서버 `sky.load { team_id }` = 과원(층·직책·꾸미기·배지 아이콘·대표 칭호). 층은 서버가 정함.
 - **방명록** `guestbook`(owner_id, author_id, text 200자, `supabase/migrations/20261005_guestbook.sql`): **쓴 사람과 사무실 주인만 봄**(사용자 결정). `guest.list`(주인이면 전부, 아니면 내가 쓴 것만) / `guest.write`(같은 과, 본인 사무실엔 못 씀, 하루 20개, 주인에게 '방명록이 왔어요' 봇 알림 — 내용은 안 보냄) / `guest.delete`(쓴 사람·주인). 팝업 `#guestModal`.
 
+### 첨부 대본 (2026-10-06, 함수 버전 48)
+- 공지·과제 만들기/고치기 팝업에 '대본 파일'(PDF·한글·워드·텍스트, 20MB) + **'우리 교회 대본이 아니에요' 확인 칸 필수**(교회 대본은 계속 NAS, 사용자 결정). 마이그레이션 `supabase/migrations/20261006_script_files.sql`.
+- 비공개 보관함 `scripts`(storage bucket, public false) + 표 `content_files`(kind notice|assignment, item_id, path, name, size, uploaded_by, uploaded, expires_at, deleted_at).
+- 흐름: 글 저장 → `files.prepare`(쓴 사람·관리자만 `fileCanEdit`, 1회용 올리기 주소) → 브라우저가 보관함에 바로 PUT(문지기 200KB 제한을 안 거침) → `files.done`(실제로 올라갔는지 확인).
+  보기: `files.list { kind, ids }`(내 팀·내가 대상인 글만, 이름만) → 칩 누르면 `files.open`(받는 사람만 `fileCanOpen` = 쓴 사람·관리자·대상자, **5분짜리 주소**, `access_log`에 열람 기록). `files.delete`(올린 사람·관리자).
+- **자동 삭제**: 과제는 마감+14일, 공지·마감 없는 과제는 올린 날+14일(설정값 `file_keep_days`). `cron.reminders` 안 `cronFiles`가 지움(올리다 만 것도 하루 뒤 정리).
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -486,6 +493,7 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
+- 첨부 대본: 올리기·지우기 = 그 글 쓴 사람·관리자(공지 팀 교관/과 팀장, 과제 교관 이상). 열기 = 쓴 사람·관리자·받는 사람, 5분 주소, 열람 기록. 14일 뒤 자동 삭제. 우리 교회 대본은 올리지 않음(NAS).
 - 하늘방송국 방명록: 쓴 사람과 사무실 주인만 봄. 지우기도 이 둘만.
 - 회비(🔴 성격): 본인과 회계 명단만 봄. 회계 명단은 관리자가 지정. 계좌번호는 앱에 안 둠.
 - 연말 결산: 본인 것만. 공개일(`recap_open`) 전엔 교관 이상·관리자만 미리보기, 팀 결산은 그 팀 교관 이상(합계만). 공개일은 관리자 명단(`admins`)만 바꿈.

@@ -1178,9 +1178,10 @@ async function cronReminders(db: any) {
   let weekly = null, polls = null;
   try { weekly = await cronWeeklyNag(ctx); } catch (e) { console.error("weekly nag", e); }
   try { polls = await cronPolls(ctx); } catch (e) { console.error("polls", e); }
-  let dues = null;
+  let dues = null, files = null;
   try { dues = await cronDuesNag(ctx); } catch (e) { console.error("dues nag", e); }
-  return { sessions: out, weekly, polls, dues };
+  try { files = await cronFiles(ctx); } catch (e) { console.error("files", e); }
+  return { sessions: out, weekly, polls, dues, files };
 }
 
 // 출결 행에서 다른 사람에게 보여도 되는 칸 / 사유까지 (본인·조장 이상)
@@ -1572,6 +1573,35 @@ async function myArrivable(ctx: Ctx) {
   const out = [];
   for (const r of rows) { const s = await recSessionFull(ctx, r.session_id); if (recArriveOpen(s)) out.push({ s, pt: s.recording_participants.find((x: any) => x.id === r.id) }); }
   return out;
+}
+
+// ----- 첨부 대본 (공지·과제) -----
+// 우리 교회 대본이 아닐 때만 (교회 대본은 NAS). 비공개 보관함 'scripts', 받는 사람만 잠깐(5분) 열리는 주소, 기간 지나면 cron이 지움
+const FILE_EXT = ["pdf", "hwp", "hwpx", "doc", "docx", "txt", "rtf"];
+const FILE_MAX = 20 * 1024 * 1024;
+// 올리거나 지울 수 있는 사람 = 그 글을 쓴 사람, 또는 공지 관리(팀 교관·과 팀장 이상)·과제 교관 이상
+async function fileCanEdit(ctx: Ctx, kind: string, id: string) {
+  const t = await readTarget(ctx, kind, id);
+  if (t.by === ctx.me.id) return t;
+  if (kind === "notice" ? t.canSee : t.rank >= RANK.INSTRUCTOR) return t;
+  throw new HttpError(403, "글을 쓴 사람이나 관리하는 사람만 올릴 수 있어요");
+}
+// 열 수 있는 사람 = 쓴 사람·관리하는 사람·받는 사람
+async function fileCanOpen(ctx: Ctx, kind: string, id: string) {
+  const t = await readTarget(ctx, kind, id);
+  if (t.by === ctx.me.id || t.canSee || t.inTarget) return;
+  if ((await t.audience()).some((m: any) => m.id === ctx.me.id)) return;
+  throw new HttpError(403, "받는 사람만 열 수 있어요");
+}
+async function cronFiles(ctx: Ctx) {
+  const old: any[] = must(await ctx.db.from("content_files").select("id, path").is("deleted_at", null).lt("expires_at", new Date().toISOString()).limit(100)) ?? [];
+  // 올리다 만 것(1일 지난 미완료)도 정리
+  const stale: any[] = must(await ctx.db.from("content_files").select("id, path").is("deleted_at", null).eq("uploaded", false).lt("created_at", new Date(Date.now() - 24 * HOUR).toISOString()).limit(100)) ?? [];
+  const all = [...old, ...stale];
+  if (!all.length) return null;
+  await ctx.db.storage.from("scripts").remove(all.map((f) => f.path));
+  must(await ctx.db.from("content_files").update({ deleted_at: new Date().toISOString() }).in("id", all.map((f) => f.id)));
+  return { deleted: all.length };
 }
 
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
@@ -2148,6 +2178,72 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const e = must(await ctx.db.from("guestbook").select("id, owner_id, author_id").eq("id", ctx.payload?.id).maybeSingle());
     if (!e || (e.owner_id !== ctx.me.id && e.author_id !== ctx.me.id)) throw new HttpError(404, "없는 글이에요");
     must(await ctx.db.from("guestbook").delete().eq("id", e.id));
+    return { ok: true };
+  },
+
+  // ----- 첨부 대본 -----
+  // 올릴 준비 { kind, item_id, name, size, not_church: true } → 보관함에 바로 올리는 1회용 주소
+  async "files.prepare"(ctx) {
+    const p = ctx.payload ?? {};
+    if (!["notice", "assignment"].includes(p.kind) || !UUID_RE.test(String(p.item_id))) throw new HttpError(400, "글을 다시 골라주세요");
+    if (p.not_church !== true) throw new HttpError(400, "우리 교회 대본은 올릴 수 없어요 (NAS에 두세요)");
+    const name = String(p.name ?? "").replace(/[\\/\u0000-\u001f]/g, "").trim().slice(0, 120);
+    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    if (!name || !FILE_EXT.includes(ext)) throw new HttpError(400, "PDF·한글·워드·텍스트 파일만 올릴 수 있어요");
+    const size = Number(p.size);
+    if (!Number.isInteger(size) || size <= 0 || size > FILE_MAX) throw new HttpError(400, "20MB까지 올릴 수 있어요");
+    await fileCanEdit(ctx, p.kind, p.item_id);
+    await rateLimit(ctx, "file_upload", 20, 60);
+    const keep = Number(must(await ctx.db.from("app_settings").select("value").eq("key", "file_keep_days").maybeSingle())?.value ?? 14);
+    let base = Date.now();
+    if (p.kind === "assignment") { const a = must(await ctx.db.from("assignments").select("due_at").eq("id", p.item_id).single()); if (a.due_at) base = Math.max(base, Date.parse(a.due_at)); }
+    const path = `${p.kind}/${p.item_id}/${crypto.randomUUID()}.${ext}`;
+    const up = await ctx.db.storage.from("scripts").createSignedUploadUrl(path);
+    if (up.error) throw up.error;
+    const row = must(await ctx.db.from("content_files").insert({ kind: p.kind, item_id: p.item_id, path, name, size, uploaded_by: ctx.me.id,
+      expires_at: new Date(base + keep * 24 * HOUR).toISOString() }).select("id, expires_at").single());
+    return { id: row.id, url: up.data.signedUrl, expires_at: row.expires_at };
+  },
+  // 다 올렸어요 { id }: 보관함에 실제로 있는지 보고 표시
+  async "files.done"(ctx) {
+    const f = must(await ctx.db.from("content_files").select("id, path, uploaded_by").eq("id", ctx.payload?.id).maybeSingle());
+    if (!f || f.uploaded_by !== ctx.me.id) throw new HttpError(404, "없는 파일이에요");
+    const dir = f.path.split("/").slice(0, -1).join("/"), file = f.path.split("/").pop();
+    const ls = await ctx.db.storage.from("scripts").list(dir, { search: file });
+    if (ls.error || !(ls.data ?? []).some((o: any) => o.name === file)) throw new HttpError(400, "파일이 올라가지 않았어요. 다시 해주세요");
+    must(await ctx.db.from("content_files").update({ uploaded: true }).eq("id", f.id));
+    return { ok: true };
+  },
+  // 글들에 붙은 파일 이름 { kind, ids: [] } (내 팀 글이거나 내가 대상인 글만)
+  async "files.list"(ctx) {
+    const { kind } = ctx.payload ?? {};
+    const ids = (Array.isArray(ctx.payload?.ids) ? ctx.payload.ids : []).filter((x: any) => UUID_RE.test(String(x))).slice(0, 200);
+    if (!["notice", "assignment"].includes(kind) || !ids.length) return { files: [] };
+    const items: any[] = must(await ctx.db.from(kind === "notice" ? "notices" : "assignments").select("id, team_id, target_people").in("id", ids)) ?? [];
+    const { teams } = await myTeams(ctx), mine = new Set(teams.map((t: any) => t.id));
+    const sec = teams.length ? (await sectionUnits(ctx, teams[0].id))[0] : null;
+    const ok = items.filter((i) => mine.has(i.team_id) || i.team_id === sec || i.target_people?.includes(ctx.me.id)).map((i) => i.id);
+    if (!ok.length) return { files: [] };
+    const rows: any[] = must(await ctx.db.from("content_files").select("id, item_id, name, size, expires_at, uploaded_by").eq("kind", kind).in("item_id", ok).eq("uploaded", true).is("deleted_at", null).order("created_at")) ?? [];
+    return { files: rows.map((r) => ({ id: r.id, item_id: r.item_id, name: r.name, size: r.size, expires_at: r.expires_at, mine: r.uploaded_by === ctx.me.id })) };
+  },
+  // 열기 { id } → 5분짜리 내려받기 주소. 받는 사람만, 연 기록 남김
+  async "files.open"(ctx) {
+    const f = must(await ctx.db.from("content_files").select("id, kind, item_id, path, name, uploaded, deleted_at").eq("id", ctx.payload?.id).maybeSingle());
+    if (!f || !f.uploaded || f.deleted_at) throw new HttpError(404, "기간이 지나 지워졌거나 없는 파일이에요");
+    await fileCanOpen(ctx, f.kind, f.item_id);
+    const u = await ctx.db.storage.from("scripts").createSignedUrl(f.path, 300, { download: f.name });
+    if (u.error) throw u.error;
+    await logAccess(ctx, "file_open", "content_files", f.id);
+    return { url: u.data.signedUrl, name: f.name };
+  },
+  // 지우기 { id }: 올린 사람 또는 글 관리하는 사람
+  async "files.delete"(ctx) {
+    const f = must(await ctx.db.from("content_files").select("id, kind, item_id, path, uploaded_by, deleted_at").eq("id", ctx.payload?.id).maybeSingle());
+    if (!f || f.deleted_at) throw new HttpError(404, "없는 파일이에요");
+    if (f.uploaded_by !== ctx.me.id) await fileCanEdit(ctx, f.kind, f.item_id);
+    await ctx.db.storage.from("scripts").remove([f.path]);
+    must(await ctx.db.from("content_files").update({ deleted_at: new Date().toISOString() }).eq("id", f.id));
     return { ok: true };
   },
 

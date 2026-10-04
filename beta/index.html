@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006g">
+  <link rel="stylesheet" href="beta.css?v=20261006h">
 </head>
 <body>
   <div class="app">
@@ -577,6 +577,10 @@
         <label class="field-label" for="annBody">내용</label>
         <textarea id="annBody" rows="5" maxlength="3000" placeholder="공유할 내용을 적어주세요"></textarea>
         <label class="check-row"><input type="checkbox" id="annPinned"><span>📌 맨 위에 고정</span></label>
+        <!-- 대본 첨부: 우리 교회 대본이 아닐 때만 (교회 대본은 NAS). 받는 사람만 열 수 있고 14일 뒤 자동으로 지워져요 -->
+        <label class="field-label">대본 파일 <span class="hint">선택 · PDF·한글·워드 · 20MB까지</span></label>
+        <input type="file" id="annFile" class="fl-file" accept=".pdf,.hwp,.hwpx,.doc,.docx,.txt,.rtf">
+        <label class="fl-ok"><input type="checkbox" id="annNotChurch"> 우리 교회 대본이 <b>아니에요</b> <small>(교회 대본은 올리지 말고 NAS 위치만 적어주세요)</small></label>
         <button class="btn-primary" id="annBtn" onclick="createNotice()">공지 올리기</button>
         <div class="msg" id="annMsg"></div>
       </div>
@@ -767,6 +771,10 @@
         <label class="field-label">대상</label>
         <div id="hwPick"></div>
         <label class="check-row"><input type="checkbox" id="hwFeedback" checked><span>피드백 주는 과제</span></label>
+        <!-- 대본 첨부: 우리 교회 대본이 아닐 때만 (교회 대본은 NAS). 받는 사람만 열 수 있고 14일 뒤 자동으로 지워져요 -->
+        <label class="field-label">대본 파일 <span class="hint">선택 · PDF·한글·워드 · 20MB까지</span></label>
+        <input type="file" id="hwFile" class="fl-file" accept=".pdf,.hwp,.hwpx,.doc,.docx,.txt,.rtf">
+        <label class="fl-ok"><input type="checkbox" id="hwNotChurch"> 우리 교회 대본이 <b>아니에요</b> <small>(교회 대본은 올리지 말고 NAS 위치만 적어주세요)</small></label>
         <button class="btn-primary" id="hwBtn" onclick="createTask()">과제 내기</button>
         <div class="msg" id="hwMsg"></div>
       </div>
@@ -845,6 +853,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006g"></script>
+  <script src="beta.js?v=20261006h"></script>
 </body>
 </html>
