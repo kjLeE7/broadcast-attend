@@ -2171,6 +2171,29 @@ if (tg && tg.BackButton) {
   showList = function () { _list(); try { tg.BackButton.hide(); } catch (e) {} };
 }
 
+// ----- 새 버전 확인: PC 텔레그램 등이 예전 화면을 저장해 두고 보여줄 때 대비 -----
+// 서버의 index.html을 저장본 없이 받아 beta.js 버전 글자를 비교 → 다르면 한 번만 새로 불러옴 (텔레그램 로그인 정보가 든 # 뒷부분은 그대로)
+function myVer() {
+  var el = document.querySelector('script[src*="beta.js"]');
+  var m = el && el.getAttribute('src').match(/[?&]v=([^&]+)/);
+  return m ? m[1] : '';
+}
+function checkNewVersion() {
+  var cur = myVer(); if (!cur || !window.fetch) return;
+  fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (html) {
+    var m = html.match(/beta\.js\?v=([^"'&]+)/);
+    if (!m || m[1] === cur) return;
+    var tried = ''; try { tried = sessionStorage.getItem('betaReloadTo') || ''; } catch (e) {}
+    if (tried === m[1]) return;   // 이미 한 번 해 봤으면 또 하지 않음 (계속 새로고침되는 것 방지)
+    try { sessionStorage.setItem('betaReloadTo', m[1]); } catch (e) {}
+    var u = new URL(location.href);
+    u.searchParams.set('r', m[1]);
+    location.replace(u.pathname + u.search + location.hash);
+  }).catch(function () {});
+}
+checkNewVersion();
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkNewVersion(); });
+
 boot();
 
 
