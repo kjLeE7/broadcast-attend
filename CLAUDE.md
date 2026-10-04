@@ -110,14 +110,14 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `7223d869568801c7071d5fbf4750a78227640607` (함수 버전 19, 봇 메뉴 버튼 베타 인원만 전환).
+- 현재 배포: SHA `ffc5cc130ebf7b31ba7ebbc39332e64a7437f424` (함수 버전 20, 공지·과제 확인 기록).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
 `sessions.create/update/delete/list/board/close/remind`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
-`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`,
+`notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
 `dashboard.load`, `dashboard.scene`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
@@ -171,6 +171,14 @@
   '전체'는 어느 팀이든 팀장 이상일 때만, 팀 칩은 내가 교관 이상인 팀만. 직책·조 칩은 실제 명단에 있는 것만 보임.
 - `notices.target_positions`(직책 코드 배열, 비면 모두). `notices.audience { team_id, scope }` = 그 단위·아래 단위 직책 + 문화부까지 상속된 직책, 사람마다 가장 높은 직책.
 - 직책을 콕 집은 공지는 그 직책인 사람 + 쓴 사람 + 관리자(팀 공지 교관 이상, 과 공지 팀장 이상)만 봄. 보는 사람의 직책은 그 팀에서의 서열(rank)로 맞춤.
+
+### 공지·과제 확인 기록 (2026-10-04, 함수 버전 20)
+- 공지 카드를 눌러 펼치거나 과제를 열면 `reads.mark` → `content_reads`(kind notice|assignment, item_id, person_id, first/last_read_at). 열람 기록이라 audit 트리거 없음.
+- 목록에 `seen`(내가 확인했는지, 쓴 사람은 늘 true) → 안 본 글은 왼쪽 줄 + '새 글 · 눌러서 확인'/'새 과제' 칩.
+- `read_count`(쓴 사람 제외)는 볼 수 있는 사람에게만: 공지 = 쓴 사람·팀 공지 교관 이상·과 공지 팀장 이상, 과제 = 쓴 사람·조장 이상. 아니면 null.
+- '👀 확인 N명' 칩 → 팝업(`#readModal`) `reads.list` = 받는 사람(쓴 사람 제외) 중 확인한 사람(처음 본 시각)·아직 안 본 사람.
+  공지 받는 사람 = `unitAudience` + 조·직책 대상 필터, 과제 = `sessionMembers`(오늘 기준 팀원, 조 대상).
+- 공지·과제를 지우면 확인 기록도 지움.
 
 ### 모임·출결 흐름 (2026-10-03 완성)
 1. **모임 만들기**: 조장 이상. 대상(팀 전체 또는 조)을 고르고, 만들면 봇이 대상자에게 개인 메시지로 알림
