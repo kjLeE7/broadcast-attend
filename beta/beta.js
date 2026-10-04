@@ -106,7 +106,9 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 // 업무가능 독촉 알림의 버튼: ?go=weekly&ws=월요일
 // 시간취합 알림의 버튼: ?poll=취합id
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
-var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || 'this') : null; } catch (e) { return null; } })();
+var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
+// 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -155,6 +157,11 @@ function boot() {
       var pollId = DEEP_POLL; DEEP_POLL = null;
       try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
       Promise.resolve(selectTeam(me.teams[0].id)).then(function () { PL.pending = pollId; goTab('poll'); });
+    }
+    else if (DEEP_TAB) {
+      var tab = DEEP_TAB; DEEP_TAB = null;
+      try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+      Promise.resolve(selectTeam(me.teams[0].id)).then(function () { goTab(tab); });
     }
     else if (DEEP_WEEK) {
       var ws = DEEP_WEEK; DEEP_WEEK = null;

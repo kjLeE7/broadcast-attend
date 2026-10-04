@@ -1146,6 +1146,8 @@ async function cronReminders(db: any) {
   const ctx = { db, me: { id: null, name: "자동 알림" }, payload: {} } as unknown as Ctx;
   const today = kstToday();
   await db.from("action_limits").delete().lt("at", new Date(Date.now() - 86400000).toISOString());   // 하루 지난 횟수 기록은 지움
+  await db.from("bot_updates").delete().lt("at", new Date(Date.now() - 86400000).toISOString());     // 봇 중복 확인 기록도
+  await db.from("bot_waits").delete().lt("expires_at", new Date().toISOString());
   const rows: any[] = must(await db.from("meeting_sessions").select(SESSION_COLS)
     .eq("status", "예정").is("closed_at", null).not("start_time", "is", null)
     .gte("session_date", today).lte("session_date", addDaysStr(today, 4))) ?? [];
@@ -1176,6 +1178,169 @@ function attView(r: any, withReason: boolean) {
   };
   if (withReason) Object.assign(base, { planned_reason: r.planned_reason, reason: r.reason, reason_at: r.reason_at });
   return base;
+}
+
+// ---------------------------------------------------------------------
+// 텔레그램 봇 채팅 답장 (운영 앱 Apps Script 웹훅에서 옮겨 옴)
+// 채팅에 '출결'·'공지'·'기상' 같은 단어를 보내면 답장. 웹훅 전환은 cron.setWebhook
+// ---------------------------------------------------------------------
+const CHECKIN_ITEMS = ["기상", "출발", "도착"];
+const CHECKIN_EMOJI: Record<string, string> = { "기상": "☀️", "출발": "🚗", "도착": "📍" };
+// 단어 → 할 일 (앞의 '/'와 '@봇이름'은 떼고 봄)
+const BOT_WORDS: Record<string, string[]> = {
+  home: ["start", "앱", "방예과", "홈", "메뉴", "방송예술과", "열기"],
+  attend: ["attend", "출결", "출석", "모임"],
+  notice: ["notice", "공지"],
+  poll: ["poll", "시간취합", "취합"],
+  weekly: ["weekly", "업무가능", "녹음가능"],
+  todo: ["todo", "할일", "할 일"],
+  "기상": ["wake", "기상"],
+  "출발": ["depart", "출발"],
+  "도착": ["arrive", "도착"],
+};
+const BOT_COMMANDS = [
+  { command: "start", description: "방송예술과 앱 열기" },
+  { command: "attend", description: "출결" },
+  { command: "notice", description: "공지 보기" },
+  { command: "todo", description: "지금 할 일" },
+  { command: "poll", description: "시간취합" },
+  { command: "weekly", description: "업무가능 시간 입력" },
+  { command: "wake", description: "기상 보고" },
+  { command: "depart", description: "출발 보고" },
+  { command: "arrive", description: "도착 보고" },
+];
+async function tgCall(method: string, payload: unknown) {
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    }).then((x) => x.json());
+    if (!r?.ok) console.error("tg", method, r?.error_code, r?.description);
+    return r;
+  } catch (e: any) { console.error("tg fetch", method, e?.name ?? "error"); return null; }
+}
+function botSend(chatId: number, text: string, markup?: unknown) {
+  return tgCall("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", reply_markup: markup, disable_web_page_preview: true });
+}
+function appButton(label: string, query = "") {
+  return { inline_keyboard: [[{ text: label, web_app: { url: MINIAPP_URL + query } }]] };
+}
+// "7:40", "07:40", "7시 40분", "19시", "7.40" → "07:40" / 못 읽으면 null
+function parseHm(text: string) {
+  const m = String(text).replace(/\s/g, "").match(/^(\d{1,2})(?:[:시.](\d{1,2})?분?)?$/);
+  if (!m) return null;
+  const h = Number(m[1]), mi = Number(m[2] ?? 0);
+  if (h > 23 || mi > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`;
+}
+function kstHm(ms: number) { return msLabel(ms).slice(-5); }
+// 오늘 이 사람이 보고할 수 있는 체크인 (대상 규칙은 checkins.report의 requireItemTarget과 같음)
+async function todayCheckins(ctx: Ctx) {
+  const today = kstToday();
+  const rows: any[] = must(await ctx.db.from("checkins").select("id, title, items, team_id, target_people, target_unit_id").eq("check_date", today)) ?? [];
+  if (!rows.length) return [];
+  const teams = new Map((await myTeams(ctx)).teams.map((t: any) => [t.id, t.rank]));
+  const groups = await myGroupIds(ctx);
+  return rows.filter((c) => {
+    if (c.target_people?.length) return c.target_people.includes(ctx.me.id);
+    const rank = teams.get(c.team_id) ?? 0;
+    if (rank < RANK.MEMBER) return false;
+    return !c.target_unit_id || rank >= RANK.GROUP_LEADER || groups.includes(c.target_unit_id);
+  });
+}
+async function botRecord(ctx: Ctx, chatId: number, tgId: number, c: any, item: string) {
+  const prev = must(await ctx.db.from("checkin_reports").select("reported_at").eq("checkin_id", c.id).eq("person_id", ctx.me.id).eq("item", item).maybeSingle());
+  const now = new Date().toISOString();
+  must(await ctx.db.from("checkin_reports").upsert({ checkin_id: c.id, person_id: ctx.me.id, item, reported_at: now, note: null }, { onConflict: "checkin_id,person_id,item" }));
+  let text = `✅ ${escHtml(ctx.me.name)}님 [${escHtml(c.title)}] ${CHECKIN_EMOJI[item]}${item} ${kstHm(Date.parse(now))} 기록했어요.` +
+    (prev ? `\n(이전 기록 ${kstHm(Date.parse(prev.reported_at))} → 새로 기록)` : "");
+  if (item === "출발") {
+    must(await ctx.db.from("bot_waits").upsert({ tg_user_id: tgId, kind: "eta", data: { checkin_id: c.id }, expires_at: new Date(Date.now() + 15 * 60000).toISOString() }));
+    text += "\n\n도착 예정 시간은요? 예) 7:40  (모르면 그냥 넘어가도 돼요)";
+  }
+  return botSend(chatId, text);
+}
+const BOT_HELP = "이렇게 보내면 돼요 🙂\n\n• <b>앱</b> → 방송예술과 열기\n• <b>출결</b> → 모임·출결\n• <b>공지</b> → 공지 보기\n• <b>할일</b> → 지금 할 일\n" +
+  "• <b>시간취합</b> · <b>업무가능</b> → 가능시간 입력\n\n체크인이 있는 날에는\n• <b>기상</b> / <b>출발</b> / <b>도착</b> → 바로 시간 기록";
+
+async function handleTelegramUpdate(admin: any, u: any) {
+  // 같은 메시지가 두 번 오면 무시
+  if (typeof u.update_id === "number") {
+    const { error } = await admin.from("bot_updates").insert({ update_id: u.update_id });
+    if (error) return;   // 이미 처리함(기본키 중복)
+  }
+  const q = u.callback_query;
+  const msg = u.message;
+  const from = q?.from ?? msg?.from;
+  if (!from?.id || from.is_bot) return;
+  if (msg && (msg.chat?.type !== "private" || typeof msg.text !== "string")) return;   // 개인 채팅의 글자만
+  if (q) tgCall("answerCallbackQuery", { callback_query_id: q.id });
+  const chatId: number = q ? q.message?.chat?.id : msg.chat.id;
+  if (!chatId) return;
+  const tgId = Number(from.id);
+
+  const person = must(await admin.from("people").select("id, name, is_active").eq("telegram_user_id", tgId).maybeSingle());
+  if (!person) {
+    if (q) return;
+    return botSend(chatId, `아직 방송예술과 앱에 등록되지 않았어요.\n\n내 텔레그램 번호: <code>${tgId}</code>\n이 번호를 팀장님께 보내주시면 등록해 드려요.`);
+  }
+  if (!person.is_active) return q ? undefined : botSend(chatId, "비활성화된 계정이에요. 팀장님께 문의해주세요.");
+  const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false }, global: { headers: { "x-actor-id": person.id } } });
+  const ctx = { db, me: { id: person.id, name: person.name }, payload: {} } as Ctx;
+
+  // 체크인을 여러 개 중 골랐을 때: "ci|체크인id|항목"
+  if (q) {
+    const [kind, id, item] = String(q.data ?? "").split("|");
+    if (kind !== "ci" || !CHECKIN_ITEMS.includes(item)) return;
+    const c = (await todayCheckins(ctx)).find((x) => x.id === id);
+    if (!c || !c.items.includes(item)) return botSend(chatId, "이미 끝났거나 없는 체크인이에요.");
+    return botRecord(ctx, chatId, tgId, c, item);
+  }
+
+  const text = msg.text.trim();
+  // '출발' 뒤 도착 예정 시간 답장을 기다리는 중이면
+  const wait = must(await db.from("bot_waits").select("*").eq("tg_user_id", tgId).maybeSingle());
+  if (wait) {
+    must(await db.from("bot_waits").delete().eq("tg_user_id", tgId));
+    const hm = parseHm(text);
+    if (wait.kind === "eta" && hm && Date.parse(wait.expires_at) > Date.now()) {
+      must(await db.from("checkin_reports").update({ note: `${hm} 도착 예정` })
+        .eq("checkin_id", wait.data?.checkin_id).eq("person_id", person.id).eq("item", "출발"));
+      return botSend(chatId, `✅ 도착 예정 ${hm} 기록했어요. 조심히 오세요! 🙏`);
+    }
+  }
+
+  const word = text.replace(/^\//, "").replace(/@\w+/, "").split(/\s+/)[0].toLowerCase();
+  const kind = Object.keys(BOT_WORDS).find((k) => BOT_WORDS[k].includes(word) || BOT_WORDS[k].includes(text.replace(/^\//, "")));
+  if (kind === "home") return botSend(chatId, "방송예술과 앱이에요 👇", appButton("🏠 방송예술과 열기"));
+  if (kind === "attend") return botSend(chatId, "모임·출결을 열어주세요 👇", appButton("📋 출결 열기", "?go=attend"));
+  if (kind === "notice") return botSend(chatId, "공지를 확인하세요 👇", appButton("📢 공지 보기", "?go=notice"));
+  if (kind === "poll") return botSend(chatId, "시간취합을 열어주세요 👇", appButton("📅 시간취합 열기", "?go=poll"));
+  if (kind === "weekly") return botSend(chatId, "업무가능 시간을 입력해주세요 👇", appButton("🎙 업무가능 입력하기", "?go=weekly"));
+  if (kind === "todo") {
+    const t: any = await actions["todos.list"](ctx).catch(() => null);
+    const n = t?.count ?? 0;
+    return botSend(chatId, n ? `지금 할 일이 <b>${n}개</b> 있어요 👇` : "✅ 지금 할 일을 다 했어요", appButton("📝 개인노트 열기", "?go=profile"));
+  }
+  if (kind && CHECKIN_ITEMS.includes(kind)) {
+    const list = (await todayCheckins(ctx)).filter((c) => (c.items ?? []).includes(kind));
+    if (!list.length) return botSend(chatId, `오늘 받는 '${kind}' 체크인이 없어요.`);
+    if (list.length > 1) {
+      return botSend(chatId, `어떤 일정의 ${kind}인가요?`, { inline_keyboard: list.map((c) => [{ text: c.title, callback_data: `ci|${c.id}|${kind}` }]) });
+    }
+    return botRecord(ctx, chatId, tgId, list[0], kind);
+  }
+  return botSend(chatId, BOT_HELP, appButton("🏠 방송예술과 열기"));
+}
+// 봇 웹훅을 이 함수로 돌림 (돌아가려면 Apps Script 편집기에서 setupBot 실행)
+async function setWebhookHere(admin: any) {
+  const secret = must(await admin.rpc("tg_webhook_secret"));
+  if (!secret) throw new HttpError(500, "웹훅 비밀값 없음");
+  const hook = await tgCall("setWebhook", {
+    url: `${SUPABASE_URL}/functions/v1/api`, secret_token: secret,
+    allowed_updates: ["message", "callback_query"], drop_pending_updates: true,
+  });
+  const cmds = await tgCall("setMyCommands", { commands: BOT_COMMANDS });
+  return { webhook: hook?.ok ?? false, commands: cmds?.ok ?? false };
 }
 
 // ---------------------------------------------------------------------
@@ -3238,14 +3403,33 @@ Deno.serve(async (req) => {
     let body: any = {};
     try { body = JSON.parse(raw || "{}"); } catch { body = {}; }
 
+    // 텔레그램 봇 채팅(웹훅): 텔레그램이 붙여 보내는 비밀값 헤더로 확인. 처리 중 오류가 나도 200으로 답함(텔레그램이 계속 다시 보내지 않게)
+    const hookSecret = req.headers.get("x-telegram-bot-api-secret-token");
+    if (hookSecret !== null) {
+      const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+      const want = must(await admin.rpc("tg_webhook_secret"));
+      if (!want || !safeEqual(hookSecret, String(want))) return json({ ok: false }, 401);
+      try { await handleTelegramUpdate(admin, body); } catch (e) { console.error("bot", e); }
+      return json({ ok: true });
+    }
+
     // 로그인 전에도 쓰는 공개 기능: 로그인 버튼용 봇 아이디
     if (body.action === "public.bot") return json({ ok: true, data: { username: await getBotUsername() } });
 
     // pg_cron(10분마다)이 부르는 자동 알림. 텔레그램 로그인 대신 vault의 비밀값으로 확인
-    if (body.action === "cron.reminders" || body.action === "cron.betaMenu") {
+    // cron.setWebhook: 봇 채팅 답장을 이 함수로 돌림 / cron.webhookInfo: 지금 어디로 가는지
+    const CRON = ["cron.reminders", "cron.betaMenu", "cron.setWebhook", "cron.webhookInfo"];
+    if (CRON.includes(body.action)) {
       const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
       const secret = req.headers.get("x-cron-secret") ?? "";
       if (!secret || !must(await admin.rpc("check_cron_secret", { p_secret: secret }))) throw new HttpError(401, "인증 실패");
+      if (body.action === "cron.setWebhook") return json({ ok: true, data: await setWebhookHere(admin) });
+      if (body.action === "cron.webhookInfo") {
+        const r = await tgCall("getWebhookInfo", {});
+        const url = String(r?.result?.url ?? "");
+        return json({ ok: true, data: { target: url.includes("supabase.co") ? "supabase" : url.includes("script.google") ? "apps-script" : url ? "other" : "none",
+          pending: r?.result?.pending_update_count ?? null, last_error: r?.result?.last_error_message ?? null } });
+      }
       return json({ ok: true, data: body.action === "cron.betaMenu" ? await betaMenuAll(admin) : await cronReminders(admin) });
     }
 
