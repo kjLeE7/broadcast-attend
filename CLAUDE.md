@@ -151,7 +151,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `858b08a`의 main.ts (함수 버전 39, 칭호·배지). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `531a15f`의 main.ts (함수 버전 40, 연말 결산). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -160,7 +160,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -302,6 +302,15 @@
   대표 칭호는 `dashboard.scene` people의 `title`('🎭 백 개의 목소리') → 동네지도 이름표 위.
 - 권한: `badges.get` 본인 또는 그 팀 기준 서열(stat_grant_min_level) 이상. 대표 칭호는 고른 것만 모두에게. 배지 정의 추가·수정은 지금 SQL(관리자 페이지 생기면 팀장 이상).
 
+### 연말 결산 '올해의 성우 리포트' (2026-10-05, 함수 버전 40)
+- 나의 기록 맨 위 카드(`#recapArea`, `renderRecapCard`) → 스토리 화면(`#recapView`, `openRecap`/`recapStep`/`closeRecap`, 오른쪽 누르면 다음·왼쪽 이전, ✕·Esc·뒤로가기).
+  카드: 표지 · 녹음 수·배역 수 · 제일 많이 간 곳(모임+녹음 장소를 places 이름으로) · 연초 vs 지금 육각형(`statSvg` 재사용) · 교관 코멘트 3개(받은 XP 큰 순) · 올해 배지 · 가장 많이 함께한 성우·엔지니어 · 참석한 모임 수 · (교관 이상) 팀 결산 · 요약.
+  데이터 없는 카드는 건너뜀. 결석·지각 수는 안 넣음.
+- 서버 `recap.status`(공개일·open·preview·admin) / `recap.get { year, from?, to? }` 본인 것만(다른 사람 id 안 받음) / `recap.team { team_id, year }` 팀 교관 이상, 합계만 / `recap.setOpen { md }` 관리자만.
+  공개 전엔 `preview`(관리자 또는 어느 팀이든 교관 이상)만, 기간 바꿔 보기(from/to)도 preview만.
+- 공유 이미지: `recapImage(summary)` canvas → PNG(1080×1350). `summary`엔 숫자·스탯 레벨·축 이름·배지 아이콘만(서버에서 제목·코드·배역·코멘트·이름을 아예 안 넣음). PC는 다운로드, 폰은 길게 눌러 저장.
+- 설정값: `recap_open` "MM-DD"(기본 "12-22", 해마다), `admins` = 관리자 명단(people.id 배열, 지금 이강준만, 2026-10-05 사용자 결정). 관리자 명단은 나중에 관리자 페이지에서도 씀.
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -438,6 +447,7 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
+- 연말 결산: 본인 것만. 공개일(`recap_open`) 전엔 교관 이상·관리자만 미리보기, 팀 결산은 그 팀 교관 이상(합계만). 공개일은 관리자 명단(`admins`)만 바꿈.
 - 배지(🟡): 보유 목록은 본인 + 그 팀 교관(설정값) 이상. 대표 칭호는 본인이 고른 것만 모두에게. 배지 정의는 팀장 이상(관리자 페이지, 지금은 SQL).
 - 성우 스탯(🟡): 주기·고치기는 그 팀 교관(설정값 `stat_grant_min_level`) 이상, 본인에겐 못 줌. 보기는 본인 + 그 팀 교관 이상. 취소는 준 사람·팀장 이상. 녹음 관계자 예외 없음.
 - 모임: 만들기·고치기·취소·출결확인·마감은 조장 이상. 출결 상태는 팀원 모두, 사유는 본인·조장 이상.
