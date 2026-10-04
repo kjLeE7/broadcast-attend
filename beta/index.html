@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004k">
+  <link rel="stylesheet" href="beta.css?v=20261004l">
 </head>
 <body>
   <div class="app">
@@ -483,6 +483,16 @@
       </div>
     </div>
   </div>
+  <div class="b-modal" id="readModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="readModalT">
+      <div class="b-modal-head">
+        <div><h1 id="readModalT">확인 현황</h1><p id="readModalSub"></p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body" id="readBody"></div>
+    </div>
+  </div>
   <div class="b-modal" id="hwModal" aria-hidden="true">
     <div class="b-modal-dim" onclick="closeModal()"></div>
     <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="hwModalT">
@@ -511,6 +521,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004b"></script>
-  <script src="beta.js?v=20261004k"></script>
+  <script src="beta.js?v=20261004l"></script>
 </body>
 </html>

@@ -536,6 +536,49 @@ async function sendToMembers(members: any[], text: string, markup?: unknown) {
   return { sent, failed, why };
 }
 
+// ----- 공지·과제 확인 기록 -----
+// 그 글을 받는 사람(쓴 사람 제외)과, 확인 명단을 볼 수 있는지
+async function readTarget(ctx: Ctx, kind: string, id: string) {
+  if (kind === "notice") {
+    const n = must(await ctx.db.from("notices").select("id, team_id, target_unit_id, target_positions, created_by").eq("id", id).maybeSingle());
+    if (!n) throw new HttpError(404, "공지를 찾을 수 없습니다");
+    const unit = must(await ctx.db.from("org_units").select("unit_type").eq("id", n.team_id).single());
+    const rank = await rankIn(ctx, n.team_id);
+    const canSee = n.created_by === ctx.me.id || rank >= (unit.unit_type === "팀" ? RANK.INSTRUCTOR : RANK.TEAM_LEADER);
+    return {
+      team_id: n.team_id, rank, canSee, by: n.created_by,
+      audience: async () => (await unitAudience(ctx, n.team_id)).filter((m) =>
+        m.id !== n.created_by && (!n.target_unit_id || m.group_id === n.target_unit_id) &&
+        (!n.target_positions?.length || n.target_positions.includes(m.code))),
+    };
+  }
+  if (kind === "assignment") {
+    const a = must(await ctx.db.from("assignments").select("id, team_id, target_unit_id, created_by").eq("id", id).maybeSingle());
+    if (!a) throw new HttpError(404, "과제를 찾을 수 없습니다");
+    const rank = await rankIn(ctx, a.team_id);
+    return {
+      team_id: a.team_id, rank, canSee: a.created_by === ctx.me.id || rank >= RANK.GROUP_LEADER, by: a.created_by,
+      audience: async () => (await sessionMembers(ctx, { team_id: a.team_id, session_date: kstToday(), target_unit_id: a.target_unit_id }))
+        .filter((m) => m.id !== a.created_by),
+    };
+  }
+  throw new HttpError(400, "종류가 올바르지 않습니다");
+}
+// 목록 카드에 붙일 '확인 N명' (볼 수 있는 글만, 쓴 사람 제외)
+// + 내가 이미 확인했는지(seen)
+async function readCounts(ctx: Ctx, kind: string, rows: any[]) {
+  const ids = rows.map((r) => r.id);
+  const out = new Map<string, number>(), seen = new Set<string>();
+  if (!ids.length) return { counts: out, seen };
+  const reads: any[] = must(await ctx.db.from("content_reads").select("item_id, person_id").eq("kind", kind).in("item_id", ids)) ?? [];
+  const by = new Map(rows.map((r) => [r.id, r.created_by]));
+  for (const r of reads) {
+    if (r.person_id === ctx.me.id) seen.add(r.item_id);
+    if (r.person_id !== by.get(r.item_id)) out.set(r.item_id, (out.get(r.item_id) ?? 0) + 1);
+  }
+  return { counts: out, seen };
+}
+
 // ----- 사전체크 안 한 사람에게 다시 알림 -----
 // 자동: 모임 시작 72시간 전·24시간 전 (cron.reminders, 10분마다). 그 시점보다 늦게 만든 모임은 그 알림을 건너뜀(만들 때 알림이 이미 감)
 // 수동: 교관 이상이 버튼으로 (sessions.remind, 10분에 한 번)
@@ -1318,11 +1361,14 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       rank >= (r.team_id === team_id ? RANK.INSTRUCTOR : RANK.TEAM_LEADER) ||
       r.target_positions.some((c: string) => (pos.get(c) as any)?.rank === rank);
     const list = (must(rows as any) ?? []).filter((r: any) => visibleToMe(r, rank, groups) && forMe(r));
-    const names = await nameMap(ctx, list.map((r: any) => r.created_by));
+    const [names, { counts, seen }] = await Promise.all([nameMap(ctx, list.map((r: any) => r.created_by)), readCounts(ctx, "notice", list)]);
+    // 확인 명단은 쓴 사람, 팀 공지는 교관 이상, 과 공지는 팀장 이상
+    const canSee = (r: any) => r.created_by === ctx.me.id || rank >= (r.team_id === team_id ? RANK.INSTRUCTOR : RANK.TEAM_LEADER);
     return list.map((r: any) => ({
       ...r, scope: r.team_id === team_id ? "team" : "section",
       target_names: (r.target_positions ?? []).map((c: string) => (pos.get(c) as any)?.name).filter(Boolean),
       author: names.get(r.created_by) ?? null, mine: r.created_by === ctx.me.id,
+      read_count: canSee(r) ? counts.get(r.id) ?? 0 : null, seen: seen.has(r.id) || r.created_by === ctx.me.id,
     }));
   },
 
@@ -1362,7 +1408,35 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "notices.delete"(ctx) {
     const row = await editableNotice(ctx, ctx.payload.id);
     must(await ctx.db.from("notices").delete().eq("id", row.id));
+    await ctx.db.from("content_reads").delete().eq("kind", "notice").eq("item_id", row.id);
     return { ok: true };
+  },
+
+  // 확인 기록 남기기 (공지를 펼치거나 과제를 열 때): { kind: notice|assignment, id }
+  async "reads.mark"(ctx) {
+    const { kind, id } = ctx.payload;
+    const t = await readTarget(ctx, kind, id);
+    if (t.rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
+    must(await ctx.db.from("content_reads").upsert(
+      { kind, item_id: id, person_id: ctx.me.id, last_read_at: new Date().toISOString() },
+      { onConflict: "kind,item_id,person_id" }));
+    return { ok: true };
+  },
+  // 확인한 사람 / 아직 안 본 사람: { kind, id } → 쓴 사람, 공지는 교관(과 공지 팀장) 이상, 과제는 조장 이상
+  async "reads.list"(ctx) {
+    const { kind, id } = ctx.payload;
+    const t = await readTarget(ctx, kind, id);
+    if (!t.canSee) throw new HttpError(403, "확인 명단은 쓴 사람이나 관리하는 사람만 볼 수 있어요");
+    const [aud, rows] = await Promise.all([
+      t.audience(),
+      ctx.db.from("content_reads").select("person_id, first_read_at, last_read_at").eq("kind", kind).eq("item_id", id),
+    ]);
+    const byPerson = new Map((must(rows as any) ?? []).map((r: any) => [r.person_id, r]));
+    const view = (m: any) => ({ id: m.id, name: m.name, position: m.position, group: m.group });
+    const read = aud.filter((m: any) => byPerson.has(m.id)).map((m: any) => ({ ...view(m), at: (byPerson.get(m.id) as any).first_read_at }))
+      .sort((a: any, b: any) => a.at < b.at ? -1 : 1);
+    const unread = aud.filter((m: any) => !byPerson.has(m.id)).map(view);
+    return { total: aud.length, read, unread };
   },
 
   // 팀의 조 목록 (대상 고르기용): { team_id }
@@ -1392,10 +1466,13 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       if (rank < RANK.GROUP_LEADER) q = q.eq("person_id", ctx.me.id);
       subs = must(await q) ?? [];
     }
+    const { counts, seen } = await readCounts(ctx, "assignment", list);
     return list.map((a: any) => ({
       ...a,
       my: subs.find((s) => s.assignment_id === a.id && s.person_id === ctx.me.id) ?? null,
       submitted_count: rank >= RANK.GROUP_LEADER ? subs.filter((s) => s.assignment_id === a.id).length : null,
+      read_count: rank >= RANK.GROUP_LEADER || a.created_by === ctx.me.id ? counts.get(a.id) ?? 0 : null,
+      seen: seen.has(a.id) || a.created_by === ctx.me.id,
     }));
   },
 
@@ -1419,6 +1496,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "assignments.delete"(ctx) {
     await requireRank(ctx, await ownerTeam(ctx, "assignments", ctx.payload.id), RANK.INSTRUCTOR);
     must(await ctx.db.from("assignments").delete().eq("id", ctx.payload.id));
+    await ctx.db.from("content_reads").delete().eq("kind", "assignment").eq("item_id", ctx.payload.id);
     return { ok: true };
   },
 

@@ -567,3 +567,22 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
 .rm-last { margin-top: 8px; font-size: 12px; color: var(--muted); }
 .b-remind .msg:empty { display: none; }
 @media (max-width: 420px) { .rm-top { flex-direction: column; align-items: stretch; } .rm-btn { width: 100%; } }
+
+/* ===== 확인 기록 (공지·과제) ===== */
+.chip.b-new { background: #F3E3C7; color: #8A5A12; }
+.ann.unseen { box-shadow: inset 3px 0 0 var(--accent), var(--shadow); }
+.b-task.unseen { box-shadow: inset 3px 0 0 var(--accent), var(--shadow); }
+.b-readchip { border: 1.5px solid var(--line); background: var(--card-soft); color: var(--text); border-radius: 99px; padding: 5px 11px;
+  font-size: 12.5px; font-weight: 700; cursor: pointer; margin-left: 8px; }
+.b-readchip:hover { border-color: var(--accent); }
+.rd-bar { height: 8px; border-radius: 99px; background: var(--card-soft); overflow: hidden; margin: 8px 0 8px; }
+.rd-bar > div { height: 100%; background: var(--accent); border-radius: 99px; }
+.rd-sum { margin: 0 0 6px; font-size: 13.5px; color: var(--muted); }
+.rd-sum b { color: var(--text); }
+.rd-head { margin: 18px 0 4px; font-size: 13px; font-weight: 800; color: var(--muted); }
+.rd-head span { color: var(--accent); margin-left: 4px; }
+.rd-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.rd-row b { font-size: 14.5px; }
+.rd-row small { margin-left: 6px; font-size: 12px; color: var(--muted); }
+.rd-row em { font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rd-empty { margin: 6px 0; font-size: 13px; color: var(--muted); }

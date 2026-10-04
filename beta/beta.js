@@ -1507,7 +1507,45 @@ function loadNotices() {
   api('notices.list', { team_id: S.team.id }).then(function (l) { N.list = l; renderNotices(); })
     .catch(function (err) { $('annList').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
-function toggleNotice(id) { N.open = N.open === id ? null : id; renderNotices(); }
+function toggleNotice(id) {
+  N.open = N.open === id ? null : id;
+  if (N.open) { var n = byId(N.list, id); if (n) markRead('notice', n); }
+  renderNotices();
+}
+
+// ----- 확인 기록: 공지를 펼치거나 과제를 열면 '확인'으로 남음. 쓴 사람·관리자는 '확인 N명'을 눌러 명단을 봄 -----
+function markRead(kind, item) {
+  if (!item || item.seen) return;
+  item.seen = true;   // 화면은 바로 '확인함'으로
+  api('reads.mark', { kind: kind, id: item.id }).catch(function () { item.seen = false; });
+}
+function readChip(kind, item) {
+  if (item.read_count == null) return '';
+  return '<button type="button" class="b-readchip" onclick="event.stopPropagation();openReads(\'' + kind + '\',\'' + esc(item.id) + '\')">👀 확인 ' + item.read_count + '명</button>';
+}
+function openReads(kind, id) {
+  var item = byId(kind === 'notice' ? N.list : A.list, id); if (!item) return;
+  $('readModalT').textContent = '확인 현황';
+  $('readModalSub').textContent = item.title;
+  $('readBody').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  openModal('readModal');
+  api('reads.list', { kind: kind, id: id }).then(function (r) {
+    item.read_count = r.read.length;
+    if (kind === 'notice') renderNotices(); else renderTasks();
+    var who = function (m, at) {
+      return '<div class="rd-row"><span><b>' + esc(m.name) + '</b><small>' + esc([m.position, m.group].filter(Boolean).join(' · ')) + '</small></span>' +
+        (at ? '<em>' + dtLabel(at) + '</em>' : '') + '</div>';
+    };
+    var pct = r.total ? Math.round(r.read.length / r.total * 100) : 0;
+    $('readBody').innerHTML =
+      '<div class="rd-bar"><div style="width:' + pct + '%"></div></div>' +
+      '<p class="rd-sum">받는 사람 ' + r.total + '명 중 <b>' + r.read.length + '명</b>이 확인했어요</p>' +
+      '<div class="rd-head">확인했어요 <span>' + r.read.length + '</span></div>' +
+      (r.read.length ? r.read.map(function (m) { return who(m, m.at); }).join('') : '<p class="rd-empty">아직 아무도 확인하지 않았어요</p>') +
+      '<div class="rd-head">아직 안 봤어요 <span>' + r.unread.length + '</span></div>' +
+      (r.unread.length ? r.unread.map(function (m) { return who(m); }).join('') : '<p class="rd-empty">모두 확인했어요 🎉</p>');
+  }).catch(function (err) { $('readBody').innerHTML = '<div class="msg err">' + esc(err.message) + '</div>'; });
+}
 
 function renderNotices() {
   if (!N.list.length) { $('annList').innerHTML = '<div class="empty"><b>아직 공지가 없어요</b>공지가 올라오면 여기에 보여요</div>'; return; }
@@ -1515,15 +1553,15 @@ function renderNotices() {
     var open = N.open === n.id;
     var canDel = n.mine || (n.scope === 'team' && S.team.rank >= RANK.INSTRUCTOR);
     var long = n.body && (n.body.length > 90 || n.body.split('\n').length > 3);
-    return '<div class="ann' + (n.is_pinned ? ' pinned' : '') + '" onclick="toggleNotice(\'' + esc(n.id) + '\')">' +
-      '<div class="ann-top">' + (n.is_pinned ? '<span class="chip dark">📌 고정</span>' : '') +
+    return '<div class="ann' + (n.is_pinned ? ' pinned' : '') + (n.seen ? '' : ' unseen') + '" onclick="toggleNotice(\'' + esc(n.id) + '\')">' +
+      '<div class="ann-top">' + (n.seen ? '' : '<span class="chip b-new">새 글 · 눌러서 확인</span>') + (n.is_pinned ? '<span class="chip dark">📌 고정</span>' : '') +
         '<span class="chip">' + (n.scope === 'section' ? '방송예술과 전체' : esc(S.team.name)) + '</span>' +
         (n.target_names && n.target_names.length ? '<span class="chip">' + esc(n.target_names.join('·')) + '만</span>' : '') +
         (n.target_unit_id ? '<span class="chip">' + esc(groupName(n.target_unit_id)) + '만</span>' : '') +
         '<span class="ann-date">' + mdOf(n.published_at) + '</span></div>' +
       '<div class="ann-title">' + esc(n.title) + '</div>' +
       (n.body ? '<div class="ann-body' + (open ? '' : ' clamp') + '">' + esc(n.body) + '</div>' : '') +
-      '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' +
+      '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' + readChip('notice', n) +
         (long && !open ? '<span class="ann-more">더보기</span>' : '') +
         (canDel ? '<button class="ann-hide" onclick="event.stopPropagation();deleteNotice(\'' + esc(n.id) + '\')">삭제</button>' : '') +
       '</div></div>';
@@ -1659,12 +1697,13 @@ function isOpenTask(a) { return !a.due_at || new Date(a.due_at).getTime() >= Dat
 function taskCard(a) {
   var st = taskState(a);
   var sel = A.current && A.current.id === a.id;
-  return '<button class="b-session b-task' + (sel ? ' b-sel' : '') + '" onclick="openTask(\'' + esc(a.id) + '\')"><div class="b-info">' +
-      (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
+  return '<button class="b-session b-task' + (sel ? ' b-sel' : '') + (a.seen ? '' : ' unseen') + '" onclick="openTask(\'' + esc(a.id) + '\')"><div class="b-info">' +
+      (a.seen ? '' : '<span class="chip b-new">새 과제</span>') + (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
       '<b>' + esc(a.title) + '</b><span>' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') +
       (a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + '</span></div>' +
     '<div class="b-side"><span class="st ' + st.c + '">' + st.t + '</span>' +
-      (a.submitted_count != null ? '<small>제출 ' + a.submitted_count + '명</small>' : '') + '</div></button>';
+      (a.submitted_count != null ? '<small>제출 ' + a.submitted_count + '명</small>' : '') +
+      (a.read_count != null ? '<small>확인 ' + a.read_count + '명</small>' : '') + '</div></button>';
 }
 
 function renderTasks() {
@@ -1700,6 +1739,7 @@ function openTask(id) {
   var a = byId(A.list || [], id); if (!a) return;
   if (!A.current || A.current.id !== id) { A.subs = null; A.openSub = null; }
   A.current = a;
+  markRead('assignment', a);
   var wide = isWide();   // 넓은 화면: 목록은 두고 오른쪽에 상세
   $('taskList').style.display = wide ? 'block' : 'none';
   $('taskView').classList.toggle('split', wide);
@@ -1709,6 +1749,7 @@ function openTask(id) {
   $('tdHead').innerHTML = '<div class="b-dhead">' + (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
     '<h1>' + esc(a.title) + '</h1><p>' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') +
     (a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + ' · <span class="st ' + st.c + '">' + st.t + '</span></p>' +
+    (a.read_count != null ? '<div class="b-chips">' + readChip('assignment', a) + '</div>' : '') +
     (a.description ? '<div class="card b-desc">' + esc(a.description) + '</div>' : '') + '</div>';
   $('tdContent').value = (a.my && a.my.content) || '';
   $('tdLink').value = (a.my && a.my.file_url) || '';
