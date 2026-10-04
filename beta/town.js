@@ -1261,7 +1261,7 @@ function avatar(cv, getLook) {
 }
 
 window.Town = {
-  mount, unmount, refresh, avatar,
+  mount, unmount, refresh, avatar, drawPerson, withLook, R,   // 하늘방송국(sky.js)이 캐릭터 그리기를 같이 씀
   setData: d => setData(d),
   setNames: v => { showNames = !!v; },
   rerender: () => { if (tip && !tip.hidden && tip._id && byId.get(tip._id)) showPersonTip(byId.get(tip._id)); },

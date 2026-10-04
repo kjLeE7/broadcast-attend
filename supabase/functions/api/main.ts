@@ -2093,6 +2093,64 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     return { look: out };
   },
 
+  // ----- 하늘방송국 (PC, 실시간 없음): 과원과 층·사무실, 방명록 -----
+  // 층: 2층 성우팀 · 3층 아나운서팀 · 4층 엔지니어팀 + 운영진(과 소속 또는 부과장 이상)
+  async "sky.load"(ctx) {
+    const { team_id } = ctx.payload ?? {};
+    await requireRank(ctx, team_id, RANK.MEMBER);
+    const units = await sectionUnits(ctx, team_id), sectionId = units[0];
+    const day = kstToday();
+    const unitRows: any[] = must(await ctx.db.from("org_units").select("id, name").in("id", units)) ?? [];
+    const unitName = new Map(unitRows.map((u) => [u.id, u.name]));
+    const pos: any[] = must(await ctx.db.from("position_history")
+      .select("person_id, org_unit_id, people(name, is_active, town_look), positions(name, rank)")
+      .in("org_unit_id", units).lte("started_on", day).or(`ended_on.is.null,ended_on.gte.${day}`)) ?? [];
+    const FLOOR: Record<string, number> = { "성우팀": 2, "아나운서팀": 3, "엔지니어팀": 4 };
+    const ppl = new Map<string, any>();
+    for (const r of pos) {
+      if (!r.people?.is_active) continue;
+      const rank = r.positions?.rank ?? 0, unit = unitName.get(r.org_unit_id) ?? "";
+      const floor = r.org_unit_id === sectionId || rank >= 50 ? 4 : FLOOR[unit] ?? 4;
+      const cur = ppl.get(r.person_id);
+      if (!cur || rank > cur.rank) ppl.set(r.person_id, { id: r.person_id, name: r.people.name, rank, position: r.positions?.name ?? "", unit: unit || "방송예술과", floor, look: r.people.town_look ?? null });
+    }
+    const ids = [...ppl.keys()];
+    const pb: any[] = ids.length ? must(await ctx.db.from("person_badges").select("person_id, is_title, badges(name, icon)").in("person_id", ids)) ?? [] : [];
+    for (const b of pb) { const p = ppl.get(b.person_id); if (!p || !b.badges) continue; (p.badges = p.badges ?? []).push(b.badges.icon); if (b.is_title) p.title = `${b.badges.icon} ${b.badges.name}`; }
+    const people = [...ppl.values()].sort((a, b) => a.floor - b.floor || b.rank - a.rank || a.name.localeCompare(b.name));
+    return { me: ctx.me.id, people };
+  },
+  // 방명록 { owner_id }: 주인이면 전부, 아니면 내가 쓴 것만 (쓴 사람과 주인만 봄)
+  async "guest.list"(ctx) {
+    const owner = String(ctx.payload?.owner_id ?? "");
+    if (!UUID_RE.test(owner)) throw new HttpError(400, "사무실을 다시 골라주세요");
+    let q = ctx.db.from("guestbook").select("id, author_id, text, created_at").eq("owner_id", owner).order("created_at", { ascending: false }).limit(100);
+    if (owner !== ctx.me.id) q = q.eq("author_id", ctx.me.id);
+    const rows: any[] = must(await q) ?? [];
+    const names = await nameMap(ctx, rows.map((r) => r.author_id));
+    return { mine: owner === ctx.me.id, entries: rows.map((r) => ({ id: r.id, author: names.get(r.author_id) ?? "", by_me: r.author_id === ctx.me.id, text: r.text, at: r.created_at })) };
+  },
+  // 방명록 쓰기 { team_id, owner_id, text }: 같은 과 사람에게만, 하루 20개. 주인에게 봇 알림(내용은 안 보내고 '방명록이 왔어요'만)
+  async "guest.write"(ctx) {
+    const p = ctx.payload ?? {};
+    const owner = String(p.owner_id ?? ""), text = String(p.text ?? "").trim().slice(0, 200);
+    if (!UUID_RE.test(owner) || owner === ctx.me.id) throw new HttpError(400, "다른 사람 사무실에만 쓸 수 있어요");
+    if (!text) throw new HttpError(400, "내용을 적어주세요");
+    const members = await unitMembers(ctx, await sectionUnits(ctx, p.team_id));
+    if (!members.some((m) => m.id === ctx.me.id) || !members.some((m) => m.id === owner)) throw new HttpError(403, "같은 과 사람에게만 쓸 수 있어요");
+    await rateLimit(ctx, "guest_write", 20, 24 * 60);
+    const e = must(await ctx.db.from("guestbook").insert({ owner_id: owner, author_id: ctx.me.id, text }).select("id").single());
+    await sendToMembers(await withTelegram(ctx, [owner]), `📮 <b>${escHtml(ctx.me.name)}</b>님이 하늘방송국 내 사무실에 방명록을 남겼어요`);
+    return { id: e.id };
+  },
+  // 방명록 지우기 { id }: 쓴 사람 또는 사무실 주인
+  async "guest.delete"(ctx) {
+    const e = must(await ctx.db.from("guestbook").select("id, owner_id, author_id").eq("id", ctx.payload?.id).maybeSingle());
+    if (!e || (e.owner_id !== ctx.me.id && e.author_id !== ctx.me.id)) throw new HttpError(404, "없는 글이에요");
+    must(await ctx.db.from("guestbook").delete().eq("id", e.id));
+    return { ok: true };
+  },
+
   // 내 한 달 활동: { month: "YYYY-MM" }
   // 모임(정규수업·스터디·회의…) 출결 / 실무 녹음 / 그 밖의 실무(사회·촬영…) / 과제 제출
   async "profile.report"(ctx) {

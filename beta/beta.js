@@ -1231,7 +1231,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1300,8 +1300,9 @@ function setTabUI(t) {
   togglePfSub(!pfFloating() && pt === 'profile');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
+  document.body.classList.toggle('sky-mode', t === 'sky');
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
 function refreshTab() {
@@ -1315,6 +1316,7 @@ function refreshTab() {
   else if (curTab === 'profile') loadProfile();
   else if (curTab === 'poll') loadPolls();
   else if (curTab === 'dues') loadDues();
+  else if (curTab === 'sky') startSky();
 }
 
 // =====================================================================
@@ -3401,9 +3403,10 @@ function townAllowed() { return !isPhone() && isWide(); }
 function setupTownTab() {
   var ok = townAllowed();
   $('townTab').style.display = ok ? '' : 'none';
+  $('skyTab').style.display = ok ? '' : 'none';   // 하늘방송국도 PC 전용
   var n = [].filter.call(document.querySelectorAll('#tabbar .tab'), function (b) { return b.style.display !== 'none'; }).length;
   $('tabbar').style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
-  if (!ok && curTab === 'town') goTab('home');
+  if (!ok && (curTab === 'town' || curTab === 'sky')) goTab('home');
 }
 var townResizeT = null;
 window.addEventListener('resize', function () { clearTimeout(townResizeT); townResizeT = setTimeout(setupTownTab, 200); });
@@ -4656,4 +4659,43 @@ function recFlow(r, s) {
       return '<div class="fl-step ' + k + '"><div class="fl-h"><i>' + (k === 'past' ? '✓' : i + 1) + '</i>' + x[0] + '</div><div class="fl-b">' + (x[2] || '') + '</div></div>';
     }).join('') + '</div>' +
     (adj.length && live ? '<div class="fl-branch"><b>조율 필요</b>' + adj.map(function (p) { return chip(p, false, p.note ? ' <i>' + esc(p.note) + '</i>' : ''); }).join('') + '<small>시간·사람을 다시 맞춰주세요</small></div>' : '') + '</div>';
+}
+
+// =====================================================================
+// 하늘방송국 (PC 전용, sky.js): 처음 열 때 불러옴. 사무실 방명록은 쓴 사람과 주인만 봄
+// =====================================================================
+var GB = { p: null };
+function startSky() {
+  if (!window.Sky || !townAllowed() || !S.team || Sky.mounted()) return;
+  var teamId = S.team.id;
+  Sky.mount($('skyArea'), { load: function () { return api('sky.load', { team_id: teamId }); }, onGuest: openGuest });
+}
+function openGuest(p) {
+  GB.p = p;
+  $('guestModalT').textContent = '📮 ' + p.name + '님 방명록';
+  $('guestModalSub').textContent = p.id === S.me.profile.id ? '내 사무실에 남겨진 글이에요. 쓴 사람과 나만 봐요' : '쓴 사람과 ' + p.name + '님만 봐요';
+  $('guestBody').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  openModal('guestModal');
+  loadGuest();
+}
+function loadGuest() {
+  var p = GB.p;
+  api('guest.list', { owner_id: p.id }).then(function (d) {
+    var h = d.mine ? '' : '<label class="field-label" for="gbText">한마디 남기기</label><textarea id="gbText" rows="3" maxlength="200" placeholder="예) 오늘 녹음 수고 많으셨어요!"></textarea>' +
+      '<button class="btn-primary" id="gbBtn" onclick="writeGuest()">남기기</button><div class="msg" id="gbMsg"></div>';
+    h += '<div class="gb-list">' + (d.entries.length ? d.entries.map(function (e) {
+      return '<div class="gb-e"><div class="gb-top"><b>' + esc(e.author) + '</b><small>' + mdOf(e.at) + ' ' + hmOf(e.at) + '</small><button class="gb-x" onclick="delGuest(\'' + e.id + '\')" title="지우기">✕</button></div><p>' + esc(e.text) + '</p></div>';
+    }).join('') : '<p class="gb-none">' + (d.mine ? '아직 남겨진 글이 없어요' : '내가 남긴 글이 여기에 보여요') + '</p>') + '</div>';
+    $('guestBody').innerHTML = h;
+  }).catch(function (err) { $('guestBody').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function writeGuest() {
+  var t = $('gbText').value.trim(); if (!t) { setMsg('gbMsg', '내용을 적어주세요', true); return; }
+  $('gbBtn').disabled = true; setMsg('gbMsg', '남기는 중...');
+  api('guest.write', { team_id: S.team.id, owner_id: GB.p.id, text: t }).then(function () { haptic('success'); loadGuest(); })
+    .catch(function (err) { $('gbBtn').disabled = false; setMsg('gbMsg', err.message, true); });
+}
+function delGuest(id) {
+  if (!confirm('이 글을 지울까요?')) return;
+  api('guest.delete', { id: id }).then(loadGuest).catch(function (err) { alertMsg(err.message); });
 }

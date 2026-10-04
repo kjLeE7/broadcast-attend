@@ -1355,3 +1355,24 @@ html { scrollbar-gutter: stable; }
 @keyframes rcFade { from { opacity: 0; } }
 @keyframes rcPop { from { opacity: 0; transform: translate(-50%, -48%) scale(.98); } }
 @media (prefers-reduced-motion: reduce) { body.rc-pop .rc-dim, body.rc-pop #recView #recDetail { animation: none; } }
+
+/* ===== 하늘방송국 (sky.js) ===== */
+.sky-top { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.sky-top b { font-size: 16px; }
+.sky-top small { color: var(--muted); font-size: 12.5px; }
+.sky-stage { position: relative; border-radius: 16px; overflow: hidden; background: #1f1e1a; box-shadow: var(--shadow); }
+.sky-stage canvas { display: block; width: 100%; image-rendering: pixelated; cursor: pointer; }
+.sky-talk { position: absolute; left: 20px; right: 20px; bottom: 18px; background: rgba(251,248,240,.97); border: 3px solid #2f4858; border-radius: 12px; padding: 14px 18px; box-shadow: 0 6px 20px rgba(0,0,0,.25); cursor: pointer; }
+.sky-talk[hidden] { display: none; }
+.sky-talk p { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.55; }
+.sky-talk small { display: block; text-align: right; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.sky-ch { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sky-ch button { border: 1.5px solid #2f4858; background: #fff; color: #2f4858; font: inherit; font-weight: 700; font-size: 14px; padding: 7px 14px; border-radius: 10px; cursor: pointer; }
+.sky-ch button:hover { background: #2f4858; color: #fff; }
+.gb-list { margin-top: 16px; display: grid; gap: 8px; }
+.gb-e { background: var(--card-soft); border-radius: 12px; padding: 10px 12px; }
+.gb-top { display: flex; align-items: baseline; gap: 8px; }
+.gb-top small { color: var(--muted); font-size: 11.5px; }
+.gb-x { margin-left: auto; border: none; background: none; color: var(--muted); cursor: pointer; font-size: 12px; }
+.gb-e p { margin: 4px 0 0; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.gb-none { color: var(--muted); font-size: 13.5px; }
