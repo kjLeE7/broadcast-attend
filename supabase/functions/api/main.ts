@@ -692,6 +692,15 @@ async function readTarget(ctx: Ctx, kind: string, id: string) {
         .filter((m) => m.id !== a.created_by),
     };
   }
+  if (kind === "session") {   // 모임 (첨부 파일용)
+    const m = must(await ctx.db.from("meeting_sessions").select("id, team_id, target_unit_id, target_people, created_by, session_date").eq("id", id).maybeSingle());
+    if (!m) throw new HttpError(404, "모임을 찾을 수 없습니다");
+    const rank = await rankIn(ctx, m.team_id);
+    return {
+      team_id: m.team_id, rank, canSee: m.created_by === ctx.me.id || rank >= RANK.GROUP_LEADER, by: m.created_by, inTarget: !!m.target_people?.includes(ctx.me.id), date: m.session_date,
+      audience: async () => await sessionMembers(ctx, m),
+    };
+  }
   throw new HttpError(400, "종류가 올바르지 않습니다");
 }
 // 목록 카드에 붙일 '확인 N명' (볼 수 있는 글만, 쓴 사람 제외)
@@ -1583,7 +1592,7 @@ const FILE_MAX = 20 * 1024 * 1024;
 async function fileCanEdit(ctx: Ctx, kind: string, id: string) {
   const t = await readTarget(ctx, kind, id);
   if (t.by === ctx.me.id) return t;
-  if (kind === "notice" ? t.canSee : t.rank >= RANK.INSTRUCTOR) return t;
+  if (kind === "assignment" ? t.rank >= RANK.INSTRUCTOR : t.canSee) return t;   // 공지: 관리자, 모임: 조장 이상
   throw new HttpError(403, "글을 쓴 사람이나 관리하는 사람만 올릴 수 있어요");
 }
 // 열 수 있는 사람 = 쓴 사람·관리하는 사람·받는 사람
@@ -2185,18 +2194,19 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // 올릴 준비 { kind, item_id, name, size, not_church: true } → 보관함에 바로 올리는 1회용 주소
   async "files.prepare"(ctx) {
     const p = ctx.payload ?? {};
-    if (!["notice", "assignment"].includes(p.kind) || !UUID_RE.test(String(p.item_id))) throw new HttpError(400, "글을 다시 골라주세요");
+    if (!["notice", "assignment", "session"].includes(p.kind) || !UUID_RE.test(String(p.item_id))) throw new HttpError(400, "글을 다시 골라주세요");
     if (p.not_church !== true) throw new HttpError(400, "우리 교회 대본은 올릴 수 없어요 (NAS에 두세요)");
     const name = String(p.name ?? "").replace(/[\\/\u0000-\u001f]/g, "").trim().slice(0, 120);
     const ext = name.split(".").pop()?.toLowerCase() ?? "";
     if (!name || !FILE_EXT.includes(ext)) throw new HttpError(400, "PDF·한글·워드·텍스트 파일만 올릴 수 있어요");
     const size = Number(p.size);
     if (!Number.isInteger(size) || size <= 0 || size > FILE_MAX) throw new HttpError(400, "20MB까지 올릴 수 있어요");
-    await fileCanEdit(ctx, p.kind, p.item_id);
+    const tgt: any = await fileCanEdit(ctx, p.kind, p.item_id);
     await rateLimit(ctx, "file_upload", 20, 60);
     const keep = Number(must(await ctx.db.from("app_settings").select("value").eq("key", "file_keep_days").maybeSingle())?.value ?? 14);
     let base = Date.now();
     if (p.kind === "assignment") { const a = must(await ctx.db.from("assignments").select("due_at").eq("id", p.item_id).single()); if (a.due_at) base = Math.max(base, Date.parse(a.due_at)); }
+    if (p.kind === "session" && tgt.date) base = Math.max(base, kstMs(tgt.date) + 24 * HOUR);   // 모임: 모임 날부터
     const path = `${p.kind}/${p.item_id}/${crypto.randomUUID()}.${ext}`;
     const up = await ctx.db.storage.from("scripts").createSignedUploadUrl(path);
     if (up.error) throw up.error;
@@ -2218,8 +2228,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "files.list"(ctx) {
     const { kind } = ctx.payload ?? {};
     const ids = (Array.isArray(ctx.payload?.ids) ? ctx.payload.ids : []).filter((x: any) => UUID_RE.test(String(x))).slice(0, 200);
-    if (!["notice", "assignment"].includes(kind) || !ids.length) return { files: [] };
-    const items: any[] = must(await ctx.db.from(kind === "notice" ? "notices" : "assignments").select("id, team_id, target_people").in("id", ids)) ?? [];
+    if (!["notice", "assignment", "session"].includes(kind) || !ids.length) return { files: [] };
+    const items: any[] = must(await ctx.db.from({ notice: "notices", assignment: "assignments", session: "meeting_sessions" }[kind as string]!).select("id, team_id, target_people").in("id", ids)) ?? [];
     const { teams } = await myTeams(ctx), mine = new Set(teams.map((t: any) => t.id));
     const sec = teams.length ? (await sectionUnits(ctx, teams[0].id))[0] : null;
     const ok = items.filter((i) => mine.has(i.team_id) || i.team_id === sec || i.target_people?.includes(ctx.me.id)).map((i) => i.id);

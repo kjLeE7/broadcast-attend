@@ -23,3 +23,7 @@ create trigger trg_audit after insert or delete or update on content_files for e
 
 insert into app_settings (key, value, description) values ('file_keep_days', '14', '첨부 대본 보관 일수 (과제 마감 또는 올린 날부터)')
 on conflict (key) do nothing;
+
+-- 모임에도 첨부 (2026-10-06)
+alter table content_files drop constraint content_files_kind_check;
+alter table content_files add constraint content_files_kind_check check (kind in ('notice', 'assignment', 'session'));

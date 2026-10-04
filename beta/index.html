@@ -662,6 +662,10 @@
         <label class="field-label" for="cDesc">내용 <span class="hint">수업·스터디 내용 등 (선택)</span></label>
         <textarea id="cDesc" rows="4" maxlength="2000" placeholder="예) 3과 발성 연습 · 대본 2쪽까지 읽어오기"></textarea>
         <label class="b-check-line"><input type="checkbox" id="cNotify" checked><span>대상자에게 텔레그램 알림 보내기</span></label>
+        <!-- 대본·자료 첨부: 우리 교회 대본이 아닐 때만 (교회 대본은 NAS). 대상자만 열 수 있고 모임 날부터 14일 뒤 자동으로 지워져요 -->
+        <label class="field-label">대본·자료 파일 <span class="hint">선택 · PDF·한글·워드 · 20MB까지</span></label>
+        <input type="file" id="cFile" class="fl-file" accept=".pdf,.hwp,.hwpx,.doc,.docx,.txt,.rtf">
+        <label class="fl-ok"><input type="checkbox" id="cNotChurch"> 우리 교회 대본이 <b>아니에요</b> <small>(교회 대본은 올리지 말고 NAS 위치만 적어주세요)</small></label>
         <button class="btn-primary" id="cBtn" onclick="createSession()">만들기</button>
         <div class="msg" id="cMsg"></div>
       </div>
@@ -853,6 +857,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006h"></script>
+  <script src="beta.js?v=20261006i"></script>
 </body>
 </html>

@@ -351,6 +351,7 @@
 - **방명록** `guestbook`(owner_id, author_id, text 200자, `supabase/migrations/20261005_guestbook.sql`): **쓴 사람과 사무실 주인만 봄**(사용자 결정). `guest.list`(주인이면 전부, 아니면 내가 쓴 것만) / `guest.write`(같은 과, 본인 사무실엔 못 씀, 하루 20개, 주인에게 '방명록이 왔어요' 봇 알림 — 내용은 안 보냄) / `guest.delete`(쓴 사람·주인). 팝업 `#guestModal`.
 
 ### 첨부 대본 (2026-10-06, 함수 버전 48)
+- **모임에도**(2026-10-06): 모임 만들기·고치기 팝업 '대본·자료 파일'(`cFile`), kind `session`, 올리기 = 만든 사람·조장 이상, 열기 = 대상자, 모임 날부터 14일 뒤 삭제. 상세 화면 제목 아래 칩. 고치기에서 파일만 올려도 됨.
 - 공지·과제 만들기/고치기 팝업에 '대본 파일'(PDF·한글·워드·텍스트, 20MB) + **'우리 교회 대본이 아니에요' 확인 칸 필수**(교회 대본은 계속 NAS, 사용자 결정). 마이그레이션 `supabase/migrations/20261006_script_files.sql`.
 - 비공개 보관함 `scripts`(storage bucket, public false) + 표 `content_files`(kind notice|assignment, item_id, path, name, size, uploaded_by, uploaded, expires_at, deleted_at).
 - 흐름: 글 저장 → `files.prepare`(쓴 사람·관리자만 `fileCanEdit`, 1회용 올리기 주소) → 브라우저가 보관함에 바로 PUT(문지기 200KB 제한을 안 거침) → `files.done`(실제로 올라갔는지 확인).
