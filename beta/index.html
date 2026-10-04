@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004q">
+  <link rel="stylesheet" href="beta.css?v=20261004r">
 </head>
 <body>
   <div class="app">
@@ -53,7 +53,7 @@
         </div>
         <!-- 숫자 요약 (얇은 알약) -->
         <div class="pills" id="homePills">
-          <span class="pill" id="pillNow"><i class="dot"></i>지금 <b>–</b></span>
+          <span class="pill" id="pillNow"><i class="dot"></i>지금 진행 중 <b>–</b></span>
           <span class="pill"><i class="dot"></i>준비 중 <b id="dStatUp">–</b></span>
           <span class="pill"><i class="dot"></i>프로젝트 <b id="dStatProj">–</b></span>
         </div>
@@ -67,41 +67,36 @@
       
       <!-- 과 대시보드 (모두 같은 화면) -->
       <div id="managerArea">
-        <!-- 사명자 일정: 이번 주·다음 주 캘린더 (PC) / 목록 (모바일 기본) -->
+        <!-- 1. 오늘의 트랙: 팀별 하루 시간표 (9시~23시) -->
         <div class="blk">
-          <div class="section-head"><h2>사명자 일정</h2><span class="section-count" id="schedSub">이번 주 · 다음 주</span>
-            <div class="seg" id="schedSeg"><button type="button" data-v="cal">2주</button><button type="button" data-v="list">목록</button></div>
-          </div>
-          <div id="scheduleArea"><div class="skeleton row-skel"></div></div>
+          <div class="section-head"><h2>오늘의 트랙</h2><span class="section-count" id="trackSub"></span><span class="live-dot" id="taskLiveDot"></span></div>
+          <div id="trackArea"><div class="skeleton row-skel"></div></div>
         </div>
 
-        <!-- 우리는 지금 | 우리는 준비 중 (PC에서 반반) -->
-        <div class="two">
+        <!-- 2. 우리는 준비 중 | 프로젝트 | 사명자 일정 (PC에서 세 칸) -->
+        <div class="three">
           <div class="blk">
-            <div class="section-head"><h2>우리는 지금</h2><span class="section-count">하나님나라 건설 중이예요!</span><span class="live-dot" id="taskLiveDot"></span></div>
-            <div id="taskNowArea"><div class="skeleton row-skel"></div></div>
-          </div>
-          <div class="blk">
-            <div class="section-head"><h2>우리는 준비 중</h2><span class="section-count">많은 기도가 필요해요. <b id="taskUpCount"></b></span></div>
-            <div class="filter-chips" id="teamFilter">
-              <button class="fchip active" data-team="">전체</button>
-              <button class="fchip" data-team="성우팀">성우팀</button>
-              <button class="fchip" data-team="아나운서팀">아나운서팀</button>
-              <button class="fchip" data-team="엔지니어팀">엔지니어팀</button>
-            </div>
+            <div class="section-head"><h2>우리는 준비 중</h2><span class="section-count">많은 기도가 필요해요 <b id="taskUpCount"></b></span></div>
+            <div class="filter-chips" id="teamFilter"></div>
             <div id="taskUpArea"><div class="skeleton row-skel"></div></div>
           </div>
-        </div>
-
-        <!-- 진행 중인 프로젝트: 한 줄 목록 / 작은 타일 -->
-        <div class="blk">
-          <div class="section-head"><h2>진행 중인 프로젝트</h2><span class="section-count" id="projCount"></span>
-            <div class="seg" id="projSeg"><button type="button" data-v="list">한 줄 목록</button><button type="button" data-v="grid">작은 타일</button></div>
+          <div class="blk">
+            <div class="section-head"><h2>프로젝트</h2><span class="section-count" id="projCount"></span></div>
+            <div id="projectArea"><div class="skeleton row-skel"></div></div>
           </div>
-          <div id="projectArea"><div class="skeleton row-skel"></div></div>
+          <div class="blk">
+            <div class="section-head"><h2>사명자 일정</h2><span class="section-count" id="schedSub">이번 주</span></div>
+            <div id="scheduleArea"><div class="skeleton row-skel"></div></div>
+          </div>
         </div>
 
-        <!-- 12지파 인원현황: 남한 지도 -->
+        <!-- 3. 월 달력: 모든 업무·회의·모임 -->
+        <div class="blk">
+          <div class="section-head"><h2>한 달 일정</h2><span class="section-count">업무 · 회의 · 모임 모두</span></div>
+          <div id="monthArea"><div class="skeleton row-skel"></div></div>
+        </div>
+
+        <!-- 4. 12지파 인원현황: 남한 지도 -->
         <div class="blk">
           <div class="section-head"><h2>12지파 방송예술과 인원현황</h2><span class="section-count" id="tribeTotal"></span></div>
           <div class="card tribe-card" id="tribeArea"><div class="skeleton row-skel"></div></div>
@@ -572,6 +567,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261004t"></script>
+  <script src="beta.js?v=20261004u"></script>
 </body>
 </html>

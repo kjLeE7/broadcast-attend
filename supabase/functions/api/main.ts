@@ -719,6 +719,84 @@ async function sectionUnits(ctx: Ctx, teamId: string) {
   return [sectionId, ...kids.map((k) => k.id)];
 }
 
+// ----- 홈: 과 전체 일정 모으기 (오늘의 트랙·준비 중·월 달력이 같이 씀) -----
+// 팀 하나로 과(방송예술과)와 그 아래 팀들을 찾음
+async function sectionOf(ctx: Ctx, teamId: string) {
+  const team = must(await ctx.db.from("org_units").select("id, parent_id").eq("id", teamId).maybeSingle());
+  const sectionId = team?.parent_id ?? teamId;
+  const kids: any[] = must(await ctx.db.from("org_units").select("id, name")
+    .eq("parent_id", sectionId).eq("unit_type", "팀").is("ended_on", null)) ?? [];
+  const teamIds = kids.map((k) => k.id);
+  return { sectionId, kids, teamIds, unitIds: [sectionId, ...teamIds], unitName: new Map<string, string>(kids.map((k) => [k.id, k.name])) };
+}
+// 과 안 어느 팀에서든 교관 이상이면 녹음·사회의 구체적인 제목을 봄 (동네지도와 같은 규칙)
+async function canSeeDetail(ctx: Ctx, teamIds: string[]) {
+  let m = 0;
+  for (const t of teamIds) m = Math.max(m, await rankIn(ctx, t));
+  return m >= RANK.INSTRUCTOR;
+}
+// [from, to) 사이의 모임·녹음·업무·사명자 일정을 한 모양으로
+// kind: 모임 | 녹음 | 사회·촬영·편집 | 일정 | 기타
+async function sectionItems(ctx: Ctx, sec: any, from: number, to: number, canDetail: boolean) {
+  const { teamIds, unitIds, unitName } = sec;
+  const label = (id: string) => unitName.get(id) ?? "방송예술과";
+  const iso = [new Date(from).toISOString(), new Date(to).toISOString()];
+  const kd = (ms: number) => new Date(ms + 9 * HOUR).toISOString().slice(0, 10);
+  const none = Promise.resolve({ data: [], error: null });
+  const [sess, recs, duty, staff] = await Promise.all([
+    teamIds.length ? ctx.db.from("meeting_sessions")
+      .select("id, team_id, title, session_date, start_time, end_time, location, status, target_label, created_by, meeting_types(name)")
+      .in("team_id", teamIds).gte("session_date", kd(from)).lte("session_date", kd(to - 1)).neq("status", "취소") : none,
+    teamIds.length ? ctx.db.from("recording_sessions")
+      .select("id, team_id, scheduled_start, scheduled_end, location, status, recording_requests(title, request_code)")
+      .in("team_id", teamIds).gte("scheduled_start", iso[0]).lt("scheduled_start", iso[1]) : none,
+    ctx.db.from("duties").select("id, unit_id, duty_type, title, owner_id, place, starts_at, ends_at, recording_session_id")
+      .in("unit_id", unitIds).gte("starts_at", iso[0]).lt("starts_at", iso[1]),
+    ctx.db.from("staff_schedules").select("id, unit_id, title, category, place, organizer_id, organizer_role, starts_at, ends_at")
+      .in("unit_id", unitIds).gte("starts_at", iso[0]).lt("starts_at", iso[1]),
+  ]);
+  const M = must(sess as any) ?? [], R = (must(recs as any) ?? []).filter((r: any) => r.status !== "취소");
+  const D = (must(duty as any) ?? []).filter((d: any) => !d.recording_session_id), S = must(staff as any) ?? [];
+  const names = await nameMap(ctx, [...D.map((d: any) => d.owner_id), ...S.map((s: any) => s.organizer_id), ...M.map((m: any) => m.created_by)]);
+  const DK: Record<string, string> = { "녹음": "녹음", "사회": "사회·촬영·편집", "촬영": "사회·촬영·편집", "음향편집": "사회·촬영·편집" };
+  const items: any[] = [];
+  for (const s of M) {
+    const st = sessionStart(s) ?? kstMs(s.session_date, "00:00:00");
+    items.push({ src: "session", id: s.id, kind: "모임", type: s.meeting_types?.name ?? "모임", team: label(s.team_id),
+      title: sessionName(s), start: st, end: sessionEnd(s), allDay: !s.start_time, place: s.location ?? "",
+      who: s.target_label ?? "", lead: names.get(s.created_by) ?? "" });
+  }
+  for (const r of R) {
+    const st = Date.parse(r.scheduled_start), req = r.recording_requests;
+    items.push({ src: "rec", id: r.id, kind: "녹음", type: "녹음", team: label(r.team_id),
+      title: canDetail && req ? [req.title, req.request_code].filter(Boolean).join(" · ") : "녹음",
+      start: st, end: r.scheduled_end ? Date.parse(r.scheduled_end) : st + 2 * HOUR, place: r.location ?? "", who: "", lead: "" });
+  }
+  for (const d of D) {
+    const st = Date.parse(d.starts_at), kind = DK[d.duty_type] ?? "기타";
+    const gated = d.duty_type === "녹음" || d.duty_type === "사회";
+    items.push({ src: "duty", id: d.id, kind, type: d.duty_type, team: label(d.unit_id),
+      title: gated && !canDetail ? d.duty_type : (d.title || d.duty_type),
+      start: st, end: d.ends_at ? Date.parse(d.ends_at) : st + 3 * HOUR, place: d.place ?? "", who: names.get(d.owner_id) ?? "", lead: "" });
+  }
+  for (const s of S) {
+    const st = Date.parse(s.starts_at);
+    items.push({ src: "staff", id: s.id, kind: "일정", type: s.category ?? "", team: label(s.unit_id),
+      title: s.title, start: st, end: s.ends_at ? Date.parse(s.ends_at) : st + HOUR, place: s.place ?? "",
+      who: names.get(s.organizer_id) ?? "", lead: s.organizer_role ?? "" });
+  }
+  return items.sort((a, b) => a.start - b.start);
+}
+// 팀마다 지금 인원 (활성, 오늘 유효한 직책)
+async function teamHeadcounts(ctx: Ctx, kids: any[]) {
+  const today = kstToday(), out: Record<string, number> = {};
+  if (!kids.length) return out;
+  const rows: any[] = must(await ctx.db.from("position_history").select("person_id, org_unit_id, people(is_active)")
+    .in("org_unit_id", kids.map((k) => k.id)).lte("started_on", today).or(`ended_on.is.null,ended_on.gte.${today}`)) ?? [];
+  for (const k of kids) out[k.name] = new Set(rows.filter((r) => r.org_unit_id === k.id && r.people?.is_active).map((r) => r.person_id)).size;
+  return out;
+}
+
 // ----- 생일: 오늘 생일 + 일주일 안 생일 (월·일만, 나이는 안 보냄) -----
 function bdayMd(birth: string, year: number) {
   const md = birth.slice(5, 10);
@@ -2015,8 +2093,20 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
     const done = new Set((must(subs as any) ?? []).map((s: any) => s.week_start));
     const birthdays = await birthdayInfo(ctx, unitIds).catch((e) => { console.error("birthday", e); return null; });
+
+    // 오늘의 트랙(오늘 하루) + 우리는 준비 중(지금부터 30일) — 모임·녹음·업무·사명자 일정을 한 모양으로
+    const sec = { sectionId, kids, teamIds, unitIds, unitName };
+    const canDetail = await canSeeDetail(ctx, teamIds);
+    const dayStart = kstMs(todayK);
+    const [todayItems, ahead, teamCounts] = await Promise.all([
+      sectionItems(ctx, sec, dayStart, dayStart + DAY, canDetail),
+      sectionItems(ctx, sec, now, now + 30 * DAY, canDetail),
+      teamHeadcounts(ctx, kids),
+    ]);
+    const upcoming = ahead.filter((t: any) => t.start > now).slice(0, 40);
     return {
       schedules, tasksNow, tasksUpcoming, projects, birthdays,
+      track: { date: todayK, items: todayItems }, upcoming, teamCounts,
       teams: kids.map((k) => k.name),
       tribes: { list: tribeList, total, filled },
       weekly: {
@@ -2025,6 +2115,22 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
         isSunday: dow === 0,
       },
     };
+  },
+
+  // ----- 홈 월 달력 -----
+  // { team_id, month: "YYYY-MM" } → 그달(앞뒤 주 포함 6주)의 과 전체 모임·녹음·업무·사명자 일정
+  async "dashboard.month"(ctx) {
+    const { team_id } = ctx.payload;
+    await requireRank(ctx, team_id, RANK.MEMBER);
+    const month = String(ctx.payload.month ?? kstToday().slice(0, 7));
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new HttpError(400, "month 형식이 틀렸습니다");
+    const first = month + "-01";
+    const dow = new Date(first + "T00:00:00Z").getUTCDay();
+    const gridStart = addDaysStr(first, -dow), gridEnd = addDaysStr(gridStart, 42);
+    const sec = await sectionOf(ctx, team_id);
+    const canDetail = await canSeeDetail(ctx, sec.teamIds);
+    const items = await sectionItems(ctx, sec, kstMs(gridStart), kstMs(gridEnd), canDetail);
+    return { month, from: gridStart, to: gridEnd, items };
   },
 
   // ----- 동네지도 (PC 홈) -----
