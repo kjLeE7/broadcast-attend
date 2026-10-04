@@ -3659,7 +3659,10 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
     const people = [...ppl.values()].sort((a, b) => a.team.localeCompare(b.team) || b.rank - a.rank || a.name.localeCompare(b.name))
       .map((p) => ({ id: p.id, name: p.name, team: p.team, role: [p.role, p.group].filter(Boolean).join(" · "), ...(p.look ? { look: p.look } : {}) }));
-    return { date: today, can_detail: canDetail, people, segs };
+    // 새로 불러오는 간격 (설정값 town_refresh_sec, 기본 60초)
+    const rs = must(await ctx.db.from("app_settings").select("value").eq("key", "town_refresh_sec").maybeSingle());
+    const refresh_sec = Math.max(15, Number(rs?.value ?? 60) || 60);
+    return { date: today, can_detail: canDetail, people, segs, refresh_sec };
   },
 
   // 최초 PIN 설정: { pin } → PIN이 아직 없을 때만

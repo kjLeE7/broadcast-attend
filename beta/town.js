@@ -680,7 +680,36 @@ function assignAll(dataChanged) {
     } else p.seg = s;   // 제목·내용만 바뀐 경우
   }
   lastAssignMin = t; lastAssignVer = dataVer;
+  updatePlaceStatus(!dataChanged);
   if (changed || dataChanged) renderPanel();
+}
+
+// ---------- 장소 상태 (지금 그 방에서 무슨 일정이 진행 중인지) ----------
+// 받아 둔 일정(segs)으로 분 단위 계산: 서버에 다시 묻지 않아도 끝나는 순간에 맞춰 바뀜
+const MEET_TYPES = ['수업', '모임', '회의', '스터디', '연습'];
+const STUDIOS = ['codeone', 'smc'];
+let placeSt = {}, cheers = {};   // cheers[스튜디오] = { until, x, y } 녹음이 끝난 직후 '수고했어요' 연출
+function updatePlaceStatus(byTime) {
+  const st = {};
+  for (const p of people) {
+    const ty = p.seg.type; if (ty === '휴식' || ty === '근무') continue;
+    const id = placeOf(p.seg.place).id, c = st[id] || (st[id] = { n: 0, types: {} });
+    c.n++; c.types[ty] = (c.types[ty] || 0) + 1;
+  }
+  for (const id of STUDIOS) {   // 시간이 흘러 녹음이 끝났을 때만 (데이터를 새로 받아 바뀐 건 빼고)
+    const was = placeSt[id] && placeSt[id].types['녹음'], now = st[id] && st[id].types['녹음'];
+    if (byTime && was && !now && !reduce) { const d = PL[id].door; cheers[id] = { until: clockT + 5, x: d[0], y: d[1] }; }
+  }
+  placeSt = st;
+}
+// 방 이름표 옆에 붙는 말 (스담 방: 수업 중·모임 중…, 총회·성전: 회의 중)
+function busyLabel(id) {
+  const c = placeSt[id]; if (!c) return '';
+  if (STUDIOS.includes(id)) return c.types['녹음'] ? 'ON AIR' : '';
+  if (id === 'chonghoe' || id === 'seongjeon') return '회의 중';
+  if (!/^sdam-/.test(id)) return '';
+  const t = MEET_TYPES.filter(k => c.types[k]).sort((a, b) => c.types[b] - c.types[a])[0];
+  return t ? t + ' 중' : '';
 }
 
 // ---------- 한 장면 그리기 ----------
@@ -713,8 +742,22 @@ function drawWorld(t) {
       });
     } }
   if (!reduce) { const cx1 = ((t * 22) % (W + 60)) - 30, cx2 = W + 30 - ((t * 16 + 200) % (W + 60)); car(cx1, 66, '#e9c46a', 1, nk); car(cx2, 73, '#5c7fb0', -1, nk); }
-  for (const id of ['codeone', 'smc']) { const pl = PL[id]; const rec = people.some(p => !p.moving && !p.hidden && p.seg.place === id && p.seg.type === '녹음');
-    const [ax, ay] = pl.onair; R(w, P.ol, ax - 1, ay - 1, 15, 7); R(w, rec ? '#e8584a' : '#5a3a3a', ax, ay, 13, 5); if (rec) R(w, '#ffd6cf', ax + 2, ay + 2, 9, 1); }
+  // 수업·모임·회의 중인 방은 바닥에 따뜻한 불빛
+  for (const id in placeSt) { const pl = PL[id]; if (!pl || !busyLabel(id) || STUDIOS.includes(id)) continue;
+    const r = pl.rect; w.fillStyle = 'rgba(255,214,122,.13)'; w.fillRect(r[0] + 4, r[1] + 12, r[2] - 8, r[3] - 16); }
+  for (const id of STUDIOS) { const pl = PL[id], rec = !!(placeSt[id] && placeSt[id].types['녹음']);
+    // ON AIR: 녹음 중이면 천천히 깜빡임 (동작 줄이기면 켜진 채로)
+    const blink = rec && !reduce && Math.floor(t * 1.4) % 2 === 1;
+    const [ax, ay] = pl.onair; R(w, P.ol, ax - 1, ay - 1, 15, 7); R(w, !rec ? '#5a3a3a' : blink ? '#b8473c' : '#ff5a48', ax, ay, 13, 5);
+    if (rec && !blink) { R(w, '#ffd6cf', ax + 2, ay + 2, 9, 1); w.fillStyle = 'rgba(255,90,72,.22)'; w.fillRect(ax - 3, ay - 2, 19, 9); }
+    // 스튜디오 문: 녹음 중엔 닫힘, 끝난 직후엔 활짝 열려 빛이 새어 나옴
+    const [dx, dy] = pl.door, cheer = cheers[id] && t < cheers[id].until;
+    if (rec) { R(w, P.ol, dx - 4, dy - 7, 8, 4); R(w, '#6b4a36', dx - 3, dy - 7, 6, 3); R(w, '#e9c46a', dx + 1, dy - 6, 1, 1); }
+    else if (cheer) { w.fillStyle = 'rgba(255,236,170,.35)'; w.fillRect(dx - 6, dy - 7, 12, 10); R(w, P.ol, dx - 6, dy - 12, 2, 8); R(w, '#6b4a36', dx - 5, dy - 12, 1, 7); }
+    if (cheer) { const k = 5 - (cheers[id].until - t);
+      for (let i = 0; i < 7; i++) { const a = i * 0.9 + k * 1.5, rr = 6 + k * 5 + (i % 3) * 2;
+        R(w, ['#f2b84b', '#ff8a7a', '#fbf5e8', '#7aa6e8'][i % 4], Math.round(dx + Math.cos(a) * rr), Math.round(dy - 10 - Math.sin(a) * rr * .6 - k * 2), 1 + (i % 2), 1 + (i % 2)); } }
+  }
   const list = [];
   for (const o of occs) list.push({ y:o.sy, o });
   for (const p of people) if (!p.hidden) list.push({ y:p.y + .5, p });
@@ -803,13 +846,17 @@ function drawText(oc) {
   for (const id in PL) { const pl = PL[id]; if (pl.hiddenOnly) continue; const r = pl.rect;
     let nm = pl.name;
     if (id === 'outside') { const e = (oc.all.outside || []).find(p => p.seg.ext); if (e) nm = '외부 · ' + e.seg.ext; }
-    const n = (oc.all[id] || []).length;
-    tag(n ? [[nm, '#f1e8d9'], ['  ' + n + '명', '#f2b84b']] : [[nm, '#a89f92']], (r[0] + 2) * k, (r[1] + 1.5) * k, fs * .92);
+    const n = (oc.all[id] || []).length, busy = busyLabel(id);
+    const parts = n ? [[nm, '#f1e8d9'], ['  ' + n + '명', '#f2b84b']] : [[nm, '#a89f92']];
+    if (busy) parts.push(['  ' + busy, busy === 'ON AIR' ? '#ff6b5a' : '#ffd77a']);
+    tag(parts, (r[0] + 2) * k, (r[1] + 1.5) * k, fs * .92);
     const hid = (oc.hid[id] || []);
     if (hid.length) { const rr = tag([['+' + hid.length + '명 더', '#17151d']], (r[0] + r[2] - 3) * k, (r[1] + r[3] - 4) * k - fs * 1.3, fs * .88, 'right', '#f2b84b');
       regions.push({ kind:'more', rect:toW(rr), list:hid, place:pl }); }
   }
   ctx.font = `${fs * .92}px ${DISPLAY}`; ctx.fillStyle = 'rgba(241,232,217,.85)'; ctx.fillText('스담 · 4층 복도', 10 * k, 204 * k);
+  for (const id in cheers) { const c = cheers[id]; if (clockT >= c.until) { delete cheers[id]; continue; }
+    tag([['🎉 수고했어요!', '#17151d']], c.x * k, (c.y - 22 - Math.min(1, 5 - (c.until - clockT)) * 4) * k, fs, 'center', '#f2b84b'); }
   if (showNames) { const placed = [], vis = {};
     for (const p of people) if (!p.hidden && !p.moving) { const id = placeOf(p.seg.place).id; vis[id] = (vis[id] || 0) + 1; }
     // 한 방에 9명 이상 모이면 이름표가 겹쳐서 숨김 (마우스를 올리면 보임)
@@ -1077,7 +1124,19 @@ function ensureAssets() {
 let loadFn = null, refreshTimer = 0, roObs = null;
 function refresh() {
   if (!loadFn) return Promise.resolve();
-  return Promise.resolve(loadFn()).then(d => { if (d) setData(d); }).catch(e => { if (window.console) console.warn('동네지도 불러오기 실패', e); });
+  return Promise.resolve(loadFn()).then(d => { if (d) { setData(d); if (d.refresh_sec) setRefresh(d.refresh_sec * 1000); } }).catch(e => { if (window.console) console.warn('동네지도 불러오기 실패', e); });
+}
+// 새로 불러오기: 서버 설정값(town_refresh_sec) 간격. 탭이 안 보이면 멈추고, 다시 보이면 바로 새로
+let refreshMs = 60000;
+function setRefresh(ms) {
+  if (ms === refreshMs && refreshTimer) return;
+  refreshMs = Math.max(15000, ms); clearInterval(refreshTimer); refreshTimer = 0;
+  if (loadFn && !document.hidden) refreshTimer = setInterval(refresh, refreshMs);
+}
+function onVis() {
+  if (!loadFn) return;
+  if (document.hidden) { clearInterval(refreshTimer); refreshTimer = 0; }
+  else { refresh(); setRefresh(refreshMs); }
 }
 function mount(host, opts) {
   opts = opts || {};
@@ -1110,12 +1169,13 @@ function mount(host, opts) {
   window.addEventListener('resize', fit);
   viewMin = clockFn ? clockFn() : kstMinute();
   if (opts.data) setData(opts.data); else renderPanel();
-  if (loadFn) { refresh(); refreshTimer = setInterval(refresh, opts.refreshMs || 180000); }
+  if (loadFn) { refreshMs = opts.refreshMs || 60000; refresh(); setRefresh(refreshMs); document.addEventListener('visibilitychange', onVis); }
   running = true; lastTs = 0;
   (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(() => requestAnimationFrame(loop));
 }
 function unmount() {
-  running = false; clearInterval(refreshTimer); refreshTimer = 0;
+  running = false; clearInterval(refreshTimer); refreshTimer = 0; document.removeEventListener('visibilitychange', onVis);
+  placeSt = {}; cheers = {};
   if (roObs) { roObs.disconnect(); roObs = null; }
   window.removeEventListener('resize', fit);
   document.removeEventListener('keydown', onKey, true);

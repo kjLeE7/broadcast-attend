@@ -3359,7 +3359,7 @@ function startTown() {
   var teamId = S.team.id;
   Town.mount($('townArea'), {
     load: function () { return api('dashboard.scene', { team_id: teamId }); },
-    refreshMs: 180000,
+    refreshMs: 60000,   // 서버 설정값 town_refresh_sec이 오면 그걸로
     fill: true          // 화면 높이에 맞춰 크게
   });
 }
