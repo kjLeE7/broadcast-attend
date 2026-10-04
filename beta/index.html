@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004h">
+  <link rel="stylesheet" href="beta.css?v=20261004i">
 </head>
 <body>
   <div class="app">
@@ -59,7 +59,7 @@
         </div>
       </div>
 
-      <!-- 주간 녹음가능시간 미제출 알림 -->
+      <!-- 주간 업무가능 시간 미제출 알림 -->
       <div id="weeklyBanner"></div>
       
       <!-- 과 대시보드 (모두 같은 화면) -->
@@ -305,10 +305,10 @@
       </div>
     </section>
 
-    <!-- ===== 주간 녹음가능 ===== -->
+    <!-- ===== 주간 업무가능 시간 취합 (팀 상관없이: 녹음·사회·촬영·엔지니어 등) ===== -->
     <section id="weeklyView" style="display:none;">
-      <h1 class="page-title">목소리 시간표</h1>
-      <p class="page-desc">녹음 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
+      <h1 class="page-title">업무가능 시간 취합</h1>
+      <p class="page-desc">녹음·사회·촬영 등 업무가 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
 
       <div class="subtabs">
         <button class="subtab wk-which" data-wk="next" onclick="openWeekly('next')">다음 주</button>
@@ -319,7 +319,7 @@
 
       <!-- 조장 이상만: 내 가능시간 / 모아보기 -->
       <div class="subtabs" id="wkViewTabs" style="display:none;">
-        <button class="subtab wk-view" data-v="mine" onclick="switchWk('mine')">내 가능시간</button>
+        <button class="subtab wk-view" data-v="mine" onclick="switchWk('mine')">내 업무가능 시간</button>
         <button class="subtab wk-view" data-v="result" onclick="switchWk('result')">모아보기</button>
       </div>
 
@@ -327,7 +327,7 @@
         <div class="pd-quick" id="wkQuick"></div>
         <p class="pd-hint">탭: 한 칸 · 꾹 누른 채 쓸기: 여러 칸 · 그냥 쓸면 스크롤</p>
         <div class="grid-wrap" id="wkGrid"></div>
-        <div class="busy-legend" id="wkBusyLegend" style="display:none;"><span class="sw"></span>고정 일정이 있는 시간 (그래도 고를 수 있어요)</div>
+        <div class="busy-legend" id="wkBusyLegend" style="display:none;"><span class="sw"></span>고정 일정이 있는 시간 (그날 업무가 되면 그대로 고를 수 있어요)</div>
         <label class="field-label" for="wkMemo">특이사항 <span class="hint">선택 · 칸으로 애매할 때</span></label>
         <textarea id="wkMemo" rows="2" maxlength="200" placeholder="예) 19:40까지 가능해요 / 22:10부터 가능해요" oninput="markWkDirty()"></textarea>
         <div class="pd-actions">
@@ -346,23 +346,28 @@
         <div id="wkWho"></div>
       </div>
 
-      <!-- 고정 일정 -->
-      <div class="card b-create b-gap" id="fxCard">
-        <button class="b-toggle" type="button" onclick="toggleFx()">
-          <span><b>⚙ 고정 일정</b><small>직장·학교처럼 매주 같은 일정</small></span>
-          <span class="b-chev" id="fxChev">›</span>
-        </button>
-        <div id="fxBody" class="b-fx" style="display:none;">
-          <p class="fx-desc">적어두면 칠하는 화면에 <b>음영</b>으로 미리 표시돼요. 휴가 등으로 되는 날엔 그 칸도 그대로 고를 수 있어요.</p>
-          <div id="fxList"></div>
-          <button class="ghost-btn" type="button" onclick="addFx()">+ 일정 추가</button>
-          <button class="btn-primary" id="fxSaveBtn" onclick="saveFx()">저장</button>
-          <div class="msg" id="fxMsg"></div>
+      <!-- 고정 일정: 왼쪽 = 등록·수정, 오른쪽 = 저장된 고정 일정 목록 -->
+      <div class="card b-gap fx-card" id="fxCard">
+        <div class="fx-grid">
+          <div class="fx-edit">
+            <div class="b-card-title">⚙ 고정 일정 등록</div>
+            <p class="fx-sub">직장·학교처럼 매주 같은 일정</p>
+            <p class="fx-desc">적어두면 칠하는 화면에 <b>음영</b>으로 미리 표시돼요. 휴가 등으로 업무가 되는 날엔 그 칸도 그대로 고를 수 있어요.</p>
+            <div id="fxList"></div>
+            <button class="ghost-btn" type="button" onclick="addFx()">+ 일정 추가</button>
+            <button class="btn-primary" id="fxSaveBtn" onclick="saveFx()">저장</button>
+            <div class="msg" id="fxMsg"></div>
+          </div>
+          <div class="fx-saved">
+            <div class="b-card-title">등록된 고정 일정 <span class="fx-count" id="fxSavedCount"></span></div>
+            <p class="fx-sub">저장된 일정이에요. 왼쪽에서 고치고 저장하면 바뀌어요</p>
+            <div id="fxSaved"></div>
+          </div>
         </div>
       </div>
     </section>
 
-    <p class="b-foot" id="foot">베타 · 홈·출결·체크인·공지·과제·녹음가능</p>
+    <p class="b-foot" id="foot">베타 · 홈·출결·체크인·공지·과제·업무가능</p>
   </div>
 
   <!-- 하단 탭 -->
@@ -392,9 +397,9 @@
       <svg viewBox="0 0 24 24"><path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2"/><path d="M9 12h6M9 16h4"/></svg>
       <span>과제</span>
     </button>
-    <button class="tab" data-tab="weekly" title="녹음가능" onclick="goTab('weekly')">
+    <button class="tab" data-tab="weekly" title="업무가능 시간 취합" onclick="goTab('weekly')">
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
-      <span>녹음가능</span>
+      <span>업무가능</span>
     </button>
     <button class="tab" data-tab="profile" title="나의 기록" onclick="goTab('profile')">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
@@ -507,6 +512,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004b"></script>
-  <script src="beta.js?v=20261004f"></script>
+  <script src="beta.js?v=20261004g"></script>
 </body>
 </html>

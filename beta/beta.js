@@ -872,11 +872,11 @@ function refreshTab() {
 }
 
 // =====================================================================
-// 주간 녹음가능 (월~일, 30분 칸. 칸 번호 0 = 00:00~00:30 … 47 = 23:30~24:00)
+// 주간 업무가능 시간 취합 (월~일, 30분 칸. 칸 번호 0 = 00:00~00:30 … 47 = 23:30~24:00)
 // =====================================================================
 var W = {
   which: 'next', data: null, mine: {}, dirty: false,
-  view: 'mine', board: null, team: '', sel: '', fixed: [], fixedOpen: false
+  view: 'mine', board: null, team: '', sel: '', fixed: [], fixedSaved: [], fixedOpen: true
 };
 var FX_DAYS = [[1, '월'], [2, '화'], [3, '수'], [4, '목'], [5, '금'], [6, '토'], [0, '일']];
 
@@ -907,10 +907,11 @@ function openWeekly(which) {
     Object.keys(d.mine.slots).forEach(function (di) { d.mine.slots[di].forEach(function (s) { W.mine[di + '-' + s] = true; }); });
     $('wkMemo').value = d.mine.memo || '';
     W.fixed = groupFixedRows(d.fixed);
+    W.fixedSaved = JSON.parse(JSON.stringify(W.fixed));
     $('wkViewTabs').style.display = d.can_view ? 'flex' : 'none';
     switchWk('mine');
     if (!d.mine.submitted) setMsg('wkMsg', which === 'next'
-      ? '가능한 칸을 칠하고 저장하면 제출돼요. 되는 시간이 없으면 빈 채로 저장해도 돼요.'
+      ? '업무가 가능한 칸을 칠하고 저장하면 제출돼요. 되는 시간이 없으면 빈 채로 저장해도 돼요.'
       : '이번 주도 바뀐 일정이 있으면 고쳐서 저장해주세요.');
   }).catch(function (err) {
     $('wkTitle').textContent = '불러오지 못했어요';
@@ -1154,15 +1155,38 @@ function groupFixedRows(rows) {
   });
   return out;
 }
-function toggleFx() {
-  W.fixedOpen = !W.fixedOpen;
-  $('fxBody').style.display = W.fixedOpen ? 'block' : 'none';
-  $('fxChev').classList.toggle('open', W.fixedOpen);
-  if (W.fixedOpen) renderFx();
-}
 function openFx() {
-  if (!W.fixedOpen) toggleFx();
+  renderFx();
   $('fxCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// 오른쪽: 저장된 고정 일정 목록 (왼쪽에서 고치는 중인 내용이 아니라, 서버에 저장된 것)
+function fxDaysText(days) {
+  var order = [1, 2, 3, 4, 5, 6, 0], on = order.filter(function (d) { return days.indexOf(d) !== -1; });
+  if (on.length === 7) return '매일';
+  // 이어지는 요일은 '월~금'처럼 묶음
+  var runs = [], cur = null;
+  order.forEach(function (d, i) {
+    if (days.indexOf(d) !== -1) { if (cur && cur.end === i - 1) cur.end = i; else { cur = { start: i, end: i }; runs.push(cur); } }
+  });
+  return runs.map(function (r) {
+    var a = FX_DAYS[r.start][1], b = FX_DAYS[r.end][1];
+    return r.end - r.start >= 2 ? a + '~' + b : r.end > r.start ? a + '·' + b : a;
+  }).join('·');
+}
+function fxHours(f) {
+  var m = function (t) { var p = t.split(':'); return +p[0] * 60 + +p[1]; };
+  var h = (m(f.end) - m(f.start)) / 60 * f.weekdays.length;
+  return Math.round(h * 10) / 10;
+}
+function renderFxSaved() {
+  var l = W.fixedSaved || [];
+  $('fxSavedCount').textContent = l.length ? l.length + '개' : '';
+  $('fxSaved').innerHTML = l.length ? l.map(function (f) {
+    return '<div class="fx-row"><div class="fx-row-top"><b>' + esc(f.title) + '</b><span>' + esc(f.start) + ' ~ ' + esc(f.end) + '</span></div>' +
+      '<div class="fx-row-days">' + FX_DAYS.map(function (d) {
+        return '<i class="' + (f.weekdays.indexOf(d[0]) !== -1 ? 'on' : '') + '">' + d[1] + '</i>';
+      }).join('') + '<small>' + fxDaysText(f.weekdays) + ' · 주 ' + fxHours(f) + '시간</small></div></div>';
+  }).join('') : '<div class="empty inner"><b>저장된 고정 일정이 없어요</b>왼쪽에서 추가하고 저장하면 여기에 모여요</div>';
 }
 function timeOptions(sel) {
   var h = '';
@@ -1170,7 +1194,7 @@ function timeOptions(sel) {
   return h;
 }
 function renderFx() {
-  if (!W.fixedOpen) return;
+  renderFxSaved();
   var box = $('fxList');
   if (!W.fixed.length) { box.innerHTML = '<div class="empty inner"><b>아직 고정 일정이 없어요</b>예) 직장 월~금 09:00~18:00</div>'; return; }
   box.innerHTML = W.fixed.map(function (f, i) {
@@ -1200,7 +1224,7 @@ function saveFx() {
   }
   var btn = $('fxSaveBtn'); btn.disabled = true; setMsg('fxMsg', '저장 중...');
   api('fixed.save', { list: W.fixed }).then(function (list) {
-    W.fixed = list; btn.disabled = false; haptic('success');
+    W.fixed = list; W.fixedSaved = JSON.parse(JSON.stringify(list)); btn.disabled = false; haptic('success');
     renderFx(); renderWkQuick(); renderWkGrid();
     setMsg('fxMsg', '저장했어요! 칠하는 화면에 음영으로 보여요.');
   }).catch(function (err) { btn.disabled = false; setMsg('fxMsg', err.message, true); });
@@ -1867,7 +1891,7 @@ function renderManager() {
   renderProjects();
 }
 
-// 주간 녹음가능 알림: 이번 주 미제출(빨강) > 주일에 다음 주 미제출
+// 주간 업무가능 시간 알림: 이번 주 미제출(빨강) > 주일에 다음 주 미제출
 function renderWeeklyBanner() {
   var w = dashData.weekly, el = $('weeklyBanner');
   var b = function (which, urgent, title, sub) {
@@ -1876,9 +1900,9 @@ function renderWeeklyBanner() {
   };
   var label = function (ws) { var m = parseDate(ws), e = parseDate(ws); e.setDate(e.getDate() + 6); return (m.getMonth() + 1) + '/' + m.getDate() + '~' + (e.getMonth() + 1) + '/' + e.getDate(); };
   if (!w.this.submitted) {
-    el.innerHTML = b('this', true, '이번 주 녹음 가능시간 미제출', label(w.this.week_start) + ' · 지금이라도 입력해주세요');
+    el.innerHTML = b('this', true, '이번 주 업무가능 시간 미제출', label(w.this.week_start) + ' · 지금이라도 입력해주세요');
   } else if (!w.next.submitted && (w.isSunday || Date.now() > w.next.due)) {
-    el.innerHTML = b('next', Date.now() > w.next.due, '다음 주 녹음 가능시간을 입력해주세요', label(w.next.week_start) + ' · 마감 ' + mdw(w.next.due) + ' ' + hmMs(w.next.due));
+    el.innerHTML = b('next', Date.now() > w.next.due, '다음 주 업무가능 시간을 입력해주세요', label(w.next.week_start) + ' · 마감 ' + mdw(w.next.due) + ' ' + hmMs(w.next.due));
   } else el.innerHTML = '';
 }
 function goWeekly(which) { goTab('weekly'); if (W.which !== which || !W.data) openWeekly(which); }
