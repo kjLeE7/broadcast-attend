@@ -49,6 +49,14 @@ const PROPS = {
   counter: (c, x, y) => { cube(c, x, y, 3, 1, 11, '#7a4f33'); onFront(c, x, y, 1, .2, 2.8, 3, 8, '#a8714a'); cube(c, x + .4, y + .2, .6, .25, 8, '#3a3740', 11); onFront(c, x + .4, y + .2, .25, .06, .54, 12, 18, '#7fc6e0'); },
   stairs: (c, x, y) => { for (let i = 4; i >= 0; i--) cube(c, x, y + (4 - i) * .5, 2, .5, 6 + i * 8, i % 2 ? '#a6977f' : '#b5a68e'); cube(c, x + 1.85, y, .15, 2.5, 46, '#6e4630'); },
   rug: (c, x, y, w, d, a, b) => { poly(c, [P(x, y, 0), P(x + w, y, 0), P(x + w, y + d, 0), P(x, y + d, 0)], a, OL); poly(c, [P(x + .3, y + .3, 0), P(x + w - .3, y + .3, 0), P(x + w - .3, y + d - .3, 0), P(x + .3, y + d - .3, 0)], b); poly(c, [P(x + .45, y + .45, 0), P(x + w - .45, y + .45, 0), P(x + w - .45, y + d - .45, 0), P(x + .45, y + d - .45, 0)], a); },
+  table: (c, x, y, w, d) => { w = w || 1.2; d = d || .8; cube(c, x + .08, y + .08, .1, .1, 7, '#5e3c27'); cube(c, x + w - .18, y + d - .18, .1, .1, 7, '#5e3c27'); cube(c, x, y, w, d, 3, '#a8714a', 7); cube(c, x + .2, y + .2, .25, .25, 4, '#f2f0ea', 10); cube(c, x + w - .55, y + .25, .35, .25, 1, '#3d7ea6', 10); },
+  cooler: (c, x, y) => { cube(c, x + .2, y + .2, .6, .6, 20, '#e8eef5'); onFront(c, x + .2, y + .2, .6, .35, .5, 12, 15, '#3d7ea6'); cube(c, x + .3, y + .3, .4, .4, 11, '#9fd0e8', 20); },
+  bin: (c, x, y) => { cube(c, x + .3, y + .3, .4, .4, 7, '#6b8f71'); cube(c, x + .33, y + .33, .34, .34, 1, '#4f6f55', 7); },
+  rack: (c, x, y) => { cube(c, x + .4, y + .4, .2, .2, 2, '#5e3c27'); cube(c, x + .47, y + .47, .06, .06, 32, '#5e3c27', 2); cube(c, x + .3, y + .45, .25, .1, 12, '#b56576', 20); cube(c, x + .5, y + .3, .1, .3, 9, '#3d7ea6', 22); },
+  bench: (c, x, y, w) => { w = w || 1.6; cube(c, x + .1, y + .1, .1, .4, 5, '#55505e'); cube(c, x + w - .2, y + .1, .1, .4, 5, '#55505e'); cube(c, x, y, w, .6, 2, '#a8714a', 5); },
+  trophy: (c, x, y) => { cube(c, x, y, .6, 1.8, 28, '#7a4f33'); for (let i = 0; i < 3; i++) { onRight(c, x, y, .6, .15 + i * .55, .55 + i * .55, 6, 24, '#d9e6ee'); onRight(c, x, y, .6, .28 + i * .55, .42 + i * .55, 12, 18, ['#e9c46a', '#cfc9bf', '#c98f5a'][i]); } },
+  tv: (c, x, y) => { cube(c, x, y, .5, 1.6, 8, '#3a3740'); cube(c, x + .15, y + .1, .15, 1.4, 16, '#1f1b20', 8); onRight(c, x + .15, y + .1, .15, .08, 1.32, 10, 22, '#3d6e8f'); onRight(c, x + .15, y + .1, .15, .2, .7, 17, 21, '#7fc6e0'); },
+  foam: (c, x, y) => {},
   mat: (c, x, y) => poly(c, [P(x, y, 0), P(x + 1.6, y, 0), P(x + 1.6, y + .8, 0), P(x, y + .8, 0)], '#b5533f', OL),
 };
 // 소품 하나: { k, x, y, w, d, solid, args }
@@ -57,32 +65,48 @@ const prop = (k, x, y, w, d, args, solid) => ({ k, x, y, w, d, args: args || [],
 // ---------- 장면 ----------
 function people(floor) { return data.people.filter(p => p.floor === floor); }
 function makeScene(id, arg) {
-  if (id === 'lobby') return { id, W: 10, D: 8, floorA: '#e9dfcb', floorB: '#e1d4bb', wall: '#cfd9e6', panel: '#8fa3b8', spawn: arg || [5, 7],
-    props: [prop('rug', 2.5, 3.6, 5, 3, [5, 3, '#2f4858', '#e9c46a'], false), prop('counter', 3.5, 1.9, 3, 1), prop('sofa', .3, 4.2, 2, .9, ['#6b8fa8']), prop('plant', .2, .2, 1, 1), prop('plant', .2, 6.6, 1, 1),
-      prop('lamp', 8.8, 5.6, 1, 1), prop('stairs', 7.8, .2, 2, 2.5), prop('mat', 4.2, 7.1, 1.6, .8, [], false)],
-    deco: c => { win(c, 'L', 1.6, 3.6); win(c, 'B', .8, 2.6); poster(c, 'B', 7.2, '#e9c46a', '#3d7ea6');
-      onBack(c, 3.2, 6.8, 30, 48, '#2f4858', OL); onBack(c, 3.35, 6.65, 32, 46, '#f7f3e8'); onBack(c, 3.5, 3.75, 41, 44, '#e8584a'); },
-    npc: [5, 1.3], acts: [ { x: 5, y: 2.9, r: 1.2, label: '안내 데스크', npc: true, act: () => talk(NPC_SAY) }, { x: 8.8, y: 3.1, r: 1.1, label: '계단', act: stairs } ] };
+  if (id === 'lobby') return { id, W: 14, D: 10, floorA: '#e9dfcb', floorB: '#e1d4bb', wall: '#cfd9e6', panel: '#8fa3b8', spawn: arg || [7, 9.3],
+    props: [prop('rug', 1.2, 4.6, 4.6, 3.6, [4.6, 3.6, '#2f4858', '#e9c46a'], false), prop('rug', 6, 4.4, 2, 5, [2, 5, '#b5533f', '#e9c46a'], false),
+      prop('counter', 5.5, 2.2, 3, 1), prop('sofa', 1.5, 4.8, 2, .9, ['#6b8fa8']), prop('sofa', 1.5, 7.2, 2, .9, ['#6b8fa8']), prop('table', 2, 6.1, 1.2, .8),
+      prop('trophy', .1, 1.4, .6, 1.8), prop('cooler', .1, 3.4, 1, 1), prop('plant', .1, .2, 1, 1), prop('plant', .1, 8.9, 1, 1), prop('plant', 9.4, .2, 1, 1),
+      prop('lamp', 4.2, 4.6, 1, 1), prop('bench', 10.4, 6.2, 1.8, .6), prop('bench', 10.4, 7.8, 1.8, .6), prop('plant', 12.9, 8.9, 1, 1), prop('bin', 9.1, 3.5, 1, 1),
+      prop('stairs', 11.8, .2, 2, 2.5), prop('mat', 6.2, 9.2, 1.6, .8, [], false)],
+    deco: c => { win(c, 'L', 5.4, 7.4); win(c, 'B', 1.2, 2.8); win(c, 'B', 9.6, 11.2); poster(c, 'B', 3.4, '#e9c46a', '#3d7ea6'); board(c, 'L', 1.4, 3.2); clock(c, 'B', 9.0);
+      onBack(c, 5.2, 8.8, 30, 48, '#2f4858', OL); onBack(c, 5.35, 8.65, 32, 46, '#f7f3e8'); onBack(c, 5.5, 5.75, 41, 44, '#e8584a'); },
+    npc: [7, 1.6], acts: [ { x: 7, y: 3.6, r: 1.3, label: '안내 데스크', npc: true, act: () => talk(NPC_SAY) }, { x: 12.8, y: 3.1, r: 1.1, label: '계단', act: stairs } ] };
   if (id === 'floor') {
-    const list = people(arg.floor), W = Math.max(10, 4 + list.length * 3);
-    const doors = list.map((p, i) => ({ x: 4 + i * 3, y: .7, r: 1, label: p.name + ' 사무실', p, act: () => go('office', { p, back: { floor: arg.floor, x: 4 + i * 3 } }) }));
-    const props = [prop('stairs', .2, .2, 2, 2.5), prop('rug', 0, 2.2, W, 1.4, [W, 1.4, '#2f4858', '#e9c46a'], false)];
-    list.forEach((p, i) => { if (i % 2) props.push(prop('plant', 5.4 + i * 3, .1, 1, 1)); });
-    return { id, W, D: 4, floorA: '#c9a073', floorB: '#bd9468', wall: '#efe6d4', panel: '#a8794f', fl: arg.floor, list, spawn: arg.at || [2.8, 3], props,
-      deco: c => { doors.forEach(a => door(c, a.x, a.p)); win(c, 'L', 2.6, 3.6); },
-      acts: [{ x: 1.4, y: 3, r: 1.1, label: '계단', act: stairs }].concat(doors) };
+    const list = people(arg.floor), W = Math.max(12, 5 + list.length * 3.2);
+    const dx = i => 5 + i * 3.2;
+    const doors = list.map((p, i) => ({ x: dx(i), y: .7, r: 1, label: p.name + ' 사무실', p, act: () => go('office', { p, back: { floor: arg.floor, x: dx(i) } }) }));
+    const props = [prop('stairs', .2, .2, 2, 2.5), prop('rug', 0, 2.6, W, 1.4, [W, 1.4, '#2f4858', '#e9c46a'], false), prop('cooler', W - 1.1, .1, 1, 1), prop('plant', W - 1.1, 4, 1, 1)];
+    list.forEach((p, i) => { if (i < list.length - 1) props.push(i % 2 ? prop('plant', dx(i) + 1.1, .1, 1, 1) : prop('bench', dx(i) + .8, .15, 1.6, .6)); });
+    return { id, W, D: 5, floorA: '#c9a073', floorB: '#bd9468', wall: '#efe6d4', panel: '#a8794f', fl: arg.floor, list, spawn: arg.at || [2.8, 3.4], props,
+      deco: c => { doors.forEach(a => door(c, a.x, a.p)); win(c, 'L', 2.8, 4.4); list.forEach((p, i) => { if (i < list.length - 1) wallLamp(c, dx(i) + 1.6); }); board(c, 'B', 2.6, 3.8); },
+      acts: [{ x: 1.4, y: 3.2, r: 1.1, label: '계단', act: stairs }].concat(doors) };
   }
   const o = arg.p, mine = o.id === data.me;
-  return { id, W: 8, D: 7, floorA: '#b98a5e', floorB: '#ad7f55', wall: '#f3e6cc', panel: '#a8794f', owner: o, back: arg.back, spawn: [4, 6.3],
-    props: [prop('rug', 1.4, 2.6, 4.2, 2.6, [4.2, 2.6, '#6d597a', '#e9c46a'], false), prop('shelf', .1, .4, .7, 2), prop('desk', 3, .9, 2, 1), prop('chair', 3.7, .3, .6, .6, [], false),
-      prop('sofa', 4.8, 4.6, 2, .9, ['#4f772d']), prop('plant', .1, 5.8, 1, 1), prop('lamp', 6.9, .2, 1, 1), prop('mic', 6.9, 2.1, 1, 1), prop('book', 6.9, 3.4, 1, 1), prop('mat', 3.2, 6.2, 1.6, .8, [], false)],
-    deco: c => { win(c, 'B', 1.2, 2.8); win(c, 'L', 3.2, 4.8, '#b56576'); (o.badges || []).slice(0, 5).forEach((ic, i) => poster(c, 'B', 5 + i * .62, '#f7f1e3', null, .5));
-      onBack(c, 7.2, 7.5, 34, 42, '#34323e'); },
-    who: mine ? null : [4, .1],
-    acts: [ { x: 4, y: 6.6, r: .9, label: '나가기', act: () => go('floor', { floor: arg.back.floor, at: [arg.back.x, 1.6] }) },
-      { x: 7.3, y: 3.9, r: 1, label: '방명록', act: () => opts.onGuest && opts.onGuest(o) } ].concat(mine ? [] : [
-      { x: 4, y: 2.4, r: 1, label: o.name + '님', act: () => talk([(o.title ? o.title + ' ' : '') + o.name + '님의 사무실이에요.', '오른쪽 방명록에 한마디 남겨 보세요 📮']) }]) };
+  return { id, W: 11, D: 9, floorA: '#b98a5e', floorB: '#ad7f55', wall: '#f3e6cc', panel: '#a8794f', owner: o, back: arg.back, spawn: [5.5, 8.4],
+    props: [prop('rug', 2, 3.6, 5, 3.4, [5, 3.4, '#6d597a', '#e9c46a'], false), prop('shelf', .1, .4, .7, 2), prop('shelf', .1, 2.6, .7, 2),
+      prop('desk', 4.4, 1.1, 2, 1), prop('chair', 5.1, .4, .6, .6, [], false), prop('plant', 6.6, .2, 1, 1),
+      prop('sofa', 3, 6.6, 2.2, .9, ['#4f772d']), prop('table', 3.5, 5.2, 1.2, .8), prop('lamp', 2, 6.7, 1, 1),
+      prop('mic', 9.6, 1.4, 1, 1), prop('mic', 8.4, 1.4, 1, 1), prop('book', 9.6, 4.6, 1, 1), prop('rack', 9.8, 7.6, 1, 1), prop('bin', 7.2, 1.3, 1, 1),
+      prop('plant', .1, 7.9, 1, 1), prop('plant', 9.8, 6.2, 1, 1), prop('mat', 4.7, 8.2, 1.6, .8, [], false)],
+    deco: c => { win(c, 'B', 1.4, 3.2); win(c, 'L', 5.2, 7, '#b56576'); clock(c, 'B', 3.8); (o.badges || []).slice(0, 5).forEach((ic, i) => poster(c, 'B', 4.4 + i * .62, '#f7f1e3', null, .5));
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) onBack(c, 7.9 + i * .7, 8.5 + i * .7, 22 + j * 13, 33 + j * 13, j === i % 2 ? '#3a3740' : '#55505e', OL);   // 녹음 흡음판
+      onBack(c, 10.4, 10.7, 34, 42, '#34323e'); },
+    who: mine ? null : [5.4, .2],
+    acts: [ { x: 5.5, y: 8.6, r: .9, label: '나가기', act: () => go('floor', { floor: arg.back.floor, at: [arg.back.x, 1.8] }) },
+      { x: 10, y: 5.1, r: 1, label: '방명록', act: () => opts.onGuest && opts.onGuest(o) } ].concat(mine ? [] : [
+      { x: 5.4, y: 2.6, r: 1, label: o.name + '님', act: () => talk([(o.title ? o.title + ' ' : '') + o.name + '님의 사무실이에요.', '오른쪽 방명록에 한마디 남겨 보세요 📮']) }]) };
 }
+function board(c, side, u0, u1) {
+  const f = side === 'B' ? onBack : onLeft;
+  f(c, u0, u1, 24, 46, '#8a5a3b', OL); f(c, u0 + .06, u1 - .06, 26, 44, '#c9a26b');
+  const n = Math.floor((u1 - u0) / .35);
+  for (let i = 0; i < n; i++) f(c, u0 + .12 + i * .33, u0 + .36 + i * .33, i % 2 ? 30 : 33, i % 2 ? 40 : 42, ['#f7f3e8', '#f2d8a0', '#cfe3c3', '#f3d1cc'][i % 4]);
+}
+function clock(c, side, u) { const f = side === 'B' ? onBack : onLeft; f(c, u, u + .5, 40, 50, '#f7f3e8', OL); f(c, u + .23, u + .27, 43, 47, OL); f(c, u + .25, u + .38, 44.5, 45.5, OL); }
+function wallLamp(c, u) { onBack(c, u - .15, u + .15, 34, 40, '#f2d8a0', OL); c.fillStyle = 'rgba(255,226,150,.18)'; poly(c, [P(u - .45, 0, 18), P(u + .45, 0, 18), P(u + .15, 0, 34), P(u - .15, 0, 34)], 'rgba(255,226,150,.18)'); }
 function win(c, side, u0, u1, curtain) {
   const f = side === 'B' ? onBack : onLeft;
   f(c, u0 - .08, u1 + .08, 20, 50, '#f4efe4', OL); f(c, u0, u1, 22, 48, '#9fd0e8'); f(c, u0, u1, 36, 48, '#b7dcec');
@@ -105,7 +129,7 @@ function go(id, arg) {
 }
 function stairs() {
   const cur = scene.id === 'lobby' ? 1 : scene.fl;
-  talk(['몇 층으로 갈까요?'], [1, 2, 3, 4].filter(f => f !== cur).map(f => [f === 1 ? '1층 로비' : FLOORS[f], () => f === 1 ? go('lobby', [8.6, 3.4]) : go('floor', { floor: f })]));
+  talk(['몇 층으로 갈까요?'], [1, 2, 3, 4].filter(f => f !== cur).map(f => [f === 1 ? '1층 로비' : FLOORS[f], () => f === 1 ? go('lobby', [12.6, 3.4]) : go('floor', { floor: f })]));
 }
 
 // ---------- 말풍선(아래 대화 상자) ----------
@@ -127,7 +151,8 @@ function room(c) {
   // 바닥 (판자 느낌: 칸마다 두 색 + 가는 줄)
   for (let y = 0; y < D; y++) for (let x = 0; x < W; x++) {
     poly(c, [P(x, y, 0), P(x + 1, y, 0), P(x + 1, y + 1, 0), P(x, y + 1, 0)], (x + y * 2) % 3 ? scene.floorA : scene.floorB);
-    poly(c, [P(x, y + .5, 0), P(x + 1, y + .5, 0), P(x + 1, y + .53, 0), P(x, y + .53, 0)], shade(scene.floorA, .9));
+    for (let k = 1; k < 4; k++) poly(c, [P(x, y + k / 4, 0), P(x + 1, y + k / 4, 0), P(x + 1, y + k / 4 + .025, 0), P(x, y + k / 4 + .025, 0)], shade(scene.floorA, .9));
+    poly(c, [P(x + ((y * 4) % 2 ? .5 : 0), y, 0), P(x + ((y * 4) % 2 ? .52 : .02), y, 0), P(x + ((y * 4) % 2 ? .52 : .02), y + .25, 0), P(x + ((y * 4) % 2 ? .5 : 0), y + .25, 0)], shade(scene.floorA, .86));
   }
   poly(c, [P(0, 0, 0), P(W, 0, 0), P(W, D, 0), P(0, D, 0)], 'rgba(0,0,0,0)', OL);
   // 뒷벽(gy=0)·왼벽(gx=0): 위 벽지 + 아래 판넬 + 걸레받이
@@ -136,7 +161,9 @@ function room(c) {
   onBack(c, 0, W, 0, 16, scene.panel); onLeft(c, 0, D, 0, 16, shade(scene.panel, .92));
   onBack(c, 0, W, 15, 17, shade(scene.panel, 1.2)); onLeft(c, 0, D, 15, 17, shade(scene.panel, 1.1));
   onBack(c, 0, W, 0, 3, shade(scene.panel, .6)); onLeft(c, 0, D, 0, 3, shade(scene.panel, .55));
-  for (let x = 1; x < W; x++) onBack(c, x - .02, x + .02, 17, WALL, shade(scene.wall, .96));
+  for (let x = .25; x < W; x += .5) onBack(c, x, x + .2, 17, WALL, shade(scene.wall, .97));
+  for (let y = .25; y < D; y += .5) onLeft(c, y, y + .2, 17, WALL, shade(scene.wall, .9));
+  for (let x = .5; x < W; x += 1) onBack(c, x - .01, x + .01, 3, 15, shade(scene.panel, .85));
   poly(c, [P(0, 0, WALL), P(W, 0, WALL), P(W, -.25, WALL), P(-.25, -.25, WALL), P(-.25, D, WALL), P(0, D, WALL)], shade(scene.panel, .7), OL);   // 벽 윗단
   scene.deco(c);
 }
@@ -197,7 +224,7 @@ function labels() {
     ctx.save(); ctx.translate((a[0] + b[0]) / 2, (a[1] + b[1]) / 2); ctx.transform(1, (b[1] - a[1]) / (b[0] - a[0]), 0, 1, 0, 0);
     ctx.font = `${font || 700} ${size}px ${font ? "'Gowun Batang', serif" : 'Pretendard, sans-serif'}`; ctx.fillStyle = col; ctx.fillText(txt, 0, 0); ctx.restore();
   };
-  if (scene.id === 'lobby') skewed('하늘방송국', 'B', 3.5, 6.5, 39, k * 8, '#2f4858', 800);
+  if (scene.id === 'lobby') skewed('하늘방송국', 'B', 5.5, 8.5, 38, k * 6.5, '#2f4858', 800);
   if (scene.id === 'floor') for (const a of scene.acts) if (a.p) { skewed(a.p.name, 'B', a.x - .7, a.x + .7, 46, fs * .85, a.p.id === data.me ? '#f2b84b' : '#f1e8d9');
     if (a.p.title) tag(a.p.title, S(a.x, 0, 60), '#f2b84b', 'rgba(23,21,29,.7)', fs * .78); }
   if (scene.id === 'office') { (scene.owner.badges || []).slice(0, 5).forEach((ic, i) => skewed(ic, 'B', 5 + i * .62, 5.5 + i * .62, 38, k * 7, '#000'));
@@ -227,7 +254,8 @@ function onClick(e) {
 }
 function fit() {
   const w = host.querySelector('.sky-stage').clientWidth, h = Math.max(360, Math.min(window.innerHeight - 220, w * .58));
-  scale = Math.max(2, Math.round(h / 210)); cv.width = w; cv.height = Math.floor(h); cv.style.height = Math.floor(h) + 'px';
+  scale = 2;   // 픽셀은 작게, 방은 넓게 (조밀하게)
+  cv.width = w; cv.height = Math.floor(h); cv.style.height = Math.floor(h) + 'px';
   off.width = Math.ceil(w / scale) + 2; off.height = Math.ceil(h / scale) + 2;
 }
 
