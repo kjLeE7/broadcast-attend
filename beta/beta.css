@@ -1054,3 +1054,7 @@ body.modal-open .b-fab, body.modal-open .b-fabdim { display: none !important; }
 .b-melink { display: block; width: 100%; border: none; background: var(--card-soft); border-radius: 12px; padding: 11px 14px;
   font: inherit; font-size: 13.5px; font-weight: 700; color: var(--accent); text-align: left; cursor: pointer; }
 .b-melink:hover { background: var(--accent-soft); }
+
+/* 스크롤 막대 자리를 늘 비워 둠: 내용 길이가 바뀌어도 화면 폭이 흔들리지 않게 */
+html { scrollbar-gutter: stable; }
+.b-dim { opacity: .45; pointer-events: none; transition: opacity .15s ease; }

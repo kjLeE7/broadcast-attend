@@ -3979,11 +3979,14 @@ function loadPfReport() {
   $('pfNext').disabled = P.month >= curMonth();
   $('pfMonthNote').textContent = '';
   var month = P.month;
-  $('pfReport').innerHTML = '<div class="empty"><b>모으는 중...</b></div>';
+  // 달을 넘길 땐 지난 달 내용을 흐리게 둔 채 불러옴 (비우면 화면 높이가 줄어 스크롤 막대가 깜빡이고 폭이 흔들림)
+  var box = $('pfReport');
+  if (box.querySelector('.pf-grid')) box.classList.add('b-dim'); else box.innerHTML = '<div class="empty"><b>모으는 중...</b></div>';
   api('profile.report', { month: month }).then(function (r) {
     if (month !== P.month) return;   // 그사이 다른 달로 넘김
+    box.classList.remove('b-dim');
     P.report = r; renderPfReport();
-  }).catch(function (err) { $('pfReport').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+  }).catch(function (err) { box.classList.remove('b-dim'); box.innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
 
 function pfDay(iso) { return mdOf(iso) + ' ' + hmOf(iso); }
