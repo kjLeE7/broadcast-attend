@@ -2924,6 +2924,7 @@ function openRec(id) {
   if (!activeSess(r).length && freeRoles(r).length && recIsOpen(r) && r.status !== '보류') RC.planOpen = true;
   var wide = isWide();
   $('recListWrap').style.display = wide ? 'block' : 'none';
+  document.querySelector('.rec-title').style.display = wide ? '' : 'none';
   $('recAvail').style.display = wide ? '' : 'none';
   $('recView').classList.toggle('split', wide);
   renderRecList();
@@ -2940,6 +2941,7 @@ function closeRec() {
   $('recView').classList.toggle('split', isWide());
   $('recDetail').style.display = 'none';
   $('recListWrap').style.display = 'block';
+  document.querySelector('.rec-title').style.display = '';
   $('recAvail').style.display = '';
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
   if (RC.list) renderRecList();

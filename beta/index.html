@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006a">
+  <link rel="stylesheet" href="beta.css?v=20261006b">
 </head>
 <body>
   <div class="app">
@@ -256,9 +256,12 @@
     <!-- ===== 프로필: 내 정보 + 한 달 활동 ===== -->
     <!-- ===== 녹음 요청 (세 팀 교관 이상) ===== -->
     <section id="recView" style="display:none;">
-      <div id="recListWrap">
+      <!-- 제목은 PC 반반 배치 위에 한 줄로 (목록·녹음 한눈에 모두 이 아래) -->
+      <div class="rec-title">
         <h1 class="page-title">목소리를 담는 시간</h1>
         <p class="page-desc">녹음 요청을 올리면 세 팀 교관 이상 모두에게 알림이 가요. 마감까지 가능한 사람·장소·시간을 찾아 드려요</p>
+      </div>
+      <div id="recListWrap">
         <div class="b-fab" id="recFab">
           <button class="fab" type="button" onclick="openRecModal()" aria-label="녹음 요청 올리기" title="녹음 요청 올리기"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
@@ -819,6 +822,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261005d"></script>
-  <script src="beta.js?v=20261005z"></script>
+  <script src="beta.js?v=20261006b"></script>
 </body>
 </html>

@@ -1288,3 +1288,10 @@ html { scrollbar-gutter: stable; }
 .av-grid .tgrid .gc.sel { outline: 2px solid var(--text); outline-offset: -1px; border-radius: 3px; }
 .av-grid .tgrid .gc:not(.on2):hover { background: var(--card-soft); }
 .av-grid .tgrid .gh { position: sticky; top: 0; background: var(--card); z-index: 1; padding: 4px 0 8px; }
+
+/* 업무 탭: 제목은 반반 위에 한 줄 (2026-10-05) */
+@media (min-width: 1000px) {
+  #recView.split .rec-title { grid-column: 1 / -1; margin-bottom: -14px; }
+  #recView.split #recOverview .b-dhead { margin-top: 0; }
+  #recView.split #recOverview .b-dhead h1 { font-size: 20px; margin-top: 4px; }
+}
