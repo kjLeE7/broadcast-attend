@@ -165,8 +165,15 @@ function boot() {
 // ---------------------------------------------------------------------
 // PC 브라우저 로그인 (텔레그램 로그인 버튼)
 // ---------------------------------------------------------------------
-function getLogin() { try { return JSON.parse(localStorage.getItem(LOGIN_KEY) || 'null'); } catch (e) { return null; } }
-function forgetLogin() { loginRaw = ''; try { localStorage.removeItem(LOGIN_KEY); } catch (e) {} }
+// '이 PC에서 로그인 유지'를 켜면 브라우저에 7일 저장(localStorage), 끄면 창을 닫을 때 지워짐(sessionStorage) — 공용 PC 대비
+function getLogin() {
+  try { return JSON.parse(sessionStorage.getItem(LOGIN_KEY) || localStorage.getItem(LOGIN_KEY) || 'null'); } catch (e) { return null; }
+}
+function forgetLogin() {
+  loginRaw = '';
+  try { localStorage.removeItem(LOGIN_KEY); } catch (e) {}
+  try { sessionStorage.removeItem(LOGIN_KEY); } catch (e) {}
+}
 function loginQuery(u) {
   // 텔레그램이 준 값을 그대로 (서버가 이 값들로 서명을 다시 계산함)
   var q = new URLSearchParams();
@@ -197,7 +204,8 @@ function showLogin(msg) {
   }).catch(function (err) { $('tgWidget').innerHTML = '<span class="b-wait">' + esc(err.message) + '</span>'; });
 }
 window.onTgAuth = function (user) {
-  try { localStorage.setItem(LOGIN_KEY, JSON.stringify(user)); } catch (e) {}
+  var keep = $('loginKeep') && $('loginKeep').checked;
+  try { (keep ? localStorage : sessionStorage).setItem(LOGIN_KEY, JSON.stringify(user)); } catch (e) {}
   loginRaw = loginQuery(user);
   $('loginBox').style.display = 'none';
   boot();
@@ -1423,7 +1431,7 @@ function renderWkResult() {
   var chips = b.teams.length > 1 ? [''].concat(b.teams) : [];
   $('wkTeamChips').style.display = chips.length ? 'flex' : 'none';
   $('wkTeamChips').innerHTML = chips.map(function (t) {
-    return '<button type="button" class="wkchip' + (t === W.team ? ' active' : '') + '" onclick="pickWkTeam(\'' + esc(t) + '\')">' + (t ? esc(t) : '전체') + '</button>';
+    return '<button type="button" class="wkchip' + (t === W.team ? ' active' : '') + '" data-team="' + esc(t) + '" onclick="pickWkTeam(this.getAttribute(\'data-team\'))">' + (t ? esc(t) : '전체') + '</button>';
   }).join('');
 
   var ppl = W.team ? b.people.filter(function (p) { return p.teams.indexOf(W.team) !== -1; }) : b.people;

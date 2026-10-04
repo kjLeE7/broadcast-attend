@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>방송예술과 베타</title>
+  <!-- 보안: 이 화면이 불러오고 연결할 수 있는 곳을 정해 둠 (다른 곳으로 정보를 보내거나 낯선 스크립트를 불러오지 못하게) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://telegram.org; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://bundxpidywrcrwhhgclv.supabase.co; frame-src https://oauth.telegram.org; object-src 'none'; base-uri 'self'; form-action 'none'">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="preconnect" href="https://bundxpidywrcrwhhgclv.supabase.co">
   <!-- 글꼴: 본문 프리텐다드(쓰는 글자만 조금씩 내려받음) + 제목 고운바탕(beta/fonts) -->
@@ -40,6 +42,7 @@
       <h2>방송예술과 베타</h2>
       <p>PC에서는 텔레그램 계정으로 로그인해요.<br>버튼을 누르면 휴대폰 텔레그램으로 확인 메시지가 와요.</p>
       <div id="tgWidget" class="b-widget"><span class="b-wait">로그인 버튼 불러오는 중...</span></div>
+      <label class="check-row b-keep"><input type="checkbox" id="loginKeep"><span>이 PC에서 로그인 유지 (7일 · 내 PC일 때만)</span></label>
       <div class="msg" id="loginMsg"></div>
       <p class="b-login-note">텔레그램 미니앱으로 열면 로그인 없이 바로 들어가요.</p>
     </div>
@@ -653,6 +656,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261004x"></script>
+  <script src="beta.js?v=20261004y"></script>
 </body>
 </html>

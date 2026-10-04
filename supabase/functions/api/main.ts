@@ -484,6 +484,31 @@ async function requireItemMember(ctx: Ctx, row: any) {
   if (row.target_people?.includes(ctx.me.id)) return;
   await requireRank(ctx, row.team_id, RANK.MEMBER);
 }
+// 과제 제출·체크인 보고: 그 글의 대상인 사람만 (사람으로 집었으면 그 사람, 조 대상이면 그 조 + 조장 이상)
+async function requireItemTarget(ctx: Ctx, row: any) {
+  if (row.target_people?.length) {
+    if (row.target_people.includes(ctx.me.id)) return;
+    throw new HttpError(403, "이 글의 대상이 아니에요");
+  }
+  const rank = await rankIn(ctx, row.team_id);
+  if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
+  if (row.target_unit_id && rank < RANK.GROUP_LEADER && !(await myGroupIds(ctx)).includes(row.target_unit_id)) throw new HttpError(403, "이 글의 대상이 아니에요");
+}
+// 조 id가 이 팀의 조인지 (아니면 400)
+async function checkGroup(ctx: Ctx, teamId: string, unitId: any) {
+  if (!unitId) return null;
+  const g = must(await ctx.db.from("org_units").select("parent_id, unit_type").eq("id", unitId).maybeSingle());
+  if (!g || g.parent_id !== teamId || g.unit_type !== "조") throw new HttpError(400, "이 팀의 조가 아닙니다");
+  return unitId as string;
+}
+// 같은 사람이 같은 일을 짧은 시간에 너무 많이 하지 못하게 (알림 폭탄 막기)
+async function rateLimit(ctx: Ctx, kind: string, max: number, minutes: number) {
+  const since = new Date(Date.now() - minutes * 60000).toISOString();
+  const { count } = await ctx.db.from("action_limits").select("id", { count: "exact", head: true }).eq("person_id", ctx.me.id).eq("kind", kind).gte("at", since);
+  if ((count ?? 0) >= max) throw new HttpError(429, `잠시 뒤에 다시 해주세요 (${minutes}분에 ${max}번까지)`);
+  await ctx.db.from("action_limits").insert({ person_id: ctx.me.id, kind });
+}
+const isDate = (v: any) => typeof v === "string" && /^\d{4}-\d\d-\d\d$/.test(v);
 
 // 공지 받을 사람: 그 단위(팀 또는 과)와 아래 단위의 직책 + 위로 문화부까지 상속된 직책. 사람마다 가장 높은 직책 하나
 async function unitAudience(ctx: Ctx, unitId: string) {
@@ -1029,6 +1054,7 @@ async function cronWeeklyNag(ctx: Ctx) {
 async function cronReminders(db: any) {
   const ctx = { db, me: { id: null, name: "자동 알림" }, payload: {} } as unknown as Ctx;
   const today = kstToday();
+  await db.from("action_limits").delete().lt("at", new Date(Date.now() - 86400000).toISOString());   // 하루 지난 횟수 기록은 지움
   const rows: any[] = must(await db.from("meeting_sessions").select(SESSION_COLS)
     .eq("status", "예정").is("closed_at", null).not("start_time", "is", null)
     .gte("session_date", today).lte("session_date", addDaysStr(today, 4))) ?? [];
@@ -1330,6 +1356,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     }
     // 대상을 사람으로 집은 경우: 전체(과)는 팀장 이상, 팀은 그 팀 사람만
     const target_people = await pickedPeople(ctx, p, RANK.GROUP_LEADER, RANK.TEAM_LEADER);
+    if (p.notify !== false) await rateLimit(ctx, "sess_new", 10, 30);
     const s = must(await ctx.db.from("meeting_sessions").insert({
       target_people, target_label: target_people ? String(p.target_label ?? "").slice(0, 60) || null : null,
       ...pick(p, ["meeting_type_id", "session_date", "start_time", "end_time", "place_mode"]),
@@ -1417,7 +1444,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // { kind, name, data } → 같은 이름이면 덮어씀. 종류마다 20개까지
   async "templates.save"(ctx) {
     const kind = String(ctx.payload.kind ?? "").slice(0, 20), name = String(ctx.payload.name ?? "").trim().slice(0, 30);
-    if (!kind || !name) throw new HttpError(400, "양식 이름을 적어주세요");
+    if (!["session", "assignment", "checkin", "notice"].includes(kind)) throw new HttpError(400, "양식 종류가 올바르지 않습니다");
+    if (!name) throw new HttpError(400, "양식 이름을 적어주세요");
     const data = ctx.payload.data;
     if (!data || typeof data !== "object" || JSON.stringify(data).length > 8000) throw new HttpError(400, "양식 내용이 올바르지 않습니다");
     const { count } = await ctx.db.from("user_templates").select("id", { count: "exact", head: true }).eq("person_id", ctx.me.id).eq("kind", kind).neq("name", name);
@@ -1452,6 +1480,10 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     await requireRank(ctx, before.team_id, RANK.GROUP_LEADER);
     const patch = pick(ctx.payload, ["title", "session_date", "start_time", "end_time", "location", "place_mode", "status", "description"]);
     if ("status" in patch && !["예정", "취소"].includes(patch.status)) throw new HttpError(400, "상태가 올바르지 않습니다");
+    if ("session_date" in patch && !isDate(patch.session_date)) throw new HttpError(400, "날짜가 올바르지 않습니다");
+    if ("title" in patch) patch.title = String(patch.title ?? "").trim().slice(0, 60) || null;
+    if ("location" in patch) patch.location = String(patch.location ?? "").trim().slice(0, 40) || null;
+    if ("description" in patch) patch.description = String(patch.description ?? "").trim().slice(0, 2000) || null;
     if (before.closed_at && Object.keys(patch).some((k) => ["session_date", "start_time", "status"].includes(k))) {
       throw new HttpError(400, "이미 출결이 마감된 모임이라 날짜·시간·상태는 바꿀 수 없어요");
     }
@@ -1465,7 +1497,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       notify = await notifyMembers(ctx, s, "cancel");
     } else if (ctx.payload.notify === true) {
       const moved = ["session_date", "start_time", "end_time", "location"].some((k) => k in patch && t5(patch[k]) !== t5(before[k]));
-      if (moved) notify = await notifyMembers(ctx, s, "change");
+      if (moved) { await rateLimit(ctx, "sess_change", 6, 30); notify = await notifyMembers(ctx, s, "change"); }
     }
     return { ...s, notify };
   },
@@ -1784,7 +1816,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const input = ctx.payload.slots ?? {};
     let count = 0;
     const rows = dates.map((d, i) => {
-      const raw = Array.isArray(input[String(i)]) ? input[String(i)] : [];
+      const raw = Array.isArray(input[String(i)]) ? input[String(i)].slice(0, 100) : [];
       const slots = [...new Set(raw.map((x: any) => Number(x)))]
         .filter((x: any) => Number.isInteger(x) && x >= 0 && x <= 47)
         .sort((a: any, b: any) => a - b) as number[];
@@ -1925,6 +1957,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const title = String(p.title ?? "").trim().slice(0, 100);
     if (!title) throw new HttpError(400, "제목을 입력해주세요");
     const target_people = await pickedPeople(ctx, p, RANK.INSTRUCTOR, RANK.TEAM_LEADER);
+    if (!section && !target_people) await checkGroup(ctx, p.team_id, p.target_unit_id);
     const codes = !target_people && Array.isArray(p.target_positions) ? [...new Set(p.target_positions.map(String))] : [];
     if (codes.length) {
       const ok: any[] = must(await ctx.db.from("positions").select("code").in("code", codes)) ?? [];
@@ -1947,7 +1980,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "notices.update"(ctx) {
     const row = await editableNotice(ctx, ctx.payload.id);
     const patch = pick(ctx.payload, ["title", "body", "is_pinned"]);
-    if ("title" in patch && !String(patch.title).trim()) throw new HttpError(400, "제목을 입력해주세요");
+    if ("title" in patch) { patch.title = String(patch.title ?? "").trim().slice(0, 100); if (!patch.title) throw new HttpError(400, "제목을 입력해주세요"); }
+    if ("body" in patch) patch.body = String(patch.body ?? "").trim().slice(0, 3000) || null;
+    if ("is_pinned" in patch) patch.is_pinned = !!patch.is_pinned;
     return must(await ctx.db.from("notices").update(patch).eq("id", row.id).select().single());
   },
   async "notices.delete"(ctx) {
@@ -2051,17 +2086,25 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const title = String(p.title ?? "").trim().slice(0, 100);
     if (!title) throw new HttpError(400, "과제 제목을 입력해주세요");
     const target_people = await pickedPeople(ctx, p, RANK.INSTRUCTOR, RANK.TEAM_LEADER);
+    if (!target_people) await checkGroup(ctx, p.team_id, p.target_unit_id);
     return must(await ctx.db.from("assignments").insert({
-      ...pick(p, ["category", "description", "starts_on", "due_at", "needs_feedback", "target_unit_id"]),
+      ...pick(p, ["starts_on", "due_at", "target_unit_id"]),
+      category: String(p.category ?? "").trim().slice(0, 20) || null, description: String(p.description ?? "").trim().slice(0, 3000) || null,
+      needs_feedback: p.needs_feedback !== false,
       ...(target_people ? { target_unit_id: null } : {}), target_people, target_label: target_people ? labelOf(p) : null,
       title, team_id: p.team_id, created_by: ctx.me.id,
     }).select().single());
   },
   async "assignments.update"(ctx) {
-    await requireRank(ctx, await ownerTeam(ctx, "assignments", ctx.payload.id), RANK.INSTRUCTOR);
-    return must(await ctx.db.from("assignments")
-      .update(pick(ctx.payload, ["category", "title", "description", "starts_on", "due_at", "needs_feedback", "target_unit_id"]))
-      .eq("id", ctx.payload.id).select().single());
+    const team = await ownerTeam(ctx, "assignments", ctx.payload.id);
+    await requireRank(ctx, team, RANK.INSTRUCTOR);
+    const patch = pick(ctx.payload, ["category", "title", "description", "starts_on", "due_at", "needs_feedback", "target_unit_id"]);
+    if ("title" in patch) { patch.title = String(patch.title ?? "").trim().slice(0, 100); if (!patch.title) throw new HttpError(400, "과제 제목을 입력해주세요"); }
+    if ("category" in patch) patch.category = String(patch.category ?? "").trim().slice(0, 20) || null;
+    if ("description" in patch) patch.description = String(patch.description ?? "").trim().slice(0, 3000) || null;
+    if ("needs_feedback" in patch) patch.needs_feedback = !!patch.needs_feedback;
+    if ("target_unit_id" in patch) patch.target_unit_id = await checkGroup(ctx, team, patch.target_unit_id);
+    return must(await ctx.db.from("assignments").update(patch).eq("id", ctx.payload.id).select().single());
   },
   async "assignments.delete"(ctx) {
     await requireRank(ctx, await ownerTeam(ctx, "assignments", ctx.payload.id), RANK.INSTRUCTOR);
@@ -2073,9 +2116,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // 내 과제 제출·수정: { assignment_id, content?, file_url? }
   async "submissions.saveMine"(ctx) {
     const p = ctx.payload;
-    const row = must(await ctx.db.from("assignments").select("team_id, target_people").eq("id", p.assignment_id).maybeSingle());
+    const row = must(await ctx.db.from("assignments").select("team_id, target_people, target_unit_id").eq("id", p.assignment_id).maybeSingle());
     if (!row) throw new HttpError(404, "과제를 찾을 수 없습니다");
-    await requireItemMember(ctx, row);
+    await requireItemTarget(ctx, row);
     const content = String(p.content ?? "").trim().slice(0, 5000) || null;
     const file_url = String(p.file_url ?? "").trim().slice(0, 500) || null;
     if (file_url && !/^https?:\/\//i.test(file_url)) throw new HttpError(400, "링크는 http:// 또는 https:// 로 시작해야 해요");
@@ -2148,10 +2191,15 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
     const title = String(p.title ?? "").trim().slice(0, 60);
     if (!title) throw new HttpError(400, "제목을 입력해주세요");
-    if (!p.check_date) throw new HttpError(400, "날짜를 골라주세요");
+    if (!isDate(p.check_date)) throw new HttpError(400, "날짜를 골라주세요");
     const items = (Array.isArray(p.items) ? p.items : []).filter((x: any) => ["기상", "출발", "도착"].includes(x));
     if (!items.length) throw new HttpError(400, "받을 항목을 하나 이상 골라주세요");
     const target_people = await pickedPeople(ctx, p, RANK.INSTRUCTOR, RANK.TEAM_LEADER);
+    if (!target_people) await checkGroup(ctx, p.team_id, p.target_unit_id);
+    if (p.session_id) {
+      const ss = must(await ctx.db.from("meeting_sessions").select("team_id").eq("id", p.session_id).maybeSingle());
+      if (!ss || ss.team_id !== p.team_id) throw new HttpError(400, "이 팀의 모임이 아닙니다");
+    }
     return must(await ctx.db.from("checkins").insert({
       team_id: p.team_id, title, check_date: p.check_date, items,
       target_unit_id: target_people ? null : p.target_unit_id || null, target_people, target_label: target_people ? labelOf(p) : null, session_id: p.session_id || null, created_by: ctx.me.id,
@@ -2165,9 +2213,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 체크인 보고: { checkin_id, item, note?(도착 예정 등) } / 잘못 눌렀을 때 취소: checkins.unreport
   async "checkins.report"(ctx) {
-    const c = must(await ctx.db.from("checkins").select("team_id, items, target_people").eq("id", ctx.payload.checkin_id).maybeSingle());
+    const c = must(await ctx.db.from("checkins").select("team_id, items, target_people, target_unit_id").eq("id", ctx.payload.checkin_id).maybeSingle());
     if (!c) throw new HttpError(404, "체크인을 찾을 수 없습니다");
-    await requireItemMember(ctx, c);
+    await requireItemTarget(ctx, c);
     if (!c.items.includes(ctx.payload.item)) throw new HttpError(400, "이 체크인에 없는 항목입니다");
     return must(await ctx.db.from("checkin_reports").upsert({
       checkin_id: ctx.payload.checkin_id, person_id: ctx.me.id, item: ctx.payload.item,
@@ -2346,6 +2394,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       return { pref_method: method, pref_people: ppl };
     });
     const txt = (v: any, n: number) => String(v ?? "").trim().slice(0, n) || null;
+    await rateLimit(ctx, "rec_new", 6, 30);
     const prefix = "R" + kstToday().slice(2).replace(/-/g, "");
     let row: any = null;
     for (let tries = 0; tries < 3 && !row; tries++) {
@@ -2601,6 +2650,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     }
     if (clash.size) throw new HttpError(409, `${[...clash].join(", ")}님은 그 시간에 확정된 다른 녹음이 있어요`);
 
+    await rateLimit(ctx, "rec_propose", 10, 30);
     const { count } = await ctx.db.from("recording_sessions").select("id", { count: "exact", head: true }).eq("request_id", row.id).neq("status", "취소");
     const sess = must(await ctx.db.from("recording_sessions").insert({
       team_id: row.team_id, request_id: row.id, title: `${(count ?? 0) + 1}회차`, scheduled_start: new Date(st).toISOString(), scheduled_end: new Date(en).toISOString(),
@@ -2708,6 +2758,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       if (!r || r.session_id !== s.id) throw new HttpError(400, "배역이 올바르지 않습니다");
       roleName = r.name;
     }
+    await rateLimit(ctx, "rec_add", 20, 30);
     const ins = await ctx.db.from("recording_participants").insert({
       session_id: s.id, person_id: who.id, role, role_id: role === "녹음자" ? p.role_id : null,
       method: role === "녹음자" ? (p.method === "지정" ? "지정" : "후보") : null, answer: "대기", selected: false,
@@ -2726,6 +2777,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const s = await recSessionFull(ctx, pt.session_id);
     await recSection(ctx, s.team_id);
     if (s.status !== "조율중") throw new HttpError(400, "조율 중인 회차에서만 뺄 수 있어요");
+    await rateLimit(ctx, "rec_remove", 20, 30);
     must(await ctx.db.from("recording_participants").delete().eq("id", pt.id));
     if (["대기", "수락"].includes(pt.answer) && pt.person_id !== ctx.me.id) {
       const req = must(await ctx.db.from("recording_requests").select("title").eq("id", s.request_id).single());
@@ -2756,6 +2808,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const s = await recSessionFull(ctx, session_id);
     await recSection(ctx, s.team_id);
     if (status === "완료" && s.status !== "예정") throw new HttpError(400, "확정된 회차만 완료할 수 있어요");
+    if (status === "취소") await rateLimit(ctx, "rec_cancel", 10, 30);
     must(await ctx.db.from("recording_sessions").update({ status }).eq("id", s.id));
     let notify = null;
     if (status === "취소") {
@@ -2952,7 +3005,11 @@ Deno.serve(async (req) => {
   try {
     // 비밀값이 빠져 있으면 서명 검사가 무력해지므로 아예 멈춤
     if (!BOT_TOKEN || !SUPABASE_URL || !SERVICE_KEY) { console.error("missing secrets"); return json({ ok: false, error: "서버 설정 오류" }, 500); }
-    const body = await req.json().catch(() => ({}));
+    if (Number(req.headers.get("content-length") ?? 0) > 200_000) return json({ ok: false, error: "보내는 내용이 너무 커요" }, 413);
+    const raw = await req.text();
+    if (raw.length > 200_000) return json({ ok: false, error: "보내는 내용이 너무 커요" }, 413);
+    let body: any = {};
+    try { body = JSON.parse(raw || "{}"); } catch { body = {}; }
 
     // 로그인 전에도 쓰는 공개 기능: 로그인 버튼용 봇 아이디
     if (body.action === "public.bot") return json({ ok: true, data: { username: await getBotUsername() } });
