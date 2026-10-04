@@ -1108,3 +1108,21 @@ html { scrollbar-gutter: stable; }
 .section-head .st-give, .st-give-only .ghost-btn { width: auto; margin: 0 0 0 auto; padding: 7px 12px; border-style: solid; color: var(--accent); }
 .sg-axis .seg button.on.z { background: var(--card); border-color: var(--sand); color: var(--text); }
 #statArea:not(:empty) { margin-bottom: 22px; }
+
+/* ===== 칭호·배지 (renderBadges) ===== */
+.bg-card { padding: 14px; }
+.bg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.bg { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 6px 10px; border-radius: 14px; border: 1.5px solid var(--line);
+  background: var(--card-soft); font: inherit; cursor: pointer; opacity: .42; filter: grayscale(1); position: relative; }
+.bg.on { opacity: 1; filter: none; background: var(--card); border-color: var(--sand); }
+.bg.sel { border-color: var(--accent); }
+.bg.title::after { content: '대표'; position: absolute; top: 5px; right: 6px; font-size: 9.5px; font-weight: 800; color: #fff; background: var(--accent); border-radius: 6px; padding: 1px 4px; }
+.bg-ic { font-size: 26px; line-height: 1; }
+.bg b { font-size: 12px; font-weight: 700; color: var(--text); text-align: center; line-height: 1.3; word-break: keep-all; }
+.bg.fresh { animation: bgFresh 1.2s ease-in-out 3; }
+@keyframes bgFresh { 50% { box-shadow: 0 0 0 4px rgba(183,133,47,.35); border-color: var(--warn); transform: scale(1.04); } }
+@media (prefers-reduced-motion: reduce) { .bg.fresh { animation: none; border-color: var(--warn); } }
+.bg-info { text-align: center; font-size: 13.5px; margin-top: 12px; }
+.bg-info:empty { display: none; }
+.bg-info small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.bg-info .bg-set { width: auto; padding: 7px 14px; border-style: solid; color: var(--accent); margin-top: 10px; }

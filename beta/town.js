@@ -656,6 +656,7 @@ function setData(d, first) {
     let p = byId.get(raw.id);
     if (!p) { p = { id:raw.id, seed:strHash(raw.id) % 97, x:0, y:0, path:[], seg:null, key:'', spot:null, face:'down', moving:false, hidden:false, wanderAt:0, isNew:true }; }
     p.name = raw.name; p.team = raw.team || ''; p.role = raw.role || ''; p.look = Object.assign(lookFor(raw.id), raw.look || {});   // 꾸미기(people.town_look)는 기본 생김새 위에 덮어씀
+    p.title = raw.title || '';   // 대표 칭호 (본인이 고른 것만)
     p.segs = segsBy.get(raw.id) || [];
     next.push(p);
   }
@@ -860,7 +861,7 @@ function drawText(oc) {
   if (showNames) { const placed = [], vis = {};
     for (const p of people) if (!p.hidden && !p.moving) { const id = placeOf(p.seg.place).id; vis[id] = (vis[id] || 0) + 1; }
     // 한 방에 9명 이상 모이면 이름표가 겹쳐서 숨김 (마우스를 올리면 보임)
-    for (const p of [...people].filter(p => !p.hidden && (p.moving || (vis[placeOf(p.seg.place).id] || 0) <= 8)).sort((a, c) => a.y - c.y)) pill(p.name, p.x * k, (p.y + 1.5) * k, fs * .86, '#f1e8d9', typeOf(p.seg.type).c, placed); }
+    for (const p of [...people].filter(p => !p.hidden && (p.moving || (vis[placeOf(p.seg.place).id] || 0) <= 8)).sort((a, c) => a.y - c.y)) { if (p.title) pill(p.title, p.x * k, (p.y + 1.5) * k, fs * .74, '#f2b84b', null, placed); pill(p.name, p.x * k, (p.y + 1.5) * k, fs * .86, '#f1e8d9', typeOf(p.seg.type).c, placed); } }
 }
 let showNames = true;
 

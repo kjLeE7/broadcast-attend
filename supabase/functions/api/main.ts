@@ -568,9 +568,11 @@ async function closeSession(ctx: Ctx, s: any) {
     });
   }
   if (ups.length) must(await ctx.db.from("attendance").upsert(ups, { onConflict: "session_id,person_id" }));
-  return must(await ctx.db.from("meeting_sessions")
+  const done = must(await ctx.db.from("meeting_sessions")
     .update({ closed_at: new Date().toISOString(), status: "완료" })
     .eq("id", s.id).select(SESSION_COLS).single());
+  await awardBadges(ctx, members.map((m: any) => m.id));
+  return done;
 }
 // 끝나는 시간이 지난 모임은 자동 마감 (누군가 목록을 열 때 처리)
 async function autoClose(ctx: Ctx, sessions: any[]) {
@@ -1418,6 +1420,23 @@ async function recSessionTitles(ctx: Ctx, ids: string[]) {
   return new Map(rows.map((r) => [r.id, [r.recording_requests?.title, r.title].filter(Boolean).join(" · ")]));
 }
 
+// 배지 판정 (DB 함수 award_badges, 몇 번 불러도 중복 없음) + 새로 딴 사람에게 봇 알림
+async function awardBadges(ctx: Ctx, ids: string[], notify = true) {
+  const got = new Map<string, any[]>();
+  for (const id of [...new Set(ids)]) {
+    const r = await ctx.db.rpc("award_badges", { p_person: id });
+    if (r.error) { console.error("award_badges", r.error.message); continue; }
+    if (r.data?.length) got.set(id, r.data);
+  }
+  if (notify && got.size) {
+    for (const m of await withTelegram(ctx, [...got.keys()])) {
+      const list = got.get(m.id)!.map((b: any) => `${b.out_icon} <b>${escHtml(b.out_name)}</b>`).join("\n");
+      await sendToMembers([m], `🏅 <b>새 배지를 얻었어요!</b>\n${list}`, appButton("나의 기록 보기", "?go=profile"));
+    }
+  }
+  return got;
+}
+
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 내 정보 + 내가 접근할 수 있는 팀 목록(팀 선택 탭용)
@@ -1619,6 +1638,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const notify = await sendToMembers([person],
       `⭐ <b>${escHtml(who)}이 스탯을 올려줬어요</b>\n${escHtml(label)}${title ? `\n🎙 ${escHtml(title)}` : ` (${p.source_type})`}\n“${escHtml(comment)}”`,
       appButton("나의 기록 보기", "?go=profile"));
+    await awardBadges(ctx, [target.id]);
     return { id: g.id, notify };
   },
   // 스탯 고치기 { id, items, comment }: 준 사람 본인만 (지금도 기준 서열 이상일 때)
@@ -1645,6 +1665,43 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (!g || g.revoked_at) throw new HttpError(404, "없거나 이미 취소된 기록이에요");
     if (g.granted_by !== ctx.me.id) await requireRank(ctx, g.team_id, RANK.TEAM_LEADER);
     must(await ctx.db.from("stat_grants").update({ revoked_at: new Date().toISOString(), revoked_by: ctx.me.id }).eq("id", g.id));
+    return { ok: true };
+  },
+
+  // ----- 칭호·배지 -----
+  // 배지 보기 { person_id? }: 본인, 또는 그 팀 교관(stat_grant_min_level) 이상. 본인이면 먼저 판정(놓친 것 챙김)
+  async "badges.get"(ctx) {
+    const pid = ctx.payload?.person_id || ctx.me.id;
+    if (!UUID_RE.test(String(pid))) throw new HttpError(400, "사람을 다시 골라주세요");
+    const all: any[] = must(await ctx.db.from("badges").select("id,team_id,name,description,icon,sort").eq("is_active", true).order("sort")) ?? [];
+    const teams = [...new Set(all.map((b) => b.team_id as string))];
+    const mine: string[] = [];
+    for (const t of teams) if ((await unitAudience(ctx, t)).some((p: any) => p.id === pid)) mine.push(t);
+    if (pid !== ctx.me.id) {
+      const st = await statSettings(ctx);
+      let ok = false;
+      for (const t of mine) if ((await rankIn(ctx, t)) >= st.min) ok = true;
+      if (!ok) throw new HttpError(403, "권한이 없습니다");
+    } else await awardBadges(ctx, [pid]);
+    const have: any[] = must(await ctx.db.from("person_badges").select("badge_id,earned_at,is_title").eq("person_id", pid)) ?? [];
+    const by = new Map(have.map((h) => [h.badge_id, h]));
+    return {
+      badges: all.filter((b) => mine.includes(b.team_id)).map((b) => {
+        const h = by.get(b.id);
+        return { id: b.id, name: b.name, description: b.description, icon: b.icon, earned_at: h?.earned_at ?? null, is_title: !!h?.is_title };
+      }),
+    };
+  },
+  // 대표 칭호 고르기 { badge_id | null }: 내가 딴 배지 중 하나, null이면 안 보이게
+  async "badges.setTitle"(ctx) {
+    const bid = ctx.payload?.badge_id ?? null;
+    if (bid !== null && !UUID_RE.test(String(bid))) throw new HttpError(400, "배지를 다시 골라주세요");
+    if (bid) {
+      const h = must(await ctx.db.from("person_badges").select("id").eq("person_id", ctx.me.id).eq("badge_id", bid).maybeSingle());
+      if (!h) throw new HttpError(400, "얻은 배지만 대표 칭호로 고를 수 있어요");
+    }
+    must(await ctx.db.from("person_badges").update({ is_title: false }).eq("person_id", ctx.me.id).eq("is_title", true));
+    if (bid) must(await ctx.db.from("person_badges").update({ is_title: true }).eq("person_id", ctx.me.id).eq("badge_id", bid));
     return { ok: true };
   },
 
@@ -3496,6 +3553,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (status === "완료" && s.status !== "예정") throw new HttpError(400, "확정된 회차만 완료할 수 있어요");
     if (status === "취소") await rateLimit(ctx, "rec_cancel", 10, 30);
     must(await ctx.db.from("recording_sessions").update({ status }).eq("id", s.id));
+    if (status === "완료") await awardBadges(ctx, (s.recording_participants ?? []).filter((x: any) => x.role === "녹음자" && x.selected).map((x: any) => x.person_id));
     let notify = null;
     if (status === "취소") {
       must(await ctx.db.from("recording_roles").update({ session_id: null }).eq("session_id", s.id));
@@ -3657,8 +3715,11 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       push(f.person_id, hm(f.start_time), hm(f.end_time), { place: "work", ext: "" }, "근무", "", "");
     }
 
+    // 대표 칭호: 본인이 고른 것만 (안 고르면 없음)
+    const titles: any[] = ids.length ? must(await ctx.db.from("person_badges").select("person_id, badges(name, icon)").in("person_id", ids).eq("is_title", true)) ?? [] : [];
+    const titleOf = new Map(titles.filter((t) => t.badges).map((t) => [t.person_id, `${t.badges.icon} ${t.badges.name}`]));
     const people = [...ppl.values()].sort((a, b) => a.team.localeCompare(b.team) || b.rank - a.rank || a.name.localeCompare(b.name))
-      .map((p) => ({ id: p.id, name: p.name, team: p.team, role: [p.role, p.group].filter(Boolean).join(" · "), ...(p.look ? { look: p.look } : {}) }));
+      .map((p) => ({ id: p.id, name: p.name, team: p.team, role: [p.role, p.group].filter(Boolean).join(" · "), ...(p.look ? { look: p.look } : {}), ...(titleOf.has(p.id) ? { title: titleOf.get(p.id) } : {}) }));
     // 새로 불러오는 간격 (설정값 town_refresh_sec, 기본 60초)
     const rs = must(await ctx.db.from("app_settings").select("value").eq("key", "town_refresh_sec").maybeSingle());
     const refresh_sec = Math.max(15, Number(rs?.value ?? 60) || 60);

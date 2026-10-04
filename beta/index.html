@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261005q">
+  <link rel="stylesheet" href="beta.css?v=20261005r">
 </head>
 <body>
   <div class="app">
@@ -293,6 +293,8 @@
 
         <!-- 성우 스탯 (육각형 차트 + 받은 피드백). 스탯 축이 있는 팀 사람만 보임 -->
         <div id="statArea"></div>
+        <!-- 칭호·배지 (딴 것 진하게, 못 딴 것 흐리게, 누르면 대표 칭호 고르기) -->
+        <div id="badgeArea"></div>
 
         <div class="card pf-card" id="pfCard"><div class="b-wait">불러오는 중...</div></div>
 
@@ -776,7 +778,7 @@
   </div>
 
   <script src="../krmap.js?v=20261001a"></script>
-  <script src="town.js?v=20261005a"></script>
-  <script src="beta.js?v=20261005q"></script>
+  <script src="town.js?v=20261005b"></script>
+  <script src="beta.js?v=20261005r"></script>
 </body>
 </html>

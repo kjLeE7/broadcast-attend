@@ -3891,6 +3891,7 @@ function loadProfile() {
     .catch(function (err) { $('pfCard').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
   loadPfReport();
   loadStats();
+  loadBadges();
 }
 
 function pfAge(b) {
@@ -4233,4 +4234,47 @@ function revokeStatGrant() {
   if (!SG.existing || !confirm('이 지급을 취소할까요? 받은 사람의 스탯에서 빠져요')) return;
   api('stats.revoke', { id: SG.existing.id }).then(function () { haptic('success'); closeModal('statModal'); })
     .catch(function (err) { setMsg('sgMsg', err.message, true); });
+}
+
+// =====================================================================
+// 칭호·배지: 나의 기록 '나의 배지'. 딴 배지를 누르면 대표 칭호로 (동네지도 이름 위에 보임)
+// 새로 딴 배지 반짝임은 이 기기 localStorage 'badgeSeen:<id>'와 비교
+// =====================================================================
+var BDG = { data: null, pick: null, fresh: {} };
+function loadBadges() {
+  api('badges.get').then(function (d) {
+    BDG.data = d; BDG.fresh = {};
+    var key = 'badgeSeen:' + S.me.profile.id, seen = null;
+    try { seen = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
+    var got = d.badges.filter(function (b) { return b.earned_at; }).map(function (b) { return b.id; });
+    if (seen) got.forEach(function (id) { if (seen.indexOf(id) === -1) BDG.fresh[id] = 1; });
+    try { localStorage.setItem(key, JSON.stringify(got)); } catch (e) {}
+    renderBadges();
+  }).catch(function () { $('badgeArea').innerHTML = ''; });
+}
+function renderBadges() {
+  var d = BDG.data; if (!d || !d.badges.length) { $('badgeArea').innerHTML = ''; return; }
+  var n = d.badges.filter(function (b) { return b.earned_at; }).length;
+  var title = d.badges.filter(function (b) { return b.is_title; })[0];
+  $('badgeArea').innerHTML = '<div class="section-head b-gap"><h2>나의 배지</h2><span class="section-count">' + n + ' / ' + d.badges.length +
+      (title ? ' · 대표 칭호 ' + esc(title.icon + ' ' + title.name) : '') + '</span></div>' +
+    '<div class="card bg-card"><div class="bg-grid">' + d.badges.map(function (b, i) {
+      return '<button type="button" class="bg' + (b.earned_at ? ' on' : '') + (BDG.fresh[b.id] ? ' fresh' : '') + (b.is_title ? ' title' : '') + (BDG.pick === i ? ' sel' : '') + '" onclick="pickBadge(' + i + ')">' +
+        '<span class="bg-ic">' + esc(b.icon) + '</span><b>' + esc(b.name) + '</b></button>';
+    }).join('') + '</div><div class="bg-info" id="badgeInfo">' + badgeInfo() + '</div></div>';
+}
+function badgeInfo() {
+  var b = BDG.data && BDG.data.badges[BDG.pick]; if (!b) return '';
+  return '<b>' + esc(b.icon + ' ' + b.name) + '</b> · ' + esc(b.description) +
+    (b.earned_at ? '<small>' + mdOf(b.earned_at) + '에 얻었어요</small>' +
+      '<button type="button" class="ghost-btn bg-set" onclick="setTitle(' + (b.is_title ? 'null' : '\'' + esc(b.id) + '\'') + ')">' + (b.is_title ? '대표 칭호 내리기' : '대표 칭호로 걸기') + '</button>'
+      : '<small>아직 못 얻었어요</small>');
+}
+function pickBadge(i) { BDG.pick = BDG.pick === i ? null : i; renderBadges(); }
+function setTitle(id) {
+  api('badges.setTitle', { badge_id: id }).then(function () {
+    haptic('success');
+    BDG.data.badges.forEach(function (b) { b.is_title = b.id === id; });
+    renderBadges();
+  }).catch(function (err) { alertMsg(err.message); });
 }
