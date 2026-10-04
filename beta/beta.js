@@ -3304,6 +3304,7 @@ function setSeg(id, v) { document.querySelectorAll('#' + id + ' button').forEach
 // ----- PC: Esc로 오른쪽 상세 닫기 -----
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && MODAL) { closeModal(); return; }
+  if (RP.open && (e.key === 'Escape' || e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { if (e.key === 'Escape') closeRecap(); else recapStep(e.key === 'ArrowRight' ? 1 : -1); return; }
   if (e.key === 'Escape' && $('mePop').classList.contains('open')) { toggleMePop(false); return; }
   if (e.key === 'Escape' && $('pfSub').classList.contains('open') && pfFloating()) { togglePfSub(false); return; }
   if (e.key === 'Escape' && $('attFab').classList.contains('open')) { closeFabMenu(); return; }
@@ -3838,6 +3839,7 @@ document.addEventListener('visibilitychange', function () {
 if (tg && tg.BackButton) {
   tg.BackButton.onClick(function () {
     if (MODAL) closeModal();
+    else if (RP.open) closeRecap();
     else if (curTab === 'task' && A.current) closeTask();
     else if (curTab === 'rec' && RC.current) closeRec();
     else if (curTab === 'poll' && PL.cur) closePoll();
@@ -3892,6 +3894,7 @@ function loadProfile() {
   loadPfReport();
   loadStats();
   loadBadges();
+  loadRecapStatus();
 }
 
 function pfAge(b) {
@@ -4277,4 +4280,113 @@ function setTitle(id) {
     BDG.data.badges.forEach(function (b) { b.is_title = b.id === id; });
     renderBadges();
   }).catch(function (err) { alertMsg(err.message); });
+}
+
+// =====================================================================
+// 연말 결산 '올해의 성우 리포트': 스토리처럼 한 장씩 → 마지막 요약 카드(공유 이미지)
+// 공개일(recap_open) 전엔 교관 이상만 미리보기 + 기간 바꿔 보기. 관리자 명단은 공개일을 바꿈
+// =====================================================================
+var RP = { st: null, d: null, team: null, cards: [], i: 0, open: false, from: '', to: '' };
+function loadRecapStatus() {
+  api('recap.status').then(function (st) { RP.st = st; renderRecapCard(); }).catch(function () { $('recapArea').innerHTML = ''; });
+}
+function renderRecapCard() {
+  var st = RP.st; if (!st || (!st.open && !st.preview)) { $('recapArea').innerHTML = ''; return; }
+  var md = st.open_md.split('-'), when = (+md[0]) + '월 ' + (+md[1]) + '일';
+  var h = '<div class="card rp-entry"><button type="button" class="rp-go" onclick="openRecap()"><span class="rp-gift">🎁</span><span><b>' + st.year + ' 올해의 성우 리포트</b>' +
+    '<small>' + (st.open ? '한 해 동안 걸어온 길을 한 장씩 넘겨 봐요' : '미리보기 · 모두에게는 ' + when + '에 열려요') + '</small></span><span class="rp-arrow">›</span></button>';
+  if (st.preview) h += '<details class="rp-opts"><summary>기간 바꿔 보기 (테스트용)</summary><div class="tp-row"><input type="date" id="rpFrom" value="' + esc(RP.from) + '"><span>~</span><input type="date" id="rpTo" value="' + esc(RP.to) + '"></div>' +
+    '<small>비우면 ' + st.year + '년 한 해 전체예요</small></details>';
+  if (st.admin) h += '<details class="rp-opts"><summary>공개일 바꾸기 (관리자)</summary><div class="tp-row"><input type="date" id="rpOpen" value="' + st.year + '-' + esc(st.open_md) + '">' +
+    '<button type="button" class="ghost-btn rp-save" onclick="saveRecapOpen()">저장</button></div><small>해마다 이 날짜에 모두에게 열려요</small><div class="msg" id="rpOpenMsg"></div></details>';
+  $('recapArea').innerHTML = h + '</div>';
+}
+function saveRecapOpen() {
+  var v = $('rpOpen').value; if (!v) return;
+  api('recap.setOpen', { md: v.slice(5) }).then(function (r) { haptic('success'); RP.st.open_md = r.open_md; setMsg('rpOpenMsg', '저장했어요'); loadRecapStatus(); })
+    .catch(function (err) { setMsg('rpOpenMsg', err.message, true); });
+}
+function openRecap() {
+  RP.from = ($('rpFrom') && $('rpFrom').value) || ''; RP.to = ($('rpTo') && $('rpTo').value) || '';
+  var q = { year: RP.st.year }; if (RP.from && RP.to) { q.from = RP.from; q.to = RP.to; }
+  RP.open = true; RP.i = 0; RP.cards = [['<div class="rp-c"><p class="rp-k">모으는 중...</p></div>']];
+  $('recapView').hidden = false; document.body.classList.add('modal-open'); drawRecap();
+  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+  var teamQ = S.team && S.team.rank >= RANK.INSTRUCTOR ? api('recap.team', Object.assign({ team_id: S.team.id }, q)).catch(function () { return null; }) : Promise.resolve(null);
+  Promise.all([api('recap.get', q), teamQ]).then(function (r) { RP.d = r[0]; RP.team = r[1]; RP.cards = recapCards(); RP.i = 0; drawRecap(); })
+    .catch(function (err) { RP.cards = [['<div class="rp-c"><p class="rp-k">불러오지 못했어요</p><p class="rp-s">' + esc(err.message) + '</p></div>']]; drawRecap(); });
+}
+function closeRecap() {
+  RP.open = false; $('recapView').hidden = true; document.body.classList.remove('modal-open');
+  try { if (tg && tg.BackButton && curTab === 'profile') tg.BackButton.hide(); } catch (e) {}
+}
+function recapStep(k) { var n = RP.i + k; if (n < 0 || n >= RP.cards.length) return; RP.i = n; drawRecap(); }
+function drawRecap() {
+  $('rpBars').innerHTML = RP.cards.map(function (c, i) { return '<i class="' + (i < RP.i ? 'done' : i === RP.i ? 'now' : '') + '"></i>'; }).join('');
+  $('rpCard').innerHTML = RP.cards[RP.i][0];
+  $('rpCard').className = 'rp-card' + (RP.cards[RP.i][1] ? ' ' + RP.cards[RP.i][1] : '');
+}
+// 데이터가 없는 카드는 건너뜀
+function recapCards() {
+  var d = RP.d, y = d.year, c = [];
+  var big = function (n, unit) { return '<b class="rp-n">' + n + '</b><span class="rp-u">' + unit + '</span>'; };
+  var range = d.custom ? d.from.replace(/-/g, '.') + ' ~ ' + d.to.replace(/-/g, '.') : y + '년';
+  c.push(['<div class="rp-c"><p class="rp-k">' + esc(range) + '</p><h2 class="rp-h">' + esc(S.me.profile.name) + '님의<br>올해의 성우 리포트</h2><p class="rp-s">한 해 동안 걸어온 길을 한 장씩 넘겨 봐요 ›</p></div>', 'cover']);
+  if (d.recordings) c.push(['<div class="rp-c"><p class="rp-k">🎙 올해 마친 녹음</p>' + big(d.recordings, '건') + (d.roles ? '<p class="rp-s">맡은 배역 <b>' + d.roles + '</b>개</p>' : '') + '</div>']);
+  if (d.place) c.push(['<div class="rp-c"><p class="rp-k">📍 제일 많이 간 곳</p><h2 class="rp-h">' + esc(d.place.name) + '</h2><p class="rp-s">' + d.place.count + '번 다녀왔어요</p></div>']);
+  if (d.stats && d.stats.axes.some(function (a) { return a.now > 1 || a.start > 1; })) c.push(['<div class="rp-c"><p class="rp-k">⬡ 연초와 지금</p><div class="rp-chart">' + recapSvg(d.stats) + '</div>' +
+    '<div class="st-legend"><span><i class="now"></i>지금</span><span><i class="prev"></i>연초</span></div>' +
+    (d.stats.best ? '<p class="rp-s">제일 많이 자란 건 <b>' + esc(d.stats.best) + '</b></p>' : '') + '</div>']);
+  if (d.comments.length) c.push(['<div class="rp-c"><p class="rp-k">💬 교관님이 남긴 말</p>' + d.comments.map(function (m) {
+    return '<blockquote class="rp-q">“' + esc(m.comment) + '”<small>' + esc(m.by) + ' · ' + mdOf(m.at) + '</small></blockquote>'; }).join('') + '</div>']);
+  if (d.badges.length) c.push(['<div class="rp-c"><p class="rp-k">🏅 올해 얻은 배지</p><div class="rp-badges">' + d.badges.map(function (b) {
+    return '<span><i>' + esc(b.icon) + '</i>' + esc(b.name) + '</span>'; }).join('') + '</div></div>']);
+  if (d.with_voice || d.with_engineer) c.push(['<div class="rp-c"><p class="rp-k">🤝 가장 많이 함께한 사람</p>' +
+    (d.with_voice ? '<p class="rp-s">성우 <b>' + esc(d.with_voice.name) + '</b> · ' + d.with_voice.count + '번</p>' : '') +
+    (d.with_engineer ? '<p class="rp-s">엔지니어 <b>' + esc(d.with_engineer.name) + '</b> · ' + d.with_engineer.count + '번</p>' : '') + '</div>']);
+  if (d.meetings) c.push(['<div class="rp-c"><p class="rp-k">👣 함께한 모임</p>' + big(d.meetings, '번') + '<p class="rp-s">자리를 지켜줘서 고마워요</p></div>']);
+  var t = RP.team;
+  if (t) c.push(['<div class="rp-c"><p class="rp-k">👥 ' + esc(S.team.name) + ' 결산 (교관 이상만)</p><div class="rp-grid">' +
+    [['녹음', t.recordings, '건'], ['모임', t.meetings, '번'], ['함께한 자리', t.attendance, '명'], ['스탯 피드백', t.grants, '번'], ['얻은 배지', t.badges, '개']].map(function (x) {
+      return '<div><small>' + x[0] + '</small><b>' + x[1] + '</b>' + x[2] + '</div>'; }).join('') + '</div><p class="rp-s">팀 전체 합계예요 (사람별 숫자는 없어요)</p></div>']);
+  c.push(['<div class="rp-c"><p class="rp-k">한 장으로 보기</p><img class="rp-img" id="rpImg" alt="올해의 성우 요약 카드" src="' + recapImage(d.summary) + '">' +
+    '<p class="rp-s">' + (isWide() ? '<a class="rp-dl" download="' + y + '-올해의-성우.png" href="' + recapImage(d.summary) + '">이미지 저장</a>' : '그림을 길게 눌러 저장하세요') + '</p>' +
+    '<small class="rp-foot">숫자·스탯 모양·배지만 들어가요 (제목·배역·이름은 안 들어가요)</small></div>', 'last']);
+  return c;
+}
+function recapSvg(st) {
+  var axes = st.axes.map(function (a) { return { id: a.name, name: a.name, level: a.now, prev_level: a.start, into: 0, need: 0 }; });
+  return statSvg({ axes: axes, max_level: st.max_level }, {}).replace(/onclick="[^"]*"/g, '');
+}
+// 공유용 요약 이미지 (canvas → PNG). summary엔 숫자·스탯 레벨·축 이름·배지 아이콘만 있음
+function recapImage(sm) {
+  if (RP.img && RP.img.k === sm) return RP.img.url;
+  var W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  var c = cv.getContext('2d'), F = getComputedStyle(document.body).fontFamily || 'sans-serif';
+  c.fillStyle = '#F4F1EC'; c.fillRect(0, 0, W, H);
+  c.fillStyle = '#4F4E30'; c.fillRect(0, 0, W, 14);
+  c.textAlign = 'center'; c.fillStyle = '#8C877D'; c.font = '600 40px ' + F; c.fillText(sm.year + ' 방송예술과', W / 2, 110);
+  c.fillStyle = '#1F1E1A'; c.font = '800 76px ' + F; c.fillText('올해의 성우', W / 2, 200);
+  var cx = W / 2, cy = 590, R = 220;
+  if (sm.stats && sm.stats.levels.length >= 3) {
+    var n = sm.stats.levels.length, mx = sm.stats.max_level || 10;
+    var pt = function (i, r) { var t = -Math.PI / 2 + 2 * Math.PI * i / n; return [cx + r * Math.cos(t), cy + r * Math.sin(t)]; };
+    c.strokeStyle = '#D9CFBF'; c.lineWidth = 2;
+    for (var k = 2; k <= mx; k += 2) { c.beginPath(); for (var i = 0; i < n; i++) { var p = pt(i, R * k / mx); i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); } c.closePath(); c.stroke(); }
+    c.beginPath(); sm.stats.levels.forEach(function (lv, i) { var p = pt(i, R * lv / mx); i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); }); c.closePath();
+    c.fillStyle = 'rgba(79,78,48,.28)'; c.fill(); c.strokeStyle = '#4F4E30'; c.lineWidth = 5; c.stroke();
+    c.fillStyle = '#1F1E1A'; c.font = '700 34px ' + F;
+    sm.stats.labels.forEach(function (lb, i) { var p = pt(i, R + 62); c.fillText(lb + ' ' + sm.stats.levels[i], p[0], p[1] + 12); });
+  } else { c.fillStyle = '#8C877D'; c.font = '600 40px ' + F; c.fillText('🎙', cx, cy); }
+  var nums = [['녹음', sm.recordings, '건'], ['배역', sm.roles, '개'], ['모임', sm.meetings, '번'], ['배지', sm.badges.length, '개']];
+  nums.forEach(function (x, i) {
+    var bx = 90 + i * 225;
+    c.fillStyle = '#FFFFFF'; c.beginPath(); if (c.roundRect) c.roundRect(bx, 940, 205, 170, 28); else c.rect(bx, 940, 205, 170); c.fill();
+    c.fillStyle = '#8C877D'; c.font = '600 32px ' + F; c.fillText(x[0], bx + 102, 992);
+    c.fillStyle = '#4F4E30'; c.font = '800 72px ' + F; c.fillText(String(x[1]), bx + 102, 1075);
+  });
+  if (sm.badges.length) { c.font = '64px ' + F; c.fillText(sm.badges.slice(0, 10).join(' '), W / 2, 1210); }
+  c.fillStyle = '#8C877D'; c.font = '600 30px ' + F; c.fillText('방송예술과 성우팀', W / 2, 1290);
+  RP.img = { k: sm, url: cv.toDataURL('image/png') };
+  return RP.img.url;
 }

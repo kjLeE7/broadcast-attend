@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261005r">
+  <link rel="stylesheet" href="beta.css?v=20261005s">
 </head>
 <body>
   <div class="app">
@@ -291,6 +291,8 @@
         <h1 class="page-title">개인노트</h1>
         <p class="page-desc">내 정보와 한 달 동안 걸어온 길을 모아봐요</p>
 
+        <!-- 연말 결산 카드 (공개일 뒤 모두, 그 전엔 교관 이상 미리보기. 관리자는 공개일 바꾸기) -->
+        <div id="recapArea"></div>
         <!-- 성우 스탯 (육각형 차트 + 받은 피드백). 스탯 축이 있는 팀 사람만 보임 -->
         <div id="statArea"></div>
         <!-- 칭호·배지 (딴 것 진하게, 못 딴 것 흐리게, 누르면 대표 칭호 고르기) -->
@@ -506,6 +508,15 @@
       <button type="button" data-t="poll" onclick="pfGo('poll')">시간취합</button>
     </div>
   </nav>
+
+  <!-- 연말 결산: 스토리처럼 한 장씩 (openRecap) -->
+  <div class="rp-story" id="recapView" hidden>
+    <div class="rp-bars" id="rpBars"></div>
+    <button class="rp-x" type="button" onclick="closeRecap()" aria-label="닫기">✕</button>
+    <div class="rp-card" id="rpCard"></div>
+    <button class="rp-nav prev" type="button" onclick="recapStep(-1)" aria-label="이전"></button>
+    <button class="rp-nav next" type="button" onclick="recapStep(1)" aria-label="다음"></button>
+  </div>
 
   <!-- ===== 만들기 팝업 (FAB로 열림, PC: 가운데 / 폰: 아래에서 올라옴) ===== -->
   <div class="b-modal" id="annModal" aria-hidden="true">
@@ -779,6 +790,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261005b"></script>
-  <script src="beta.js?v=20261005r"></script>
+  <script src="beta.js?v=20261005s"></script>
 </body>
 </html>

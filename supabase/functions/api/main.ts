@@ -1437,6 +1437,44 @@ async function awardBadges(ctx: Ctx, ids: string[], notify = true) {
   return got;
 }
 
+// ----- 연말 결산 -----
+// 관리자 명단(app_settings admins)에 있는지
+async function isAdmin(ctx: Ctx) {
+  const r = must(await ctx.db.from("app_settings").select("value").eq("key", "admins").maybeSingle());
+  return Array.isArray(r?.value) && r.value.includes(ctx.me.id);
+}
+// 그해 공개일·공개 여부·미리보기 가능 여부
+async function recapState(ctx: Ctx, year: number) {
+  const r = must(await ctx.db.from("app_settings").select("value").eq("key", "recap_open").maybeSingle());
+  const md = /^\d\d-\d\d$/.test(String(r?.value)) ? String(r.value) : "12-22";
+  const admin = await isAdmin(ctx);
+  const { teams } = await myTeams(ctx);
+  const preview = admin || teams.some((t: any) => t.rank >= RANK.INSTRUCTOR);
+  return { year, open_md: md, open: Date.now() >= kstMs(`${year}-${md}`), preview, admin, teams };
+}
+// 장소 글자 → 동네지도 장소 이름 (places 별칭, 긴 것부터). 못 맞추면 null
+async function placeNamer(ctx: Ctx) {
+  const plc: any[] = must(await ctx.db.from("places").select("code, name, aliases").eq("is_active", true)) ?? [];
+  const norm = (x: any) => String(x ?? "").toLowerCase().replace(/\s+/g, "");
+  const list: [string, string][] = [];
+  for (const p of plc) for (const a of [p.name, ...(p.aliases ?? [])]) if (norm(a)) list.push([norm(a), p.name]);
+  list.sort((a, b) => b[0].length - a[0].length);
+  return (loc: any) => { const n = norm(loc); if (!n) return null; for (const [a, nm] of list) if (n.includes(a)) return nm; return null; };
+}
+// 결산 기간: 기본 그해 1/1~12/31. from/to(YYYY-MM-DD)는 미리보기 가능한 사람만 (테스트용)
+function recapRange(st: any, p: any) {
+  if ((p.from || p.to) && st.preview) {
+    if (!isDate(p.from) || !isDate(p.to) || p.from > p.to) throw new HttpError(400, "기간을 다시 골라주세요");
+    return { from: kstMs(p.from), to: kstMs(addDaysStr(p.to, 1)), custom: true };
+  }
+  return { from: kstMs(`${st.year}-01-01`), to: kstMs(`${st.year + 1}-01-01`), custom: false };
+}
+function recapYear(p: any) {
+  const y = Number(p?.year ?? kstToday().slice(0, 4));
+  if (!Number.isInteger(y) || y < 2025 || y > 2100) throw new HttpError(400, "연도를 다시 골라주세요");
+  return y;
+}
+
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 내 정보 + 내가 접근할 수 있는 팀 목록(팀 선택 탭용)
@@ -1703,6 +1741,106 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     must(await ctx.db.from("person_badges").update({ is_title: false }).eq("person_id", ctx.me.id).eq("is_title", true));
     if (bid) must(await ctx.db.from("person_badges").update({ is_title: true }).eq("person_id", ctx.me.id).eq("badge_id", bid));
     return { ok: true };
+  },
+
+  // ----- 연말 결산 -----
+  // 결산 상태 { year? } → 공개일·공개 여부·미리보기·관리자
+  async "recap.status"(ctx) {
+    const st = await recapState(ctx, recapYear(ctx.payload));
+    return { year: st.year, open_md: st.open_md, open: st.open, preview: st.preview, admin: st.admin };
+  },
+  // 공개일 바꾸기 { md: "MM-DD" } — 관리자 명단만
+  async "recap.setOpen"(ctx) {
+    if (!(await isAdmin(ctx))) throw new HttpError(403, "관리자만 바꿀 수 있어요");
+    const md = String(ctx.payload?.md ?? "");
+    const m = md.match(/^(\d\d)-(\d\d)$/);
+    if (!m || +m[1] < 1 || +m[1] > 12 || +m[2] < 1 || +m[2] > 31) throw new HttpError(400, "날짜를 다시 골라주세요");
+    must(await ctx.db.from("app_settings").update({ value: md, updated_by: ctx.me.id, updated_at: new Date().toISOString() }).eq("key", "recap_open"));
+    return { open_md: md };
+  },
+  // 내 결산 { year?, from?, to? }: 본인 것만 (다른 사람 id는 받지 않음). 공개 전엔 미리보기 가능한 사람만
+  // summary(공유 이미지용)엔 숫자·스탯 모양·배지 아이콘만 — 제목·코드·배역·코멘트·이름은 넣지 않음
+  async "recap.get"(ctx) {
+    const st = await recapState(ctx, recapYear(ctx.payload));
+    if (!st.open && !st.preview) throw new HttpError(403, "아직 열리지 않았어요");
+    const { from, to, custom } = recapRange(st, ctx.payload ?? {});
+    const iso = [new Date(from).toISOString(), new Date(to).toISOString()];
+    const day = [new Date(from + 9 * HOUR).toISOString().slice(0, 10), new Date(to + 9 * HOUR).toISOString().slice(0, 10)];
+    const me = ctx.me.id, nameOf = await placeNamer(ctx);
+
+    // 1) 녹음: 완료된 회차에 성우로 확정돼 들어간 것
+    const myRec: any[] = must(await ctx.db.from("recording_participants")
+      .select("session_id, role_id, recording_sessions!inner(id, status, scheduled_start, location)")
+      .eq("person_id", me).eq("role", "녹음자").eq("selected", true)
+      .eq("recording_sessions.status", "완료").gte("recording_sessions.scheduled_start", iso[0]).lt("recording_sessions.scheduled_start", iso[1])) ?? [];
+    const recIds = [...new Set(myRec.map((r) => r.session_id as string))];
+    const roles = new Set(myRec.map((r) => r.role_id).filter(Boolean)).size;
+    // 6) 함께 녹음한 사람 (성우·엔지니어 각각 가장 많이)
+    const co: any[] = recIds.length ? must(await ctx.db.from("recording_participants").select("session_id, person_id, role, people(name)")
+      .in("session_id", recIds).eq("selected", true).neq("person_id", me)) ?? [] : [];
+    const top = (role: string) => {
+      const c = new Map<string, { name: string; n: number; s: Set<string> }>();
+      for (const r of co.filter((x) => x.role === role)) { const v = c.get(r.person_id) ?? { name: r.people?.name ?? "", n: 0, s: new Set() }; if (!v.s.has(r.session_id)) { v.s.add(r.session_id); v.n++; } c.set(r.person_id, v); }
+      const b = [...c.values()].sort((a, z) => z.n - a.n)[0];
+      return b ? { name: b.name, count: b.n } : null;
+    };
+    // 7) 참석한 모임 (마감된 모임에서 참석·지각·조퇴)
+    const att: any[] = must(await ctx.db.from("attendance").select("session_id, meeting_sessions!inner(session_date, closed_at, location, meeting_types(default_location))")
+      .eq("person_id", me).in("status", ["참석", "지각", "조퇴"]).not("meeting_sessions.closed_at", "is", null)
+      .gte("meeting_sessions.session_date", day[0]).lt("meeting_sessions.session_date", day[1])) ?? [];
+    // 2) 제일 많이 간 장소 (모임 + 녹음)
+    const pc = new Map<string, number>();
+    for (const a of att) { const n = nameOf(a.meeting_sessions?.location || a.meeting_sessions?.meeting_types?.default_location); if (n) pc.set(n, (pc.get(n) ?? 0) + 1); }
+    for (const id of recIds) { const r = myRec.find((x) => x.session_id === id); const n = nameOf(r?.recording_sessions?.location); if (n) pc.set(n, (pc.get(n) ?? 0) + 1); }
+    const topPlace = [...pc.entries()].sort((a, b) => b[1] - a[1])[0];
+    // 3) 스탯: 기간 시작 vs 끝
+    const sst = await statSettings(ctx), team = await statTeamOf(ctx, me);
+    let stats = null;
+    if (team) {
+      const axes: any[] = must(await ctx.db.from("stat_axes").select("id,name").eq("team_id", team).eq("is_active", true).order("sort")) ?? [];
+      const gs: any[] = must(await ctx.db.from("stat_grants").select("created_at, stat_grant_items(axis_id, xp)").eq("person_id", me).eq("team_id", team).is("revoked_at", null).lt("created_at", iso[1])) ?? [];
+      const a0 = new Map<string, number>(), a1 = new Map<string, number>();
+      for (const g of gs) for (const i of g.stat_grant_items) { a1.set(i.axis_id, (a1.get(i.axis_id) ?? 0) + i.xp); if (Date.parse(g.created_at) < from) a0.set(i.axis_id, (a0.get(i.axis_id) ?? 0) + i.xp); }
+      const ax = axes.map((a) => ({ name: a.name, start: statLevel(a0.get(a.id) ?? 0, sst.factor, sst.maxLevel).level, now: statLevel(a1.get(a.id) ?? 0, sst.factor, sst.maxLevel).level, gain: (a1.get(a.id) ?? 0) - (a0.get(a.id) ?? 0) }));
+      const best = ax.slice().sort((a, b) => b.gain - a.gain)[0];
+      stats = { max_level: sst.maxLevel, axes: ax, best: best && best.gain > 0 ? best.name : null };
+    }
+    // 4) 교관 코멘트: 받은 XP가 큰 지급 3개
+    const cg: any[] = must(await ctx.db.from("stat_grants").select("comment, created_at, people!stat_grants_granted_by_fkey(name), stat_grant_items(xp)")
+      .eq("person_id", me).is("revoked_at", null).gte("created_at", iso[0]).lt("created_at", iso[1])) ?? [];
+    const comments = cg.map((g) => ({ comment: g.comment, by: g.people?.name ?? "", at: g.created_at, xp: g.stat_grant_items.reduce((a: number, i: any) => a + i.xp, 0) }))
+      .sort((a, b) => b.xp - a.xp || Date.parse(b.at) - Date.parse(a.at)).slice(0, 3);
+    // 5) 기간 안에 딴 배지
+    const bd: any[] = must(await ctx.db.from("person_badges").select("earned_at, badges(name, icon)").eq("person_id", me).gte("earned_at", iso[0]).lt("earned_at", iso[1]).order("earned_at")) ?? [];
+    const badges = bd.filter((b) => b.badges).map((b) => ({ name: b.badges.name, icon: b.badges.icon }));
+
+    return {
+      year: st.year, open: st.open, custom, from: day[0], to: addDaysStr(day[1], -1),
+      recordings: recIds.length, roles, place: topPlace ? { name: topPlace[0], count: topPlace[1] } : null,
+      stats, comments, badges, with_voice: top("녹음자"), with_engineer: top("엔지니어"), meetings: att.length,
+      summary: {
+        year: st.year, recordings: recIds.length, roles, meetings: att.length, badges: badges.map((b) => b.icon),
+        stats: stats ? { max_level: stats.max_level, levels: stats.axes.map((a: any) => a.now), labels: stats.axes.map((a: any) => a.name) } : null,
+      },
+    };
+  },
+  // 팀 결산 { team_id, year?, from?, to? }: 그 팀 교관 이상. 팀 합계만 (개인별 없음)
+  async "recap.team"(ctx) {
+    const p = ctx.payload ?? {};
+    await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
+    const st = await recapState(ctx, recapYear(p));
+    const { from, to } = recapRange(st, p);
+    const iso = [new Date(from).toISOString(), new Date(to).toISOString()];
+    const day = [new Date(from + 9 * HOUR).toISOString().slice(0, 10), new Date(to + 9 * HOUR).toISOString().slice(0, 10)];
+    const cnt = async (q: any) => (await q).count ?? 0;
+    const sess: any[] = must(await ctx.db.from("meeting_sessions").select("id").eq("team_id", p.team_id).not("closed_at", "is", null).gte("session_date", day[0]).lt("session_date", day[1])) ?? [];
+    const [rec, attend, grants, badges] = await Promise.all([
+      cnt(ctx.db.from("recording_sessions").select("id", { count: "exact", head: true }).eq("team_id", p.team_id).eq("status", "완료").gte("scheduled_start", iso[0]).lt("scheduled_start", iso[1])),
+      sess.length ? cnt(ctx.db.from("attendance").select("session_id", { count: "exact", head: true }).in("session_id", sess.map((x) => x.id)).in("status", ["참석", "지각", "조퇴"])) : 0,
+      cnt(ctx.db.from("stat_grants").select("id", { count: "exact", head: true }).eq("team_id", p.team_id).is("revoked_at", null).gte("created_at", iso[0]).lt("created_at", iso[1])),
+      cnt(ctx.db.from("person_badges").select("id, badges!inner(team_id)", { count: "exact", head: true }).eq("badges.team_id", p.team_id).gte("earned_at", iso[0]).lt("earned_at", iso[1])),
+    ]);
+    return { recordings: rec, meetings: sess.length, attendance: attend, grants, badges };
   },
 
   // 내 한 달 활동: { month: "YYYY-MM" }
