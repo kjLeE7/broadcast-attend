@@ -95,7 +95,7 @@ function showState(title, desc) {
   $('loginBox').style.display = 'none';
   $('stateBox').style.display = 'block';
   $('stateBox').innerHTML = '<b>' + esc(title) + '</b>' + esc(desc || '');
-  ['homeView', 'listView', 'detailView', 'reportView', 'noticeView', 'taskView', 'weeklyView', 'profileView'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['homeView', 'listView', 'detailView', 'reportView', 'noticeView', 'taskView', 'weeklyView', 'recView', 'profileView'].forEach(function (id) { $(id).style.display = 'none'; });
 }
 
 // ---------------------------------------------------------------------
@@ -133,10 +133,16 @@ function boot() {
     $('who').textContent = name + '님' + (top ? ' · ' + top.unit + ' ' + top.position : '');
     if (!me.teams.length) { showState('아직 소속 팀이 없어요', '팀장님께 팀 배정을 요청해주세요'); return; }
     $('tabbar').classList.remove('b-off');
+    setupRecTab();
     setupTownTab();
     document.body.classList.add('b-nav');
     renderTeamTabs();
     if (DEEP_SESSION) openDeepSession(DEEP_SESSION);
+    else if (DEEP_REC && recAllowed()) {
+      RC.pending = DEEP_REC; DEEP_REC = null;
+      try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+      Promise.resolve(selectTeam(me.teams[0].id)).then(function () { goTab('rec'); });
+    }
     else if (DEEP_WEEK) {
       var ws = DEEP_WEEK; DEEP_WEEK = null;
       try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -162,7 +168,7 @@ function loginQuery(u) {
   return q.toString();
 }
 function showLogin(msg) {
-  ['stateBox', 'homeView', 'listView', 'detailView', 'reportView', 'weeklyView', 'noticeView', 'taskView', 'profileView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
+  ['stateBox', 'homeView', 'listView', 'detailView', 'reportView', 'weeklyView', 'noticeView', 'taskView', 'recView', 'profileView', 'teamTabs'].forEach(function (id) { $(id).style.display = 'none'; });
   $('tabbar').classList.add('b-off');
   document.body.classList.remove('b-nav');
   $('who').textContent = '게스트';
@@ -1144,7 +1150,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', profile: 'profileView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
@@ -1180,7 +1186,7 @@ function setTabUI(t) {
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && t !== 'town' && t !== 'profile' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
@@ -1191,6 +1197,7 @@ function refreshTab() {
   else if (curTab === 'notice') loadNotices();
   else if (curTab === 'task') loadTasks();
   else if (curTab === 'weekly' && !W.data) openWeekly('next');
+  else if (curTab === 'rec') loadRec();
   else if (curTab === 'profile') loadProfile();
 }
 
@@ -1586,7 +1593,7 @@ function closeModal(id) {
   m.classList.remove('show'); m.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('modal-open');
   MODAL = null;
-  try { if (tg && tg.BackButton && !S.current && !A.current) tg.BackButton.hide(); } catch (e) {}
+  try { if (tg && tg.BackButton && !S.current && !A.current && !RC.current) tg.BackButton.hide(); } catch (e) {}
 }
 // 출결 FAB: 만들 수 있는 게 하나면 바로 팝업, 둘이면 작은 메뉴를 펼침
 function attFabTap() {
@@ -2067,6 +2074,250 @@ function deleteTask() {
 }
 
 // =====================================================================
+// 녹음 요청 (세 팀 교관 이상): 요청 올리기 → 알림 → 가능한 시간·장소·후보 → 확정
+// =====================================================================
+var RC = { list: null, current: null, plan: null, day: null, slot: null, sel: null, place: null, pending: null, busy: false };
+var REC_ST = { '접수': 'st-none', '캐스팅중': 'st-지각', '일정확정': 'st-참석', '녹음완료': 'st-참석', '편집완료': 'st-참석', '전달완료': 'st-참석', '보류': 'st-지각', '취소': 'st-취소' };
+var REC_ROLES = [['voice', '성우'], ['engineer', '엔지니어'], ['director', '감독']];
+var DEEP_REC = (function () { try { return new URLSearchParams(location.search).get('rec'); } catch (e) { return null; } })();
+function recAllowed() { return !!(S.me && S.me.teams.some(function (t) { return t.rank >= RANK.INSTRUCTOR; })); }
+function setupRecTab() { $('recTab').style.display = recAllowed() ? '' : 'none'; }
+function recIsOpen(r) { return ['접수', '캐스팅중', '일정확정', '보류'].indexOf(r.status) !== -1; }
+function durText(m) { return m % 60 ? (m >= 60 ? Math.floor(m / 60) + '시간 ' : '') + (m % 60) + '분' : (m / 60) + '시간'; }
+function ddText(ms) { var d = dayDiff(ms); return d < 0 ? '마감 지남' : d === 0 ? '오늘 마감' : 'D-' + d; }
+
+function loadRec() {
+  if (!S.team || !recAllowed()) return;
+  if (!RC.list) $('recOpen').innerHTML = '<div class="skeleton row-skel"></div>';
+  return api('rec.list', { team_id: S.team.id }).then(function (l) {
+    RC.list = l;
+    renderRecList();
+    if (RC.pending) { var id = RC.pending; RC.pending = null; if (byId(l, id)) openRec(id); }
+    else if (RC.current) { var c = byId(l, RC.current.id); if (c) { RC.current = c; renderRecHead(); } }
+  }).catch(function (err) {
+    $('recOpen').innerHTML = '<div class="empty"><b>녹음 요청을 불러오지 못했어요</b>' + esc(err.message) + '</div>';
+  });
+}
+function recCard(r) {
+  var sel = RC.current && RC.current.id === r.id, due = r.due_at ? Date.parse(r.due_at) : null, s = r.session;
+  return '<button class="b-session b-task' + (sel ? ' b-sel' : '') + '" onclick="openRec(\'' + esc(r.id) + '\')"><div class="b-info">' +
+      (r.request_code ? '<span class="chip b-cat">' + esc(r.request_code) + '</span>' : '') +
+      '<b>' + esc(r.title || '녹음') + '</b><span>' + (due ? '마감 ' + dtLabel(r.due_at) : '마감 없음') + ' · 성우 ' + r.voices_needed + '명 · ' + durText(r.duration_min) + '</span>' +
+      (s ? '<span class="rc-when">📅 ' + mdw(s.start) + ' ' + hmMs(s.start) + ' · ' + esc(s.location) + '</span>' : '') +
+    '</div><div class="b-side"><span class="st ' + (REC_ST[r.status] || 'st-none') + '">' + esc(r.status) + '</span>' +
+      (due && recIsOpen(r) && !s ? '<small class="' + (dayDiff(due) <= 2 ? 'rc-soon' : '') + '">' + ddText(due) + '</small>' : '') + '</div></button>';
+}
+function renderRecList() {
+  var open = RC.list.filter(recIsOpen).sort(function (a, b) { return (a.due_at || '9') < (b.due_at || '9') ? -1 : 1; });
+  var past = RC.list.filter(function (r) { return !recIsOpen(r); });
+  $('recOpenCount').textContent = open.length ? open.length + '건' : '';
+  $('recOpen').innerHTML = open.length ? open.map(recCard).join('')
+    : '<div class="empty"><b>진행 중인 녹음 요청이 없어요</b>오른쪽 아래 + 버튼으로 요청을 올려요</div>';
+  $('recPast').innerHTML = past.length ? past.map(recCard).join('') : '<div class="empty"><b>최근 지난 요청이 없어요</b></div>';
+}
+
+// ----- 요청 올리기 팝업 -----
+function openRecModal() { setMsg('rcMsg', ''); openModal('recModal'); }
+function createRec() {
+  var due = $('rcDue').value;
+  var p = { team_id: S.team.id, title: $('rcTitle').value.trim(), due_at: due ? new Date(due).toISOString() : null,
+    duration_min: +$('rcDur').value, voices_needed: +$('rcNeed').value,
+    request_dept: $('rcDept').value.trim(), requester_name: $('rcWho').value.trim(), request_code: $('rcCode').value.trim(),
+    volume_desc: $('rcVol').value.trim(), note: $('rcNote').value.trim() };
+  if (!p.title) { setMsg('rcMsg', '녹음 제목을 적어주세요!', true); return; }
+  if (!due) { setMsg('rcMsg', '마감 기한을 넣어주세요!', true); return; }
+  if (new Date(due).getTime() < Date.now()) { setMsg('rcMsg', '마감 기한이 이미 지났어요', true); return; }
+  var btn = $('rcBtn'); btn.disabled = true; setMsg('rcMsg', '올리는 중...');
+  api('rec.create', p).then(function (r) {
+    (RC.list = RC.list || []).unshift(r);
+    ['rcTitle', 'rcDue', 'rcDept', 'rcWho', 'rcCode', 'rcVol', 'rcNote'].forEach(function (id) { $(id).value = ''; });
+    btn.disabled = false; haptic('success');
+    var n = r.notify_result || {};
+    setMsg('rcMsg', '올렸어요! 교관 이상 ' + (n.sent || 0) + '명에게 알림을 보냈어요' + (n.failed && n.failed.length ? ' (못 받음: ' + n.failed.join(', ') + ')' : ''));
+    renderRecList();
+    setTimeout(function () { setMsg('rcMsg', ''); closeModal('recModal'); openRec(r.id); }, 1400);
+  }).catch(function (err) { setMsg('rcMsg', err.message, true); btn.disabled = false; });
+}
+
+// ----- 상세 -----
+function openRec(id) {
+  var r = byId(RC.list || [], id); if (!r) return;
+  if (!RC.current || RC.current.id !== id) { RC.plan = null; RC.day = null; RC.slot = null; RC.sel = null; RC.place = null; }
+  RC.current = r;
+  var wide = isWide();
+  $('recListWrap').style.display = wide ? 'block' : 'none';
+  $('recView').classList.toggle('split', wide);
+  renderRecList();
+  $('recDetail').style.display = 'block';
+  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+  if (!wide) window.scrollTo(0, 0);
+  renderRecHead();
+  loadRecPlan();
+}
+function closeRec() {
+  RC.current = null; RC.plan = null;
+  $('recView').classList.remove('split');
+  $('recDetail').style.display = 'none';
+  $('recListWrap').style.display = 'block';
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+  if (RC.list) renderRecList();
+}
+function needsPlan(r) { return ['접수', '캐스팅중', '보류'].indexOf(r.status) !== -1 && !(r.session && r.session.status === '예정'); }
+function renderRecHead() {
+  var r = RC.current; if (!r) return;
+  var n = r.notify_result, info = [
+    ['마감', r.due_at ? dtLabel(r.due_at) + ' · ' + ddText(Date.parse(r.due_at)) : '없음'],
+    ['녹음', '성우 ' + r.voices_needed + '명 · ' + durText(r.duration_min)],
+    ['요청', [r.request_dept, r.requester_name].filter(Boolean).join(' · ')],
+    ['분량', r.volume_desc],
+    ['접수', (r.received_by_name || '') + ' · ' + dtLabel(r.received_at)],
+    ['알림', n ? '교관 이상 ' + n.sent + '명' + (n.failed && n.failed.length ? ' · 못 받음 ' + n.failed.join(', ') : '') : '']
+  ].filter(function (x) { return x[1]; });
+  var acts = r.status === '보류' ? [['다시 진행', '접수']] : recIsOpen(r) && r.status !== '일정확정' ? [['보류', '보류']] : [];
+  if (recIsOpen(r)) acts.push(['요청 취소', '취소']);
+  $('rdHead').innerHTML = '<div class="b-dhead">' + (r.request_code ? '<span class="chip b-cat">' + esc(r.request_code) + '</span>' : '') +
+    '<h1>' + esc(r.title || '녹음') + '</h1><p><span class="st ' + (REC_ST[r.status] || 'st-none') + '">' + esc(r.status) + '</span></p></div>' +
+    '<div class="card rc-info">' + info.map(function (x) { return '<div class="rc-row"><span>' + x[0] + '</span><b>' + esc(x[1]) + '</b></div>'; }).join('') +
+      (r.note ? '<p class="rc-note">' + esc(r.note) + '</p>' : '') +
+      (acts.length ? '<div class="rc-acts">' + acts.map(function (a) { return '<button type="button" class="rc-act' + (a[1] === '취소' ? ' bad' : '') + '" onclick="setRecStatus(\'' + a[1] + '\')">' + a[0] + '</button>'; }).join('') + '</div>' : '') +
+    '</div>';
+  var s = r.session;
+  $('rdSession').innerHTML = s ? '<div class="card rc-sess' + (s.status === '예정' ? ' on' : '') + '"><div class="b-card-title">' + (s.status === '예정' ? '확정된 녹음' : '녹음 기록') + '</div>' +
+      '<div class="rc-sw"><b>' + mdw(s.start) + ' ' + hmMs(s.start) + (s.end ? '–' + hmMs(s.end) : '') + '</b><span>' + esc(s.location) + '</span></div>' +
+      REC_ROLES.map(function (k) {
+        var role = { voice: '녹음자', engineer: '엔지니어', director: '감독자' }[k[0]];
+        var ns = s.people.filter(function (p) { return p.role === role; }).map(function (p) { return esc(p.name); });
+        return ns.length ? '<div class="rc-role"><span>' + k[1] + '</span><b>' + ns.join(', ') + '</b></div>' : '';
+      }).join('') +
+      (s.status === '예정' ? '<div class="rc-acts"><button type="button" class="rc-act ok" onclick="setRecSession(\'완료\')">녹음 완료</button><button type="button" class="rc-act bad" onclick="setRecSession(\'취소\')">일정 취소</button></div>' : '') +
+      '<div class="msg" id="rdSessMsg"></div></div>' : '';
+  if (!needsPlan(r)) $('rdPlan').innerHTML = '';
+}
+function setRecStatus(st) {
+  var r = RC.current; if (!r) return;
+  if (st === '취소' && !confirm('이 녹음 요청을 취소할까요?')) return;
+  api('rec.update', { id: r.id, status: st }).then(function () { r.status = st; haptic('success'); renderRecList(); renderRecHead(); if (needsPlan(r)) loadRecPlan(); })
+    .catch(function (err) { alertMsg(err.message); });
+}
+function setRecSession(st) {
+  var r = RC.current; if (!r || !r.session) return;
+  if (st === '취소' && !confirm('잡힌 녹음 일정을 취소할까요? 참여자에게 취소 알림이 가요')) return;
+  setMsg('rdSessMsg', '바꾸는 중...');
+  api('rec.sessionStatus', { session_id: r.session.id, status: st }).then(function () {
+    haptic('success');
+    if (st === '취소') { r.session = null; r.status = '접수'; RC.plan = null; } else { r.session.status = '완료'; r.status = '녹음완료'; }
+    renderRecList(); renderRecHead(); if (needsPlan(r)) loadRecPlan();
+  }).catch(function (err) { setMsg('rdSessMsg', err.message, true); });
+}
+
+// ----- 가능한 시간·장소·후보 -----
+function loadRecPlan() {
+  var r = RC.current; if (!r || !needsPlan(r)) return;
+  if (!RC.plan) $('rdPlan').innerHTML = '<div class="section-head b-gap"><h2>가능한 시간·장소</h2></div><div class="skeleton row-skel"></div>';
+  var id = r.id;
+  api('rec.plan', { id: id }).then(function (p) {
+    if (!RC.current || RC.current.id !== id) return;
+    RC.plan = p;
+    if (RC.slot !== null && !p.slots[RC.slot]) RC.slot = null;
+    if (RC.day === null && p.slots.length) RC.day = new Date(p.slots[0].start).toDateString();
+    renderRecPlan();
+  }).catch(function (err) { $('rdPlan').innerHTML = '<div class="empty"><b>가능한 시간을 찾지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function recName(i) { return RC.plan.people[i].name; }
+function recPlaceName(code) { var p = RC.plan.places.filter(function (x) { return x.code === code; })[0]; return p ? p.name : code; }
+function renderRecPlan() {
+  var P = RC.plan; if (!P) return;
+  var h = '';
+  var sub = P.people.filter(function (p) { return p.submitted; }).length;
+  h += '<div class="section-head b-gap"><h2>가능한 시간·장소</h2><span class="section-count">마감 ' + mdw(P.due) + ' 전까지 · ' + durText(P.duration_min) + '</span></div>';
+  h += '<p class="b-note rc-hint">업무가능 시간을 낸 사람만 계산해요 (과 ' + P.people.length + '명 중 ' + sub + '명). 녹음 장소: ' +
+    P.places.map(function (p) { return esc(p.name); }).join(' · ') + '</p>';
+  if (!P.slots.length) {
+    h += '<div class="empty"><b>마감 전까지 가능한 시간이 없어요</b>성우 ' + P.need + '명·엔지니어·감독이 모두 비는 시간이 없거나 녹음 장소가 다 찼어요. 업무가능 시간을 더 모으거나 마감을 늘려 보세요</div>';
+  } else {
+    var days = [], byDay = {};
+    P.slots.forEach(function (s, i) { var k = new Date(s.start).toDateString(); if (!byDay[k]) { byDay[k] = []; days.push(k); } byDay[k].push(i); });
+    if (!byDay[RC.day]) RC.day = days[0];
+    h += '<div class="b-picks rc-days">' + days.map(function (k) {
+      var d = new Date(k);
+      return '<button type="button" class="b-pick' + (k === RC.day ? ' on' : '') + '" data-day="' + esc(k) + '">' + (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ') <small>' + byDay[k].length + '</small></button>';
+    }).join('') + '</div>';
+    h += '<div class="rc-times">' + byDay[RC.day].map(function (i) {
+      var s = P.slots[i];
+      return '<button type="button" class="rc-t' + (RC.slot === i ? ' on' : '') + '" data-slot="' + i + '"><b>' + hmMs(s.start) + '–' + hmMs(s.end) + '</b>' +
+        '<small>성우 ' + s.v.length + ' · 엔지 ' + s.e.length + ' · 감독 ' + s.d.length + '</small><small>' + s.places.map(recPlaceName).map(esc).join(' · ') + '</small></button>';
+    }).join('') + '</div>';
+    if (RC.slot !== null) h += recSlotPanel();
+    else h += '<p class="b-note b-center">시간을 누르면 그 시간에 되는 사람을 골라 확정할 수 있어요</p>';
+  }
+  // 후보 (마감 전까지 전체)
+  h += '<div class="section-head b-gap"><h2>후보</h2><span class="section-count">마감 전까지 비는 시간 순</span></div><div class="rc-cands">';
+  REC_ROLES.forEach(function (k) {
+    var list = P.people.filter(function (p) { return p[k[0]]; }).sort(function (a, b) { return b.fit - a.fit || b.free_h - a.free_h || a.name.localeCompare(b.name); });
+    h += '<div class="card rc-col"><div class="b-card-title">' + k[1] + (k[0] === 'voice' ? ' <small>필요 ' + P.need + '명</small>' : k[0] === 'director' ? ' <small>교관 이상</small>' : '') + '</div>' +
+      (list.length ? list.map(function (p) {
+        return '<div class="rc-p' + (p.submitted ? '' : ' off') + '"><b>' + esc(p.name) + '</b><small>' + esc(k[0] === 'director' ? p.team.replace(/팀$/, '') + ' ' + p.position : p.position) + '</small>' +
+          '<em>' + (p.submitted ? (p.free_h ? p.free_h + '시간 가능' : '빈 시간 없음') : '업무가능 미제출') + '</em></div>';
+      }).join('') : '<div class="rc-none">해당하는 사람이 없어요</div>') + '</div>';
+  });
+  h += '</div>';
+  if (P.busy.length) {
+    h += '<div class="section-head b-gap"><h2>이미 잡힌 녹음</h2><span class="section-count">이 시간엔 그 장소를 빼고 계산해요</span></div><div class="card hl">' +
+      P.busy.map(function (b) {
+        return '<div class="rc-busy"><b>' + esc(recPlaceName(b.place)) + '</b><span>' + mdw(b.start) + ' ' + hmMs(b.start) + '–' + hmMs(b.end) + '</span><small>' + esc(b.title) + '</small></div>';
+      }).join('') + '</div>';
+  }
+  $('rdPlan').innerHTML = h;
+}
+function recSlotPanel() {
+  var P = RC.plan, s = P.slots[RC.slot], idsOf = function (arr) { return arr.map(function (i) { return P.people[i].id; }); };
+  if (!RC.sel) RC.sel = { voice: idsOf(s.pick.voice), engineer: idsOf(s.pick.engineer), director: idsOf(s.pick.director) };
+  if (!RC.place || s.places.indexOf(RC.place) === -1) RC.place = s.places[0];
+  var pool = { voice: s.v, engineer: s.e, director: s.d };
+  var h = '<div class="card rc-pick"><div class="b-card-title">' + mdw(s.start) + ' ' + hmMs(s.start) + '–' + hmMs(s.end) + ' 확정하기</div>';
+  h += '<div class="b-pick-row"><span>장소</span><div class="b-picks">' + s.places.map(function (c) {
+    return '<button type="button" class="b-pick' + (c === RC.place ? ' on' : '') + '" data-place="' + esc(c) + '">' + esc(recPlaceName(c)) + '</button>';
+  }).join('') + '</div></div>';
+  REC_ROLES.forEach(function (k) {
+    var n = RC.sel[k[0]].length;
+    h += '<div class="b-pick-row"><span>' + k[1] + '</span><div><div class="b-picks">' + pool[k[0]].map(function (i) {
+      var p = P.people[i], on = RC.sel[k[0]].indexOf(p.id) !== -1;
+      return '<button type="button" class="b-pick' + (on ? ' on' : '') + '" data-role="' + k[0] + '" data-pid="' + esc(p.id) + '">' + esc(p.name) + '</button>';
+    }).join('') + '</div>' + (k[0] === 'voice' && n !== P.need ? '<small class="rc-warn">필요 ' + P.need + '명 · 지금 ' + n + '명</small>' : '') + '</div></div>';
+  });
+  var dup = [];
+  RC.sel.voice.concat(RC.sel.engineer, RC.sel.director).forEach(function (id, i, all) { if (all.indexOf(id) !== i && dup.indexOf(id) === -1) dup.push(id); });
+  if (dup.length) h += '<small class="rc-warn">' + dup.map(function (id) { return esc(P.people.filter(function (p) { return p.id === id; })[0].name); }).join(', ') + '님이 두 역할에 들어가 있어요</small>';
+  h += '<button class="btn-primary" id="rcGo" type="button"' + (RC.busy ? ' disabled' : '') + '>이 시간으로 확정</button>' +
+    '<p class="b-note b-center">확정하면 고른 사람과 세 팀 교관 이상에게 알림이 가요</p><div class="msg" id="rcGoMsg"></div></div>';
+  return h;
+}
+function confirmRec() {
+  var P = RC.plan, s = P && P.slots[RC.slot]; if (!s || RC.busy) return;
+  if (!RC.sel.voice.length || !RC.sel.engineer.length || !RC.sel.director.length) { setMsg('rcGoMsg', '성우·엔지니어·감독을 한 명 이상씩 골라주세요', true); return; }
+  RC.busy = true; $('rcGo').disabled = true; setMsg('rcGoMsg', '확정하는 중...');
+  api('rec.schedule', { id: RC.current.id, start: s.start, place: RC.place, voice: RC.sel.voice, engineer: RC.sel.engineer, director: RC.sel.director }).then(function (r) {
+    RC.busy = false; haptic('success');
+    var n = r.notify || {};
+    alertMsg('녹음 일정을 확정했어요! ' + (n.sent || 0) + '명에게 알림을 보냈어요' + (n.failed && n.failed.length ? '\n못 받음: ' + n.failed.join(', ') : ''));
+    RC.plan = null; RC.slot = null; RC.sel = null;
+    loadRec();
+  }).catch(function (err) { RC.busy = false; $('rcGo').disabled = false; setMsg('rcGoMsg', err.message, true); });
+}
+$('rdPlan').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b || !RC.plan) return;
+  if (b.id === 'rcGo') { confirmRec(); return; }
+  if (b.hasAttribute('data-day')) { RC.day = b.getAttribute('data-day'); RC.slot = null; RC.sel = null; }
+  else if (b.hasAttribute('data-slot')) { var i = +b.getAttribute('data-slot'); if (RC.slot !== i) { RC.slot = i; RC.sel = null; } }
+  else if (b.hasAttribute('data-place')) RC.place = b.getAttribute('data-place');
+  else if (b.hasAttribute('data-role')) {
+    var list = RC.sel[b.getAttribute('data-role')], pid = b.getAttribute('data-pid'), at = list.indexOf(pid);
+    if (at === -1) list.push(pid); else list.splice(at, 1);
+  } else return;
+  renderRecPlan();
+});
+
+// =====================================================================
 // 홈 대시보드 — 지금 앱(app.js)의 홈 화면과 같은 동작. 데이터만 Supabase에서
 // =====================================================================
 var dashData = null;
@@ -2101,6 +2352,7 @@ document.addEventListener('keydown', function (e) {
   if (curTab === 'attend' && $('attendWrap').classList.contains('split')) showList();
   else if (curTab === 'task' && $('taskView').classList.contains('split')) closeTask();
   else if (curTab === 'profile' && $('profileView').classList.contains('split')) closePfEdit();
+  else if (curTab === 'rec' && $('recView').classList.contains('split')) closeRec();
 });
 
 // ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
@@ -2618,6 +2870,7 @@ if (tg && tg.BackButton) {
   tg.BackButton.onClick(function () {
     if (MODAL) closeModal();
     else if (curTab === 'task' && A.current) closeTask();
+    else if (curTab === 'rec' && RC.current) closeRec();
     else if (curTab === 'profile' && $('pfEdit').style.display === 'block') closePfEdit();
     else if (S.current) showList();
   });
