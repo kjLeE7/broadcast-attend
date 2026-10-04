@@ -127,7 +127,7 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `36eccfdeff6b4d442cd7413148b70b8ab1e292d7` (함수 버전 29, 녹음 배역·회차·수락/조율).
+- 현재 배포: SHA `7f3961b85944aa3718755ea7cea7239e611140d6` (함수 버전 30, 보안 점검 후 고침).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -214,6 +214,14 @@
 - 딥링크: `?rec=요청id`(교관 이상, 녹음 탭 상세), `?ask=participant_id`(누구나 본인 것 응답).
 - 녹음 장소를 바꾸려면 `update places set can_record = true/false where code = ...`.
 - 2026-10-04 기준: 시범 인원에 엔지니어팀이 없고 업무가능 시간도 아직 없어서 '가능한 시간'은 비어 보임.
+
+### 보안 점검 (2026-10-04, 함수 버전 30)
+- 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
+  ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
+  ⑥ 모임 `notify_result/remind_result`는 조장 이상만 ⑦ DB: anon·authenticated의 표·순서값 권한 전부 회수(+기본 권한), `effective_rank`·`set_updated_at` search_path 고정.
+- 확인된 것: 서명 검사(상수 시간 비교, 만료), 비활성 차단, cron 비밀값, 모든 id 기능이 그 항목의 팀으로 권한 확인, 텔레그램 HTML 이스케이프, DB 오류는 일반 문구, 뷰는 security_invoker, PIN 5회 잠금.
+- 남은 것(사용자 결정): 공개 저장소의 실명·장소·조직 정보(이 문서 포함), 옛 앱 Apps Script 소스 점검(명단 `getPeople`은 로그인 없이 나옴),
+  관리 계정 2단계 인증(Supabase·GitHub·Google·Telegram), 서버 키 교체(선택), PC 로그인 7일 저장, 알림 보내는 기능 쿨다운(조장+), 과제 제출·체크인 대상 확인, 글자 수 제한, 외부 스크립트 SRI/CSP.
 
 ### 공지 쓰기 (2026-10-04)
 - 오른쪽 아래 동그란 + 버튼(FAB, `#annFab`)으로 열림. 팝업(`#annModal`)으로 뜸 (2026-10-04 오른쪽 패널 → 팝업으로 바꿈).
