@@ -336,7 +336,8 @@ async function editableNotice(ctx: Ctx, id: string) {
 // ---------------------------------------------------------------------
 const MINIAPP_URL = Deno.env.get("MINIAPP_URL") ?? "https://kjlee7.github.io/broadcast-attend/beta/";
 const HOUR = 3600000;
-const SESSION_COLS = "*, meeting_types(name)";
+// 모임에 붙은 체크인(기상·출발·도착)도 같이: checkins: [{ id, items }]
+const SESSION_COLS = "*, meeting_types(name), checkins(id, items)";
 
 // 한국 시간 'YYYY-MM-DD' + 'HH:MM(:SS)' → 밀리초
 function kstMs(d: string, t = "00:00:00") {
@@ -586,7 +587,9 @@ async function notifyMembers(ctx: Ctx, s: any, kind: "new" | "cancel" | "change"
   const head = { new: "📅 새 모임이 잡혔어요", cancel: "❌ 모임이 취소됐어요", change: "✏️ 모임 정보가 바뀌었어요" }[kind];
   const text = `<b>${head}</b>\n\n<b>${escHtml(sessionName(s))}</b>\n${escHtml(sessionWhen(s))}${s.location ? " · " + escHtml(s.location) : ""}` +
     (kind !== "cancel" && s.description ? "\n\n📝 " + escHtml(String(s.description).slice(0, 300)) + (String(s.description).length > 300 ? "…" : "") : "") +
-    (kind === "cancel" ? "" : "\n\n미니앱에서 참석·지각·불참을 미리 체크해주세요.");
+    (kind === "cancel" ? "" : "\n\n미니앱에서 참석·지각·불참을 미리 체크해주세요.") +
+    (kind !== "cancel" && sessionCheckinItems(s).length
+      ? `\n그날은 ${sessionCheckinItems(s).map((x) => CHECKIN_EMOJI[x] + x).join("·")} 보고도 받아요. 봇에 '${sessionCheckinItems(s)[0]}'처럼 보내면 바로 기록돼요.` : "");
   const markup = kind === "cancel" ? undefined : checkButton(s);
   const { sent, failed, why } = await sendToMembers(members, text, markup);
   const result = { kind, sent, failed, why, at: new Date().toISOString() };
@@ -619,6 +622,11 @@ async function betaMenuAll(db: any) {
   return out;
 }
 
+function sessionCheckinItems(s: any): string[] {
+  const all = new Set<string>();
+  for (const c of s.checkins ?? []) for (const it of c.items ?? []) all.add(it);
+  return ["기상", "출발", "도착"].filter((x) => all.has(x));
+}
 function checkButton(s: any) {
   return { inline_keyboard: [[{ text: "출결 체크하기", web_app: { url: `${MINIAPP_URL}?s=${s.id}` } }]] };
 }
@@ -1613,6 +1621,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     }
     // 대상을 사람으로 집은 경우: 전체(과)는 팀장 이상, 팀은 그 팀 사람만
     const target_people = await pickedPeople(ctx, p, RANK.GROUP_LEADER, RANK.TEAM_LEADER);
+    // 같이 받을 체크인 항목 (기상·출발·도착 중 고른 것만, 없으면 체크인 안 만듦)
+    const ciItems = ["기상", "출발", "도착"].filter((x) => Array.isArray(p.checkin_items) && p.checkin_items.includes(x));
     if (p.notify !== false) await rateLimit(ctx, "sess_new", 10, 30);
     const s = must(await ctx.db.from("meeting_sessions").insert({
       target_people, target_label: target_people ? String(p.target_label ?? "").slice(0, 60) || null : null,
@@ -1624,6 +1634,13 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       team_id: p.team_id,
       created_by: ctx.me.id,
     }).select(SESSION_COLS).single());
+    if (ciItems.length) {
+      const c = must(await ctx.db.from("checkins").insert({
+        team_id: s.team_id, session_id: s.id, title: sessionName(s), check_date: s.session_date, items: ciItems,
+        target_unit_id: s.target_unit_id, target_people: s.target_people, target_label: s.target_label, created_by: ctx.me.id,
+      }).select("id, items").single());
+      s.checkins = [c];
+    }
     const notify = p.notify === false ? null : await notifyMembers(ctx, s, "new");
     return { ...s, notify };
   },
@@ -1759,7 +1776,13 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (["session_date", "start_time"].some((k) => k in patch && t5(patch[k]) !== t5(before[k]))) {
       patch.reminded_72h_at = null; patch.reminded_24h_at = null;   // 시간이 바뀌면 자동 알림을 새 시간 기준으로 다시
     }
-    const s = must(await ctx.db.from("meeting_sessions").update(patch).eq("id", before.id).select(SESSION_COLS).single());
+    let s = must(await ctx.db.from("meeting_sessions").update(patch).eq("id", before.id).select(SESSION_COLS).single());
+    if (patch.status === "취소" && before.status !== "취소") {
+      must(await ctx.db.from("checkins").delete().eq("session_id", s.id));
+      s = { ...s, checkins: [] };
+    } else if ((s.checkins ?? []).length && ("session_date" in patch || "title" in patch)) {
+      must(await ctx.db.from("checkins").update({ check_date: s.session_date, title: sessionName(s) }).eq("session_id", s.id));
+    }
     let notify = null;
     if (ctx.payload.notify !== false && patch.status === "취소" && before.status !== "취소") {
       notify = await notifyMembers(ctx, s, "cancel");

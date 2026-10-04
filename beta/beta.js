@@ -545,11 +545,11 @@ var TPLK = { c: 'session', hw: 'assignment', ci: 'checkin', ann: 'notice' };
 var TPLF = {
   c: {
     get: function () { return { type: $('cType').value, title: $('cTitle').value.trim(), start: $('cStart').value, end: $('cEnd').value,
-      place: getPlace(), desc: $('cDesc').value, notify: $('cNotify').checked }; },
+      place: getPlace(), desc: $('cDesc').value, notify: $('cNotify').checked, ci: cCiItems() }; },
     set: function (d) {
       $('cType').value = [].some.call($('cType').options, function (o) { return o.value === d.type; }) ? d.type : '';
       $('cTitle').value = d.title || ''; $('cStart').value = d.start || ''; $('cEnd').value = d.end || '';
-      setPlace(d.place); $('cDesc').value = d.desc || ''; $('cNotify').checked = d.notify !== false;
+      setPlace(d.place); $('cDesc').value = d.desc || ''; $('cNotify').checked = d.notify !== false; setCCiItems(d.ci);
     }, done: '날짜만 확인해주세요.'
   },
   hw: {
@@ -644,6 +644,9 @@ function notifyText(r) {
   if (r.failed && r.failed.length) t += '\n못 받은 사람: ' + r.failed.join(', ') + ' (봇을 아직 시작하지 않았을 수 있어요)';
   return t;
 }
+// 모임에 같이 붙일 체크인 항목 (기상·출발·도착 중 고른 것)
+function cCiItems() { return [].slice.call(document.querySelectorAll('#cCiItems input:checked')).map(function (x) { return x.value; }); }
+function setCCiItems(list) { document.querySelectorAll('#cCiItems input').forEach(function (x) { x.checked = (list || []).indexOf(x.value) !== -1; }); }
 function createSession() {
   var p = {
     team_id: S.team.id,
@@ -654,7 +657,8 @@ function createSession() {
     end_time: $('cEnd').value || null,
     location: getPlace() || null,
     description: $('cDesc').value.trim() || null,
-    notify: $('cNotify').checked
+    notify: $('cNotify').checked,
+    checkin_items: cCiItems()
   };
   // 팀 하나를 통째로 고르면 예전처럼 팀 모임, 그 밖에는 고른 사람들로
   var tg = pkPayload('c');
@@ -675,8 +679,10 @@ function createSession() {
     if (s.team_id === S.team.id) S.sessions.push(s);
     S.sessions.sort(function (a, b) { return a.session_date + (a.start_time || '') < b.session_date + (b.start_time || '') ? -1 : 1; });
     ['cTitle', 'cStart', 'cEnd', 'cDesc'].forEach(function (id) { $(id).value = ''; }); setPlace('');
-    $('cType').value = ''; pkReset('c');
+    $('cType').value = ''; pkReset('c'); setCCiItems([]);
     btn.disabled = false;
+    // 체크인이 같이 생겼으면 출결 위 체크인 카드도 새로
+    if (s.checkins && s.checkins.length) api('checkins.list', { team_id: S.team.id }).then(function (l) { C.list = l || []; renderCheckins(); }).catch(function () {});
     haptic('success');
     renderList();
     setMsg('cMsg', '만들었어요!' + (s.notify ? '\n' + notifyText(s.notify) : ''));
@@ -746,6 +752,10 @@ function syncSession() {
 
 function renderDetail() { renderHead(); renderMine(); renderBoard(); renderRemind(); renderActs(); }
 
+function sessCiItems(s) {
+  var all = {}; (s.checkins || []).forEach(function (c) { (c.items || []).forEach(function (x) { all[x] = 1; }); });
+  return ['기상', '출발', '도착'].filter(function (x) { return all[x]; });
+}
 function renderHead() {
   var s = S.current, d = parseDate(s.session_date), ph = phaseOf(s);
   var tag = { cancel: '<span class="st st-취소">취소</span>', closed: '<span class="chip">마감</span>',
@@ -755,7 +765,8 @@ function renderHead() {
   $('dHead').innerHTML = '<div class="b-dhead"><h1>' + esc(sessionName(s)) + '</h1><p>' +
     (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + WD[d.getDay()] + ')' + (timePlace(s) ? ' · ' + esc(timePlace(s)) : '') + '</p>' +
     '<div class="b-chips">' + tag + '<span class="chip">' + (s.target_label ? esc(s.target_label) : s.target_unit_id ? esc(groupName(s.target_unit_id)) : esc(S.team.name) + ' 전체') + '</span>' +
-    (M.board && M.board.grace_min ? '<span class="chip">시작 후 ' + M.board.grace_min + '분까지 참석</span>' : '') + '</div>' +
+    (M.board && M.board.grace_min ? '<span class="chip">시작 후 ' + M.board.grace_min + '분까지 참석</span>' : '') +
+    (sessCiItems(s).length ? '<span class="chip">⏰ 체크인 ' + sessCiItems(s).map(function (x) { return CI_EMOJI[x] + x; }).join('·') + '</span>' : '') + '</div>' +
     (s.description ? '<div class="card b-desc">' + esc(s.description) + '</div>' : '') +
     (lead && nr ? '<div class="b-notify">📨 ' + esc(notifyText(nr)) + '</div>' : '') + '</div>';
 }

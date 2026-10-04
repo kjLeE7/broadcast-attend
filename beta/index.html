@@ -583,6 +583,13 @@
         <label class="field-label" for="cPlaceSel">장소</label>
         <div class="select-wrap"><select id="cPlaceSel" onchange="onPlaceSel()"><option value="">장소를 고르세요</option><option>스담</option><option>회의실</option><option>사무실</option><option>연구실</option><option>거울방</option><option>코드원 스튜디오</option><option>SMC</option><option>과천성전 10층</option><option>과천성전 9층</option><option>벽산 편집실</option><option>줌</option><option value="기타">기타 (직접 입력)</option></select></div>
         <div class="b-slide" id="cPlaceWrap"><div><input type="text" id="cPlace" class="b-input" maxlength="40" placeholder="장소를 직접 적어주세요"></div></div>
+        <label class="field-label">체크인도 받기 <span class="hint">선택 · 필요한 것만 눌러요</span></label>
+        <div class="item-checks" id="cCiItems">
+          <label><input type="checkbox" value="기상"><span>☀️ 기상</span></label>
+          <label><input type="checkbox" value="출발"><span>🚗 출발</span></label>
+          <label><input type="checkbox" value="도착"><span>📍 도착</span></label>
+        </div>
+        <small class="tp-note">오후·저녁 모임은 출발·도착만, 이른 아침 모임은 기상까지. 그날 대상자가 앱이나 봇('기상' 보내기)으로 보고해요</small>
         <label class="field-label">대상</label>
         <div id="cPick"></div>
         <label class="field-label" for="cDesc">내용 <span class="hint">수업·스터디 내용 등 (선택)</span></label>
@@ -744,6 +751,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261005h"></script>
+  <script src="beta.js?v=20261005i"></script>
 </body>
 </html>
