@@ -100,12 +100,12 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `e7ceec2ed7eba24706d72821efa73cd20bd0677a` (함수 버전 15, 공지 대상 칩).
+- 현재 배포: SHA `4143408d5e3d7860e901263b85f96f06384a7b33` (함수 버전 16, 모임 사전체크 알림).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
-`sessions.create/update/delete/list/board/close`, `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
+`sessions.create/update/delete/list/board/close/remind`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
@@ -175,6 +175,14 @@
 6. **사유 입력**: 최종이 지각·불참·조퇴면 본인 화면에 사유 칸, 목록 위에 '사유를 적어주세요' 알림. 조장 이상이 대신 적을 수 있음
 7. **월간 리포트**: 마감된 모임만 셈. 사람별 출석률(참석+지각+조퇴)/정시율/지각률/불참률/사전체크율/평균 지각 분/사유 목록.
    조장 이상은 팀 전체 + '텍스트로 복사', 팀원은 본인 것만. (자동 발송은 아직 없음)
+8. **사전체크 알림** (2026-10-04, 함수 버전 16)
+   - 만들 때: 대상자 전원에게 알림(1번, 원래 있던 것).
+   - 자동: 시작 **72시간 전·24시간 전**에 사전체크 안 한 사람(사전·최종 출결 둘 다 없음)에게만. pg_cron 작업 `session-reminders`가 **10분마다**
+     pg_net으로 문지기에 `{action:"cron.reminders"}` + 헤더 `x-cron-secret`을 보냄. 비밀값은 vault `cron_secret`, 확인은 `check_cron_secret()`(service_role만).
+     그 시점보다 늦게 만든 모임은 그 알림을 건너뜀(만들 때 알림이 이미 감). 날짜·시작 시간을 바꾸면 `reminded_72h_at/24h_at`을 비워 새 시간 기준으로 다시.
+   - 수동: 모임 상세 '🔔 사전체크 알림' 상자(교관 이상, 시작 전만) → `sessions.remind`. 10분에 한 번. 상자에 미체크 명단·자동 알림 예정/보냄·마지막 수동 알림 결과.
+   - 칸: `meeting_sessions.reminded_72h_at`, `reminded_24h_at`, `reminded_manual_at`, `remind_result`.
+   - 자동 알림이 안 가면: `select * from cron.job_run_details order by start_time desc limit 5;`, `select * from net._http_response order by id desc limit 5;`, 함수 로그 순서로 봄.
 - `attendance.status`는 **최종** 결과, `planned_status`는 **사전** 체크. 예전 `saveMine/saveFor/update/list`는 없앴음.
 
 ### 동네지도 (2026-10-03, PC 전용 '동네지도' 탭)
