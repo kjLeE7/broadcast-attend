@@ -13,7 +13,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004o">
+  <link rel="stylesheet" href="beta.css?v=20261004p">
 </head>
 <body>
   <div class="app">
@@ -418,11 +418,17 @@
         <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
       </div>
       <div class="b-modal-body">
+        <!-- 내 양식: 누르면 그대로 채워짐 / 지금 입력한 걸 양식으로 저장 -->
+        <div class="tpl-bar" id="annTplBar"></div>
+        <div class="b-slide" id="annTplSave"><div>
+          <div class="tpl-save">
+            <input type="text" id="annTplName" class="b-input" maxlength="30" placeholder="양식 이름">
+            <button type="button" class="tpl-save-btn" onclick="tplSave('ann')">저장</button>
+          </div>
+          <small class="tpl-note">제목·내용·고정·대상을 저장해요. 같은 이름이면 덮어써요.</small>
+        </div></div>
         <label class="field-label">대상</label>
-        <div class="b-pick-row"><span>팀</span><div class="b-picks" id="annTeams"></div></div>
-        <div class="b-pick-row" id="annPosRow"><span>직책</span><div class="b-picks" id="annPos"></div></div>
-        <div class="b-pick-row" id="annGrpRow"><span>조</span><div class="b-picks" id="annGrp"></div></div>
-        <div class="b-aud" id="annAud"></div>
+        <div id="annPick"></div>
         <label class="field-label" for="annTitle">제목</label>
         <input type="text" id="annTitle" class="b-input" maxlength="100" placeholder="예) 10월 정규수업 안내">
         <label class="field-label" for="annBody">내용</label>
@@ -441,6 +447,15 @@
         <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
       </div>
       <div class="b-modal-body">
+        <!-- 내 양식: 누르면 그대로 채워짐 / 지금 입력한 걸 양식으로 저장 -->
+        <div class="tpl-bar" id="ciTplBar"></div>
+        <div class="b-slide" id="ciTplSave"><div>
+          <div class="tpl-save">
+            <input type="text" id="ciTplName" class="b-input" maxlength="30" placeholder="양식 이름">
+            <button type="button" class="tpl-save-btn" onclick="tplSave('ci')">저장</button>
+          </div>
+          <small class="tpl-note">날짜만 빼고 제목·항목·대상을 저장해요. 같은 이름이면 덮어써요.</small>
+        </div></div>
         <label class="field-label" for="ciTitle">제목</label>
         <input type="text" id="ciTitle" class="b-input" maxlength="60" placeholder="예) 수련회 이동">
         <label class="field-label" for="ciDate">날짜</label>
@@ -451,8 +466,8 @@
           <label><input type="checkbox" value="출발" checked><span>🚗 출발</span></label>
           <label><input type="checkbox" value="도착" checked><span>📍 도착</span></label>
         </div>
-        <label class="field-label" for="ciTarget">대상</label>
-        <div class="select-wrap"><select id="ciTarget" class="b-target"></select></div>
+        <label class="field-label">대상</label>
+        <div id="ciPick"></div>
         <button class="btn-primary" id="ciBtn" onclick="createCheckin()">체크인 만들기</button>
         <div class="msg" id="ciMsg"></div>
       </div>
@@ -470,8 +485,8 @@
         <div class="tpl-bar" id="cTplBar"></div>
         <div class="b-slide" id="cTplSave"><div>
           <div class="tpl-save">
-            <input type="text" id="cTplName" class="b-input" maxlength="30" placeholder="양식 이름 (예: 토요 정규수업)">
-            <button type="button" class="tpl-save-btn" onclick="saveSessTpl()">저장</button>
+            <input type="text" id="cTplName" class="b-input" maxlength="30" placeholder="양식 이름">
+            <button type="button" class="tpl-save-btn" onclick="tplSave('c')">저장</button>
           </div>
           <small class="tpl-note">날짜만 빼고 지금 입력한 그대로(대상·장소·내용까지) 저장돼요. 같은 이름이면 덮어써요.</small>
         </div></div>
@@ -489,9 +504,7 @@
         <div class="select-wrap"><select id="cPlaceSel" onchange="onPlaceSel()"><option value="">장소를 고르세요</option><option>스담</option><option>회의실</option><option>사무실</option><option>연구실</option><option>거울방</option><option>코드원 스튜디오</option><option>SMC</option><option>과천성전 10층</option><option>과천성전 9층</option><option>벽산 편집실</option><option>줌</option><option value="기타">기타 (직접 입력)</option></select></div>
         <div class="b-slide" id="cPlaceWrap"><div><input type="text" id="cPlace" class="b-input" maxlength="40" placeholder="장소를 직접 적어주세요"></div></div>
         <label class="field-label">대상</label>
-        <div class="b-pick-row"><span>팀</span><div class="b-picks" id="cTeams"></div></div>
-        <div class="b-pick-row" id="cSubRow" style="display:none;"><span>조</span><div class="b-picks" id="cSubs"></div></div>
-        <div class="b-aud" id="cAud"><b>불러오는 중...</b></div>
+        <div id="cPick"></div>
         <label class="field-label" for="cDesc">내용 <span class="hint">수업·스터디 내용 등 (선택)</span></label>
         <textarea id="cDesc" rows="4" maxlength="2000" placeholder="예) 3과 발성 연습 · 대본 2쪽까지 읽어오기"></textarea>
         <label class="b-check-line"><input type="checkbox" id="cNotify" checked><span>대상자에게 텔레그램 알림 보내기</span></label>
@@ -528,6 +541,15 @@
         <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
       </div>
       <div class="b-modal-body">
+        <!-- 내 양식: 누르면 그대로 채워짐 / 지금 입력한 걸 양식으로 저장 -->
+        <div class="tpl-bar" id="hwTplBar"></div>
+        <div class="b-slide" id="hwTplSave"><div>
+          <div class="tpl-save">
+            <input type="text" id="hwTplName" class="b-input" maxlength="30" placeholder="양식 이름">
+            <button type="button" class="tpl-save-btn" onclick="tplSave('hw')">저장</button>
+          </div>
+          <small class="tpl-note">마감만 빼고 분류·제목·설명·피드백·대상을 저장해요. 같은 이름이면 덮어써요.</small>
+        </div></div>
         <label class="field-label" for="hwCat">분류 <span class="hint">예) 공통과제 · 주간과제A · 주간과제B</span></label>
         <input type="text" id="hwCat" class="b-input" maxlength="20" list="hwCats" placeholder="공통과제">
         <datalist id="hwCats"><option value="공통과제"><option value="주간과제A"><option value="주간과제B"></datalist>
@@ -537,8 +559,8 @@
         <textarea id="hwDesc" rows="4" maxlength="3000" placeholder="과제 내용과 제출 방법"></textarea>
         <label class="field-label" for="hwDue">마감</label>
         <input type="datetime-local" id="hwDue">
-        <label class="field-label" for="hwTarget">대상</label>
-        <div class="select-wrap"><select id="hwTarget" class="b-target"></select></div>
+        <label class="field-label">대상</label>
+        <div id="hwPick"></div>
         <label class="check-row"><input type="checkbox" id="hwFeedback" checked><span>피드백 주는 과제</span></label>
         <button class="btn-primary" id="hwBtn" onclick="createTask()">과제 내기</button>
         <div class="msg" id="hwMsg"></div>
@@ -548,6 +570,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004d"></script>
-  <script src="beta.js?v=20261004q"></script>
+  <script src="beta.js?v=20261004r"></script>
 </body>
 </html>

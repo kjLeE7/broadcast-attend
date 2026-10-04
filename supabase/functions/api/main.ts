@@ -445,8 +445,9 @@ async function sectionRoster(ctx: Ctx, teamId: string) {
   const people = new Map<string, any>();
   for (const r of must(pos as any) ?? []) {
     if (!r.people?.is_active) continue;
-    const p = people.get(r.person_id) ?? { id: r.person_id, name: r.people.name, position: "", rank: 0, ranks: {} as Record<string, number>, group: null, group_id: null };
+    const p = people.get(r.person_id) ?? { id: r.person_id, name: r.people.name, position: "", rank: 0, ranks: {} as Record<string, number>, pos: {} as Record<string, string>, group: null, group_id: null };
     const rk = r.positions?.rank ?? 0;
+    if (rk >= (p.ranks[r.org_unit_id] ?? 0)) p.pos[r.org_unit_id] = r.positions?.name ?? "";
     p.ranks[r.org_unit_id] = Math.max(p.ranks[r.org_unit_id] ?? 0, rk);
     if (rk > p.rank) { p.rank = rk; p.position = r.positions?.name ?? ""; }
     people.set(r.person_id, p);
@@ -462,6 +463,26 @@ async function sectionRoster(ctx: Ctx, teamId: string) {
     section, teams: teams.map((t: any) => ({ id: t.id, name: t.name, groups: G.filter((g: any) => g.parent_id === t.id).map((g: any) => ({ id: g.id, name: g.name })) })),
     members: [...people.values()].sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name)),
   };
+}
+
+// 대상 고르기 화면에서 사람으로 집은 경우 검사: 팀 범위면 그 팀 사람만(teamRank 이상), 전체(과)면 과 사람 누구나(allRank 이상)
+// { team_id, scope: team|all|section, target_people? } → 사람 id 배열 또는 null(예전처럼 팀·조 대상)
+async function pickedPeople(ctx: Ctx, p: any, teamRank: number, allRank: number): Promise<string[] | null> {
+  if (!Array.isArray(p.target_people)) return null;
+  const ids = [...new Set(p.target_people.map(String))] as string[];
+  if (!ids.length) throw new HttpError(400, "대상자를 한 명 이상 골라주세요");
+  const all = p.scope === "all" || p.scope === "section";
+  await requireRank(ctx, p.team_id, all ? allRank : teamRank);
+  const roster = await sectionRoster(ctx, p.team_id);
+  const ok = new Set(roster.members.filter((m: any) => all || m.ranks[p.team_id]).map((m: any) => m.id));
+  if (ids.some((id) => !ok.has(id))) throw new HttpError(400, "대상자 명단이 올바르지 않습니다");
+  return ids;
+}
+const labelOf = (p: any) => String(p.target_label ?? "").slice(0, 60) || null;
+// 그 줄(과제·체크인)의 대상자로 집혔거나, 그 팀 사람이면 통과
+async function requireItemMember(ctx: Ctx, row: any) {
+  if (row.target_people?.includes(ctx.me.id)) return;
+  await requireRank(ctx, row.team_id, RANK.MEMBER);
 }
 
 // 공지 받을 사람: 그 단위(팀 또는 과)와 아래 단위의 직책 + 위로 문화부까지 상속된 직책. 사람마다 가장 높은 직책 하나
@@ -609,25 +630,28 @@ async function sendToMembers(members: any[], text: string, markup?: unknown) {
 // 그 글을 받는 사람(쓴 사람 제외)과, 확인 명단을 볼 수 있는지
 async function readTarget(ctx: Ctx, kind: string, id: string) {
   if (kind === "notice") {
-    const n = must(await ctx.db.from("notices").select("id, team_id, target_unit_id, target_positions, created_by").eq("id", id).maybeSingle());
+    const n = must(await ctx.db.from("notices").select("id, team_id, target_unit_id, target_positions, target_people, created_by").eq("id", id).maybeSingle());
     if (!n) throw new HttpError(404, "공지를 찾을 수 없습니다");
     const unit = must(await ctx.db.from("org_units").select("unit_type").eq("id", n.team_id).single());
     const rank = await rankIn(ctx, n.team_id);
     const canSee = n.created_by === ctx.me.id || rank >= (unit.unit_type === "팀" ? RANK.INSTRUCTOR : RANK.TEAM_LEADER);
     return {
-      team_id: n.team_id, rank, canSee, by: n.created_by,
-      audience: async () => (await unitAudience(ctx, n.team_id)).filter((m) =>
+      team_id: n.team_id, rank, canSee, by: n.created_by, inTarget: !!n.target_people?.includes(ctx.me.id),
+      audience: async () => n.target_people?.length
+        ? (await targetPeopleMembers(ctx, { target_people: n.target_people, session_date: kstToday() }, false)).filter((m: any) => m.id !== n.created_by)
+        : (await unitAudience(ctx, n.team_id)).filter((m) =>
         m.id !== n.created_by && (!n.target_unit_id || m.group_id === n.target_unit_id) &&
         (!n.target_positions?.length || n.target_positions.includes(m.code))),
     };
   }
   if (kind === "assignment") {
-    const a = must(await ctx.db.from("assignments").select("id, team_id, target_unit_id, created_by").eq("id", id).maybeSingle());
+    const a = must(await ctx.db.from("assignments").select("id, team_id, target_unit_id, target_people, created_by").eq("id", id).maybeSingle());
     if (!a) throw new HttpError(404, "과제를 찾을 수 없습니다");
     const rank = await rankIn(ctx, a.team_id);
     return {
       team_id: a.team_id, rank, canSee: a.created_by === ctx.me.id || rank >= RANK.GROUP_LEADER, by: a.created_by,
-      audience: async () => (await sessionMembers(ctx, { team_id: a.team_id, session_date: kstToday(), target_unit_id: a.target_unit_id }))
+      inTarget: !!a.target_people?.includes(ctx.me.id),
+      audience: async () => (await sessionMembers(ctx, { team_id: a.team_id, session_date: kstToday(), target_unit_id: a.target_unit_id, target_people: a.target_people }))
         .filter((m) => m.id !== a.created_by),
     };
   }
@@ -1069,16 +1093,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       if (!g || g.parent_id !== p.team_id || g.unit_type !== "조") throw new HttpError(400, "이 팀의 조가 아닙니다");
     }
     // 대상을 사람으로 집은 경우: 전체(과)는 팀장 이상, 팀은 그 팀 사람만
-    let target_people: string[] | null = null;
-    if (Array.isArray(p.target_people)) {
-      const ids = [...new Set(p.target_people.map(String))] as string[];
-      if (!ids.length) throw new HttpError(400, "대상자를 한 명 이상 골라주세요");
-      const roster = await sectionRoster(ctx, p.team_id);
-      if (p.scope === "all") await requireRank(ctx, p.team_id, RANK.TEAM_LEADER);
-      const ok = new Set(roster.members.filter((m: any) => p.scope === "all" || m.ranks[p.team_id]).map((m: any) => m.id));
-      if (ids.some((id) => !ok.has(id))) throw new HttpError(400, "대상자 명단이 올바르지 않습니다");
-      target_people = ids;
-    }
+    const target_people = await pickedPeople(ctx, p, RANK.GROUP_LEADER, RANK.TEAM_LEADER);
     const s = must(await ctx.db.from("meeting_sessions").insert({
       target_people, target_label: target_people ? String(p.target_label ?? "").slice(0, 60) || null : null,
       ...pick(p, ["meeting_type_id", "session_date", "start_time", "end_time", "place_mode"]),
@@ -1125,7 +1140,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     return {
       section: roster.section,
       can_all: ranks.some((r) => r >= RANK.TEAM_LEADER),
-      teams: roster.teams.map((t: any, i: number) => ({ ...t, can: ranks[i] >= RANK.GROUP_LEADER })),
+      teams: roster.teams.map((t: any, i: number) => ({ ...t, can: ranks[i] >= RANK.GROUP_LEADER, my_rank: ranks[i] })),
       members: roster.members,
     };
   },
@@ -1568,23 +1583,32 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const rank = await rankIn(ctx, team_id);
     if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
     const units = await teamAndSection(ctx, team_id);
-    const [rows, groups, posRes] = await Promise.all([
-      ctx.db.from("notices").select("id, team_id, title, body, target_unit_id, target_positions, is_pinned, published_at, created_by")
+    const NCOLS = "id, team_id, title, body, target_unit_id, target_positions, target_people, target_label, is_pinned, published_at, created_by";
+    const [rows, elsewhere, groups, posRes] = await Promise.all([
+      ctx.db.from("notices").select(NCOLS)
         .in("team_id", units).order("is_pinned", { ascending: false }).order("published_at", { ascending: false }).limit(60),
+      // 다른 팀이 쓴 공지라도 내가 받는 사람으로 집혔으면
+      ctx.db.from("notices").select(NCOLS).not("team_id", "in", `(${units.join(",")})`).contains("target_people", [ctx.me.id])
+        .order("published_at", { ascending: false }).limit(30),
       myGroupIds(ctx),
       ctx.db.from("positions").select("code, name, rank"),
     ]);
     const pos = new Map((must(posRes as any) ?? []).map((p: any) => [p.code, p]));
     // 직책을 콕 집은 공지: 그 직책인 사람 + 쓴 사람 + 관리하는 사람(팀 공지는 교관 이상, 과 공지는 팀장 이상)
-    const forMe = (r: any) => !r.target_positions?.length || r.created_by === ctx.me.id ||
+    const forMe = (r: any) => r.target_people?.length
+      ? r.target_people.includes(ctx.me.id) || r.created_by === ctx.me.id || rank >= (r.team_id === team_id ? RANK.INSTRUCTOR : RANK.TEAM_LEADER)
+      : !r.target_positions?.length || r.created_by === ctx.me.id ||
       rank >= (r.team_id === team_id ? RANK.INSTRUCTOR : RANK.TEAM_LEADER) ||
       r.target_positions.some((c: string) => (pos.get(c) as any)?.rank === rank);
-    const list = (must(rows as any) ?? []).filter((r: any) => visibleToMe(r, rank, groups) && forMe(r));
+    const mine = new Set((must(rows as any) ?? []).map((r: any) => r.id));
+    const list = (must(rows as any) ?? []).filter((r: any) => (r.target_people?.length || visibleToMe(r, rank, groups)) && forMe(r))
+      .concat((must(elsewhere as any) ?? []).filter((r: any) => !mine.has(r.id)))
+      .sort((a: any, b: any) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0) || (a.published_at < b.published_at ? 1 : -1));
     const [names, { counts, seen }] = await Promise.all([nameMap(ctx, list.map((r: any) => r.created_by)), readCounts(ctx, "notice", list)]);
     // 확인 명단은 쓴 사람, 팀 공지는 교관 이상, 과 공지는 팀장 이상
     const canSee = (r: any) => r.created_by === ctx.me.id || rank >= (r.team_id === team_id ? RANK.INSTRUCTOR : RANK.TEAM_LEADER);
     return list.map((r: any) => ({
-      ...r, scope: r.team_id === team_id ? "team" : "section",
+      ...r, scope: r.team_id === team_id ? "team" : units.includes(r.team_id) ? "section" : "other",
       target_names: (r.target_positions ?? []).map((c: string) => (pos.get(c) as any)?.name).filter(Boolean),
       author: names.get(r.created_by) ?? null, mine: r.created_by === ctx.me.id,
       read_count: canSee(r) ? counts.get(r.id) ?? 0 : null, seen: seen.has(r.id) || r.created_by === ctx.me.id,
@@ -1599,15 +1623,16 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const section = unit !== p.team_id;
     const title = String(p.title ?? "").trim().slice(0, 100);
     if (!title) throw new HttpError(400, "제목을 입력해주세요");
-    const codes = Array.isArray(p.target_positions) ? [...new Set(p.target_positions.map(String))] : [];
+    const target_people = await pickedPeople(ctx, p, RANK.INSTRUCTOR, RANK.TEAM_LEADER);
+    const codes = !target_people && Array.isArray(p.target_positions) ? [...new Set(p.target_positions.map(String))] : [];
     if (codes.length) {
       const ok: any[] = must(await ctx.db.from("positions").select("code").in("code", codes)) ?? [];
       if (ok.length !== codes.length) throw new HttpError(400, "직책이 올바르지 않습니다");
     }
     return must(await ctx.db.from("notices").insert({
       team_id: unit, title, body: String(p.body ?? "").trim().slice(0, 3000) || null,
-      is_pinned: !!p.is_pinned, target_unit_id: section ? null : (p.target_unit_id || null),
-      target_positions: codes.length ? codes : null,
+      is_pinned: !!p.is_pinned, target_unit_id: section || target_people ? null : (p.target_unit_id || null),
+      target_positions: codes.length ? codes : null, target_people, target_label: target_people ? labelOf(p) : null,
       created_by: ctx.me.id,
     }).select().single());
   },
@@ -1655,7 +1680,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "reads.mark"(ctx) {
     const { kind, id } = ctx.payload;
     const t = await readTarget(ctx, kind, id);
-    if (t.rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
+    if (t.rank < RANK.MEMBER && !t.inTarget) throw new HttpError(403, "권한이 없습니다");
     must(await ctx.db.from("content_reads").upsert(
       { kind, item_id: id, person_id: ctx.me.id, last_read_at: new Date().toISOString() },
       { onConflict: "kind,item_id,person_id" }));
@@ -1692,12 +1717,15 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const rank = await rankIn(ctx, team_id);
     if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
     const since = addDaysStr(new Date().toISOString().slice(0, 10), -30);
-    const [rows, groups] = await Promise.all([
+    const [rows, elsewhere, groups] = await Promise.all([
       ctx.db.from("assignments").select("*").eq("team_id", team_id)
         .or(`due_at.is.null,due_at.gte.${since}`).order("created_at", { ascending: false }).limit(60),
+      ctx.db.from("assignments").select("*").neq("team_id", team_id).contains("target_people", [ctx.me.id])
+        .or(`due_at.is.null,due_at.gte.${since}`).order("created_at", { ascending: false }).limit(30),
       myGroupIds(ctx),
     ]);
-    const list = (must(rows as any) ?? []).filter((r: any) => visibleToMe(r, rank, groups));
+    const list = (must(rows as any) ?? []).filter((r: any) => visibleToMe(r, rank, groups, ctx.me.id))
+      .concat(must(elsewhere as any) ?? []);
     const ids = list.map((a: any) => a.id);
     let subs: any[] = [];
     if (ids.length) {
@@ -1721,8 +1749,10 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
     const title = String(p.title ?? "").trim().slice(0, 100);
     if (!title) throw new HttpError(400, "과제 제목을 입력해주세요");
+    const target_people = await pickedPeople(ctx, p, RANK.INSTRUCTOR, RANK.TEAM_LEADER);
     return must(await ctx.db.from("assignments").insert({
       ...pick(p, ["category", "description", "starts_on", "due_at", "needs_feedback", "target_unit_id"]),
+      ...(target_people ? { target_unit_id: null } : {}), target_people, target_label: target_people ? labelOf(p) : null,
       title, team_id: p.team_id, created_by: ctx.me.id,
     }).select().single());
   },
@@ -1742,7 +1772,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // 내 과제 제출·수정: { assignment_id, content?, file_url? }
   async "submissions.saveMine"(ctx) {
     const p = ctx.payload;
-    await requireRank(ctx, await ownerTeam(ctx, "assignments", p.assignment_id), RANK.MEMBER);
+    const row = must(await ctx.db.from("assignments").select("team_id, target_people").eq("id", p.assignment_id).maybeSingle());
+    if (!row) throw new HttpError(404, "과제를 찾을 수 없습니다");
+    await requireItemMember(ctx, row);
     const content = String(p.content ?? "").trim().slice(0, 5000) || null;
     const file_url = String(p.file_url ?? "").trim().slice(0, 500) || null;
     if (!content && !file_url) throw new HttpError(400, "내용이나 링크를 넣어주세요");
@@ -1778,13 +1810,16 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const rank = await rankIn(ctx, team_id);
     if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
     const today = new Date().toISOString().slice(0, 10);
-    const [rows, groups] = await Promise.all([
+    const [rows, elsewhere, groups] = await Promise.all([
       ctx.db.from("checkins").select("*").eq("team_id", team_id)
         .gte("check_date", addDaysStr(today, -7)).lte("check_date", addDaysStr(today, 30))
         .order("check_date", { ascending: false }),
+      ctx.db.from("checkins").select("*").neq("team_id", team_id).contains("target_people", [ctx.me.id])
+        .gte("check_date", addDaysStr(today, -7)).lte("check_date", addDaysStr(today, 30)),
       myGroupIds(ctx),
     ]);
-    const list = (must(rows as any) ?? []).filter((r: any) => visibleToMe(r, rank, groups));
+    const list = (must(rows as any) ?? []).filter((r: any) => visibleToMe(r, rank, groups, ctx.me.id))
+      .concat(must(elsewhere as any) ?? []).sort((a: any, b: any) => a.check_date < b.check_date ? 1 : -1);
     const ids = list.map((c: any) => c.id);
     let reps: any[] = [];
     if (ids.length) {
@@ -1814,9 +1849,10 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (!p.check_date) throw new HttpError(400, "날짜를 골라주세요");
     const items = (Array.isArray(p.items) ? p.items : []).filter((x: any) => ["기상", "출발", "도착"].includes(x));
     if (!items.length) throw new HttpError(400, "받을 항목을 하나 이상 골라주세요");
+    const target_people = await pickedPeople(ctx, p, RANK.INSTRUCTOR, RANK.TEAM_LEADER);
     return must(await ctx.db.from("checkins").insert({
       team_id: p.team_id, title, check_date: p.check_date, items,
-      target_unit_id: p.target_unit_id || null, session_id: p.session_id || null, created_by: ctx.me.id,
+      target_unit_id: target_people ? null : p.target_unit_id || null, target_people, target_label: target_people ? labelOf(p) : null, session_id: p.session_id || null, created_by: ctx.me.id,
     }).select().single());
   },
   async "checkins.delete"(ctx) {
@@ -1827,9 +1863,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 체크인 보고: { checkin_id, item, note?(도착 예정 등) } / 잘못 눌렀을 때 취소: checkins.unreport
   async "checkins.report"(ctx) {
-    const c = must(await ctx.db.from("checkins").select("team_id, items").eq("id", ctx.payload.checkin_id).maybeSingle());
+    const c = must(await ctx.db.from("checkins").select("team_id, items, target_people").eq("id", ctx.payload.checkin_id).maybeSingle());
     if (!c) throw new HttpError(404, "체크인을 찾을 수 없습니다");
-    await requireRank(ctx, c.team_id, RANK.MEMBER);
+    await requireItemMember(ctx, c);
     if (!c.items.includes(ctx.payload.item)) throw new HttpError(400, "이 체크인에 없는 항목입니다");
     return must(await ctx.db.from("checkin_reports").upsert({
       checkin_id: ctx.payload.checkin_id, person_id: ctx.me.id, item: ctx.payload.item,

@@ -352,140 +352,242 @@ function setPlace(v) {
   onPlaceSel();
 }
 
-// ----- 내 양식: 지금 입력 상태(날짜 빼고)를 저장해 두고 누르면 그대로 채움 -----
-var TPL = { session: null };
-function loadSessTpls() {
-  if (TPL.session) { renderSessTpls(); return; }
-  $('cTplBar').innerHTML = '';
-  api('templates.list', { kind: 'session' }).then(function (l) { TPL.session = l || []; renderSessTpls(); }).catch(function () {});
+// =====================================================================
+// 대상 고르기 (모임·과제·체크인·공지 공통)
+// 팀(전체·성우팀·아나운서팀·엔지니어팀) → 조(운영진·1조·2조·3조, 조가 있는 팀만) → (공지는 직책도) → 받는 사람 명단(이름 누르면 빼기)
+// 팝업마다 k: c=모임, hw=과제, ci=체크인, ann=공지. 그리는 곳은 #{k}Pick
+// =====================================================================
+var ROSTER = { teamOf: null, data: null, wait: null };
+function loadRoster() {
+  var team = S.team.id;
+  if (ROSTER.teamOf === team && ROSTER.data) return Promise.resolve(ROSTER.data);
+  if (ROSTER.teamOf === team && ROSTER.wait) return ROSTER.wait;
+  ROSTER.teamOf = team; ROSTER.data = null;
+  ROSTER.wait = api('sessions.audience', { team_id: team }).then(function (d) {
+    if (ROSTER.teamOf === team) { ROSTER.data = d; ROSTER.wait = null; }
+    return d;
+  }, function (e) { if (ROSTER.teamOf === team) { ROSTER.wait = null; ROSTER.teamOf = null; } throw e; });
+  return ROSTER.wait;
 }
-function renderSessTpls() {
-  var l = TPL.session || [];
-  $('cTplBar').innerHTML = '<span class="tpl-label">📋 내 양식</span>' + l.map(function (t) {
-    return '<span class="tpl-chip"><button type="button" onclick="useSessTpl(\'' + esc(t.id) + '\')">' + esc(t.name) + '</button>' +
-      '<button type="button" class="tpl-x" onclick="delSessTpl(\'' + esc(t.id) + '\')" aria-label="양식 지우기" title="지우기">×</button></span>';
-  }).join('') + '<button type="button" class="tpl-add" onclick="toggleTplSave()">+ 지금 입력한 걸 양식으로</button>';
+var STAFF = 'staff';   // 운영진 = 그 팀 교관 이상 + 4조
+// min: 팀 칩이 보이는 내 서열, all: '전체' 칩이 보이는 서열, pos: 직책 줄, dynAll: 전체를 통째로 고르면 예전처럼 과 전체로(공지)
+var PCFG = {
+  c: { min: RANK.GROUP_LEADER, all: RANK.TEAM_LEADER },
+  hw: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER },
+  ci: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER },
+  ann: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER, pos: true, dynAll: true }
+};
+var PK = {};
+function pk(k) { return PK[k] || (PK[k] = { key: '', teamOf: null, subs: [], pos: [], off: {}, pending: null }); }
+function pkTeams(k) { return ROSTER.data.teams.filter(function (t) { return t.my_rank >= PCFG[k].min; }); }
+function pkCanAll(k) { return ROSTER.data.teams.some(function (t) { return t.my_rank >= PCFG[k].all; }); }
+function pkAllTeam(k) {   // '전체'로 만들 때 소속 팀: 지금 팀이 되면 지금 팀
+  var ok = ROSTER.data.teams.filter(function (t) { return t.my_rank >= PCFG[k].all; });
+  return (ok.filter(function (t) { return t.id === S.team.id; })[0] || ok[0] || {}).id;
 }
-function toggleTplSave() {
-  var w = $('cTplSave'), open = !w.classList.contains('open');
+function pkOpen(k) {
+  var P = pk(k), box = $(k + 'Pick');
+  if (!ROSTER.data || ROSTER.teamOf !== S.team.id) box.innerHTML = '<div class="b-aud"><b>명단 불러오는 중...</b></div>';
+  return loadRoster().then(function () {
+    if (P.teamOf !== S.team.id) {   // 처음이거나 팀을 바꿨으면 지금 팀으로
+      var ts = pkTeams(k), mine = ts.filter(function (t) { return t.id === S.team.id; })[0] || ts[0];
+      P.key = mine ? mine.id : (pkCanAll(k) ? 'all' : ''); P.subs = []; P.pos = []; P.off = {}; P.teamOf = S.team.id;
+    }
+    pkRender(k); pkApplyPending(k);
+  }).catch(function (err) { box.innerHTML = '<div class="b-aud"><b>명단을 불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function pkTeam(k) { var P = pk(k); return P.key === 'all' ? null : ROSTER.data.teams.filter(function (t) { return t.id === P.key; })[0]; }
+function pkSubOpts(t) {
+  if (!t || !t.groups.length) return [];
+  return [{ key: STAFF, name: '운영진' }].concat(t.groups.filter(function (g) { return g.name !== '4조'; }).map(function (g) { return { key: g.id, name: g.name }; }));
+}
+function pkRank(k, m) { var t = pkTeam(k); return t ? m.ranks[t.id] || 0 : m.rank; }
+function pkPosOf(k, m) { var t = pkTeam(k); return (t && m.pos && m.pos[t.id]) || m.position; }
+// 팀·조까지 고른 범위
+function pkBase(k) {
+  var P = pk(k), t = pkTeam(k), list = ROSTER.data.members;
+  if (!t) return list;
+  list = list.filter(function (m) { return m.ranks[t.id]; });
+  if (!P.subs.length) return list;
+  return list.filter(function (m) {
+    return P.subs.some(function (s) { return s === STAFF ? (m.ranks[t.id] >= RANK.INSTRUCTOR || m.group === '4조') : m.group_id === s; });
+  });
+}
+function pkPosOpts(k) {
+  var seen = {}, out = [];
+  pkBase(k).slice().sort(function (a, b) { return pkRank(k, b) - pkRank(k, a); }).forEach(function (m) {
+    var p = pkPosOf(k, m); if (p && !seen[p]) { seen[p] = 1; out.push(p); }
+  });
+  return out;
+}
+function pkPool(k) { var P = pk(k), b = pkBase(k); return P.pos.length ? b.filter(function (m) { return P.pos.indexOf(pkPosOf(k, m)) !== -1; }) : b; }
+function pkPicked(k) { var P = pk(k); return pkPool(k).filter(function (m) { return !P.off[m.id]; }); }
+function pkLabel(k) {
+  var P = pk(k), t = pkTeam(k), off = pkPool(k).length - pkPicked(k).length;
+  var whole = P.pos.length ? '' : ' 전체';
+  var base = !t ? ROSTER.data.section.name + whole
+    : P.subs.length ? t.name + ' · ' + pkSubOpts(t).filter(function (o) { return P.subs.indexOf(o.key) !== -1; }).map(function (o) { return o.name; }).join('·')
+    : t.name + whole;
+  return base + (P.pos.length ? ' · ' + P.pos.join('·') : '') + (off ? ' (' + off + '명 빼고)' : '');
+}
+function pkRender(k) {
+  var P = pk(k), cfg = PCFG[k], box = $(k + 'Pick');
+  if (!ROSTER.data) return;
+  var chip = function (on, label, fn) { return '<button type="button" class="b-pick' + (on ? ' on' : '') + '" onclick="' + fn + '">' + esc(label) + '</button>'; };
+  var teams = pkTeams(k), canAll = pkCanAll(k);
+  if (!teams.length && !canAll) { box.innerHTML = '<div class="b-aud"><b>대상을 고를 수 있는 팀이 없어요</b></div>'; return; }
+  var h = '<div class="b-pick-row"><span>팀</span><div class="b-picks">' + (canAll ? chip(P.key === 'all', '전체', "pkSetTeam('" + k + "','all')") : '') +
+    teams.map(function (t) { return chip(P.key === t.id, t.name, "pkSetTeam('" + k + "','" + t.id + "')"); }).join('') + '</div></div>';
+  var subs = pkSubOpts(pkTeam(k));
+  if (subs.length) h += '<div class="b-pick-row"><span>조</span><div class="b-picks">' +
+    subs.map(function (o) { return chip(P.subs.indexOf(o.key) !== -1, o.name, "pkToggleSub('" + k + "','" + o.key + "')"); }).join('') + '</div></div>';
+  if (cfg.pos) {
+    var ps = pkPosOpts(k);
+    if (ps.length > 1) h += '<div class="b-pick-row"><span>직책</span><div class="b-picks">' + chip(!P.pos.length, '모두', "pkTogglePos('" + k + "','')") +
+      ps.map(function (p) { return chip(P.pos.indexOf(p) !== -1, p, "pkTogglePos('" + k + "','" + esc(p) + "')"); }).join('') + '</div></div>';
+  }
+  var pool = pkPool(k), n = pkPicked(k).length;
+  h += '<div class="b-aud"><b>받는 사람 ' + n + '명</b>' + (pool.length ? '<div class="who">' + pool.map(function (m) {
+      return '<button type="button" class="ma-p' + (P.off[m.id] ? ' off' : '') + '" onclick="pkToggleOff(\'' + k + '\',\'' + m.id + '\')">' + esc(m.name) +
+        ' <small>' + esc([pkPosOf(k, m), m.group].filter(Boolean).join('·')) + '</small></button>';
+    }).join('') + '</div><small class="ma-hint">이름을 누르면 빼거나 다시 넣을 수 있어요</small>' : '<small>이 범위에는 사람이 없어요</small>') + '</div>';
+  box.innerHTML = h;
+  if (k === 'c') {   // 모임 유형은 지금 보고 있는 팀 것만: 다른 팀 모임이면 제목으로
+    var other = P.key !== 'all' && P.key !== S.team.id;
+    $('cType').disabled = other; if (other) $('cType').value = '';
+  }
+}
+function pkSetTeam(k, id) { var P = pk(k); P.key = id; P.subs = []; P.pos = []; P.off = {}; pkRender(k); }
+function pkToggleSub(k, s) { var P = pk(k), i = P.subs.indexOf(s); if (i === -1) P.subs.push(s); else P.subs.splice(i, 1); P.pos = []; P.off = {}; pkRender(k); }
+function pkTogglePos(k, p) { var P = pk(k), i = P.pos.indexOf(p); if (!p) P.pos = []; else if (i === -1) P.pos.push(p); else P.pos.splice(i, 1); P.off = {}; pkRender(k); }
+function pkToggleOff(k, id) { var P = pk(k); if (P.off[id]) delete P.off[id]; else P.off[id] = true; pkRender(k); }
+function pkReset(k) { var P = pk(k); P.subs = []; P.pos = []; P.off = {}; if (ROSTER.data) pkRender(k); }
+// 보낼 대상: { team_id, scope: team|all, target_people?, target_label? } — 팀 하나를 통째로 고르면 예전처럼 팀 대상(사람 목록 없음)
+function pkPayload(k) {
+  var P = pk(k);
+  if (!ROSTER.data || !P.key) return { error: '대상 명단을 불러오는 중이에요. 잠시 뒤 다시 눌러주세요' };
+  var picked = pkPicked(k);
+  if (!picked.length) return { error: '받는 사람이 없어요. 대상을 다시 골라주세요' };
+  var all = P.key === 'all', whole = !P.subs.length && !P.pos.length && picked.length === pkPool(k).length;
+  var out = { team_id: all ? pkAllTeam(k) : P.key, scope: all ? 'all' : 'team' };
+  if (!whole || (all && !PCFG[k].dynAll)) {
+    out.target_people = picked.map(function (m) { return m.id; });
+    out.target_label = pkLabel(k);
+  }
+  return out;
+}
+function pkTeamName(id) { var t = ROSTER.data && ROSTER.data.teams.filter(function (x) { return x.id === id; })[0]; return t ? t.name : ''; }
+// 양식에 담을 대상 / 양식에서 되살리기(명단이 온 뒤, 지금 고를 수 없는 팀이면 건너뜀)
+function pkGet(k) { var P = pk(k); return P.key ? { key: P.key, subs: P.subs.slice(), pos: P.pos.slice(), off: Object.keys(P.off) } : null; }
+function pkApplyPending(k) {
+  var P = pk(k), g = P.pending; if (!g || !ROSTER.data) return;
+  P.pending = null;
+  var ok = g.key === 'all' ? pkCanAll(k) : pkTeams(k).some(function (t) { return t.id === g.key; });
+  if (!ok) { pkRender(k); return; }
+  P.key = g.key;
+  var opts = pkSubOpts(pkTeam(k)).map(function (o) { return o.key; });
+  P.subs = (g.subs || []).filter(function (s) { return opts.indexOf(s) !== -1; });
+  P.pos = (g.pos || []).slice();
+  P.off = {}; (g.off || []).forEach(function (id) { P.off[id] = true; });
+  pkRender(k);
+}
+// 대상자 명단(제출·체크인 현황용): 사람으로 집었으면 그 사람들, 아니면 팀(조)
+function targetList(item) {
+  if (item.target_people && item.target_people.length) {
+    var pool = (ROSTER.data && ROSTER.data.members) || S.members || [];
+    return pool.filter(function (m) { return item.target_people.indexOf(m.id) !== -1; })
+      .map(function (m) { return { id: m.id, name: m.name, group: m.group, position: m.position }; });
+  }
+  return targetMembers(item.target_unit_id);
+}
+function needRoster(list) { return list.some(function (x) { return x && x.target_people && x.target_people.length; }) ? loadRoster().catch(function () {}) : null; }
+
+// =====================================================================
+// 내 양식 (모임·과제·체크인·공지 공통): 지금 입력 상태를 저장해 두고 누르면 그대로 채움 (날짜·마감은 빼고)
+// =====================================================================
+var TPLK = { c: 'session', hw: 'assignment', ci: 'checkin', ann: 'notice' };
+var TPLF = {
+  c: {
+    get: function () { return { type: $('cType').value, title: $('cTitle').value.trim(), start: $('cStart').value, end: $('cEnd').value,
+      place: getPlace(), desc: $('cDesc').value, notify: $('cNotify').checked }; },
+    set: function (d) {
+      $('cType').value = [].some.call($('cType').options, function (o) { return o.value === d.type; }) ? d.type : '';
+      $('cTitle').value = d.title || ''; $('cStart').value = d.start || ''; $('cEnd').value = d.end || '';
+      setPlace(d.place); $('cDesc').value = d.desc || ''; $('cNotify').checked = d.notify !== false;
+    }, done: '날짜만 확인해주세요.'
+  },
+  hw: {
+    get: function () { return { cat: $('hwCat').value.trim(), title: $('hwTitle').value.trim(), desc: $('hwDesc').value, feedback: $('hwFeedback').checked }; },
+    set: function (d) { $('hwCat').value = d.cat || ''; $('hwTitle').value = d.title || ''; $('hwDesc').value = d.desc || ''; $('hwFeedback').checked = d.feedback !== false; },
+    done: '마감만 정해주세요.'
+  },
+  ci: {
+    get: function () { return { title: $('ciTitle').value.trim(), items: [].slice.call(document.querySelectorAll('#ciItems input:checked')).map(function (x) { return x.value; }) }; },
+    set: function (d) {
+      $('ciTitle').value = d.title || '';
+      [].forEach.call(document.querySelectorAll('#ciItems input'), function (x) { x.checked = !d.items || d.items.indexOf(x.value) !== -1; });
+    }, done: '날짜만 확인해주세요.'
+  },
+  ann: {
+    get: function () { return { title: $('annTitle').value.trim(), body: $('annBody').value, pinned: $('annPinned').checked }; },
+    set: function (d) { $('annTitle').value = d.title || ''; $('annBody').value = d.body || ''; $('annPinned').checked = !!d.pinned; },
+    done: '내용을 확인하고 올려주세요.'
+  }
+};
+var TPL = {};
+function tplLoad(k) {
+  var kind = TPLK[k];
+  if (TPL[kind]) { tplRender(k); return; }
+  $(k + 'TplBar').innerHTML = '';
+  api('templates.list', { kind: kind }).then(function (l) { TPL[kind] = l || []; tplRender(k); }).catch(function () {});
+}
+function tplRender(k) {
+  var l = TPL[TPLK[k]] || [];
+  $(k + 'TplBar').innerHTML = '<span class="tpl-label">📋 내 양식</span>' + l.map(function (t) {
+    return '<span class="tpl-chip"><button type="button" onclick="tplUse(\'' + k + '\',\'' + esc(t.id) + '\')">' + esc(t.name) + '</button>' +
+      '<button type="button" class="tpl-x" onclick="tplDel(\'' + k + '\',\'' + esc(t.id) + '\')" aria-label="양식 지우기" title="지우기">×</button></span>';
+  }).join('') + '<button type="button" class="tpl-add" onclick="tplToggleSave(\'' + k + '\')">+ 지금 입력한 걸 양식으로</button>';
+}
+function tplToggleSave(k) {
+  var w = $(k + 'TplSave'), open = !w.classList.contains('open');
   w.classList.toggle('open', open);
-  if (open) setTimeout(function () { try { $('cTplName').focus(); } catch (e) {} }, 220);
+  if (open) setTimeout(function () { try { $(k + 'TplName').focus(); } catch (e) {} }, 220);
 }
-function sessFormData() {
-  return {
-    type: $('cType').value, title: $('cTitle').value.trim(), start: $('cStart').value, end: $('cEnd').value,
-    place: getPlace(), desc: $('cDesc').value, notify: $('cNotify').checked,
-    target: MA.data ? { key: MA.key, subs: MA.subs.slice(), off: Object.keys(MA.off) } : null
-  };
-}
-function saveSessTpl() {
-  var name = $('cTplName').value.trim();
-  if (!name) { setMsg('cMsg', '양식 이름을 적어주세요', true); return; }
-  var same = (TPL.session || []).filter(function (t) { return t.name === name; })[0];
-  if (same && !confirm('\'' + name + '\' 양식을 지금 입력한 걸로 바꿀까요?')) return;
-  api('templates.save', { kind: 'session', name: name, data: sessFormData() }).then(function (t) {
-    TPL.session = (TPL.session || []).filter(function (x) { return x.id !== t.id && x.name !== t.name; }).concat([t])
+function tplSave(k) {
+  var kind = TPLK[k], name = $(k + 'TplName').value.trim(), msg = k + 'Msg';
+  if (!name) { setMsg(msg, '양식 이름을 적어주세요', true); return; }
+  if ((TPL[kind] || []).some(function (t) { return t.name === name; }) && !confirm('\'' + name + '\' 양식을 지금 입력한 걸로 바꿀까요?')) return;
+  var data = TPLF[k].get(); data.target = pkGet(k);
+  api('templates.save', { kind: kind, name: name, data: data }).then(function (t) {
+    TPL[kind] = (TPL[kind] || []).filter(function (x) { return x.id !== t.id && x.name !== t.name; }).concat([t])
       .sort(function (a, b) { return a.name.localeCompare(b.name); });
-    $('cTplName').value = ''; $('cTplSave').classList.remove('open');
-    renderSessTpls(); haptic('success');
-    setMsg('cMsg', '\'' + name + '\' 양식을 저장했어요. 다음엔 위에서 누르면 그대로 채워져요.');
-  }).catch(function (err) { setMsg('cMsg', err.message, true); });
+    $(k + 'TplName').value = ''; $(k + 'TplSave').classList.remove('open');
+    tplRender(k); haptic('success');
+    setMsg(msg, '\'' + name + '\' 양식을 저장했어요. 다음엔 위에서 누르면 그대로 채워져요.');
+  }).catch(function (err) { setMsg(msg, err.message, true); });
 }
-function useSessTpl(id) {
-  var t = byId(TPL.session || [], id); if (!t) return;
+function tplUse(k, id) {
+  var t = byId(TPL[TPLK[k]] || [], id); if (!t) return;
   var d = t.data || {};
-  $('cType').value = [].some.call($('cType').options, function (o) { return o.value === d.type; }) ? d.type : '';
-  $('cTitle').value = d.title || ''; $('cStart').value = d.start || ''; $('cEnd').value = d.end || '';
-  setPlace(d.place); $('cDesc').value = d.desc || ''; $('cNotify').checked = d.notify !== false;
-  MA.pending = d.target || null; applyPendingTarget();
-  setMsg('cMsg', '\'' + t.name + '\' 양식으로 채웠어요. 날짜만 확인해주세요.');
+  TPLF[k].set(d);
+  pk(k).pending = d.target || null; pkApplyPending(k);
+  setMsg(k + 'Msg', '\'' + t.name + '\' 양식으로 채웠어요. ' + TPLF[k].done);
 }
-// 양식의 대상: 명단이 아직 안 왔으면 오고 나서 맞춤. 지금 고를 수 없는 팀이면 건너뜀
-function applyPendingTarget() {
-  var g = MA.pending; if (!g || !MA.data) return;
-  MA.pending = null;
-  var okKey = g.key === 'all' ? MA.data.can_all : MA.data.teams.some(function (t) { return t.id === g.key && t.can; });
-  if (!okKey) { renderSessPicks(); return; }
-  MA.key = g.key;
-  var opts = maSubOpts(maTeam()).map(function (o) { return o.key; });
-  MA.subs = (g.subs || []).filter(function (k) { return opts.indexOf(k) !== -1; });
-  MA.off = {}; (g.off || []).forEach(function (id) { MA.off[id] = true; });
-  renderSessPicks();
-}
-function delSessTpl(id) {
-  var t = byId(TPL.session || [], id); if (!t || !confirm('\'' + t.name + '\' 양식을 지울까요?')) return;
+function tplDel(k, id) {
+  var kind = TPLK[k], t = byId(TPL[kind] || [], id); if (!t || !confirm('\'' + t.name + '\' 양식을 지울까요?')) return;
   api('templates.delete', { id: id }).then(function () {
-    TPL.session = TPL.session.filter(function (x) { return x.id !== id; }); renderSessTpls();
-  }).catch(function (err) { setMsg('cMsg', err.message, true); });
+    TPL[kind] = TPL[kind].filter(function (x) { return x.id !== id; }); tplRender(k);
+  }).catch(function (err) { setMsg(k + 'Msg', err.message, true); });
 }
 
 function openSessModal() {
   fillTypeSelect();
-  loadSessTpls();
+  tplLoad('c');
   if (!$('cDate').value) $('cDate').value = todayStr();
   setMsg('cMsg', '');
   openModal('cModal');
-  loadSessAudience();
+  pkOpen('c');
 }
-
-// ----- 모임 대상 고르기: 팀(전체·성우팀·아나운서팀·엔지니어팀) → 조(운영진·1조·2조·3조, 조가 있는 팀만) → 명단 (이름 누르면 빼기) -----
-var MA = { data: null, teamOf: null, key: '', subs: [], off: {} };
-var STAFF = 'staff';   // 운영진 = 그 팀 교관 이상 + 4조
-function loadSessAudience() {
-  if (MA.data && MA.teamOf === S.team.id) { renderSessPicks(); return; }
-  $('cTeams').innerHTML = ''; $('cSubRow').style.display = 'none'; $('cAud').innerHTML = '<b>불러오는 중...</b>';
-  api('sessions.audience', { team_id: S.team.id }).then(function (d) {
-    MA.data = d; MA.teamOf = S.team.id;
-    var mine = d.teams.filter(function (t) { return t.id === S.team.id && t.can; })[0] || d.teams.filter(function (t) { return t.can; })[0];
-    MA.key = mine ? mine.id : 'all'; MA.subs = []; MA.off = {};
-    renderSessPicks();
-    applyPendingTarget();
-  }).catch(function (err) { $('cAud').innerHTML = '<b>명단을 불러오지 못했어요</b>' + esc(err.message); });
-}
-function maTeam() { return MA.key === 'all' ? null : MA.data.teams.filter(function (t) { return t.id === MA.key; })[0]; }
-function maSubOpts(t) {
-  if (!t || !t.groups.length) return [];
-  return [{ key: STAFF, name: '운영진' }].concat(t.groups.filter(function (g) { return g.name !== '4조'; }).map(function (g) { return { key: g.id, name: g.name }; }));
-}
-// 지금 고른 범위의 사람들 (뺀 사람 포함)
-function maPool() {
-  var d = MA.data, t = maTeam();
-  if (!t) return d.members;
-  var inTeam = d.members.filter(function (m) { return m.ranks[t.id]; });
-  if (!MA.subs.length) return inTeam;
-  return inTeam.filter(function (m) {
-    return MA.subs.some(function (k) { return k === STAFF ? (m.ranks[t.id] >= RANK.INSTRUCTOR || m.group === '4조') : m.group_id === k; });
-  });
-}
-function maPicked() { return maPool().filter(function (m) { return !MA.off[m.id]; }); }
-function maLabel() {
-  var t = maTeam(), off = maPool().length - maPicked().length;
-  var base = !t ? MA.data.section.name + ' 전체'
-    : MA.subs.length ? t.name + ' · ' + maSubOpts(t).filter(function (o) { return MA.subs.indexOf(o.key) !== -1; }).map(function (o) { return o.name; }).join('·')
-    : t.name + ' 전체';
-  return base + (off ? ' (' + off + '명 빼고)' : '');
-}
-function renderSessPicks() {
-  var d = MA.data, chip = function (on, label, fn) { return '<button type="button" class="b-pick' + (on ? ' on' : '') + '" onclick="' + fn + '">' + esc(label) + '</button>'; };
-  $('cTeams').innerHTML = (d.can_all ? chip(MA.key === 'all', '전체', "maPickTeam('all')") : '') +
-    d.teams.filter(function (t) { return t.can; }).map(function (t) { return chip(MA.key === t.id, t.name, "maPickTeam('" + t.id + "')"); }).join('');
-  var opts = maSubOpts(maTeam());
-  $('cSubRow').style.display = opts.length ? '' : 'none';
-  $('cSubs').innerHTML = opts.map(function (o) { return chip(MA.subs.indexOf(o.key) !== -1, o.name, "maToggleSub('" + o.key + "')"); }).join('');
-  var pool = maPool(), picked = maPicked().length;
-  $('cAud').innerHTML = '<b>받는 사람 ' + picked + '명</b>' +
-    (pool.length ? '<div class="who">' + pool.map(function (m) {
-      return '<button type="button" class="ma-p' + (MA.off[m.id] ? ' off' : '') + '" onclick="maToggleOff(\'' + m.id + '\')">' + esc(m.name) +
-        ' <small>' + esc([m.position, m.group].filter(Boolean).join('·')) + '</small></button>';
-    }).join('') + '</div><small class="ma-hint">이름을 누르면 빼거나 다시 넣을 수 있어요</small>' : '<small>이 범위에는 사람이 없어요</small>');
-  // 모임 유형은 지금 보고 있는 팀 것만: 다른 팀 모임이면 제목으로
-  var other = MA.key !== 'all' && MA.key !== S.team.id;
-  $('cType').disabled = other;
-  if (other) $('cType').value = '';
-}
-function maPickTeam(k) { MA.key = k; MA.subs = []; MA.off = {}; renderSessPicks(); }
-function maToggleSub(k) { var i = MA.subs.indexOf(k); if (i === -1) MA.subs.push(k); else MA.subs.splice(i, 1); MA.off = {}; renderSessPicks(); }
-function maToggleOff(id) { if (MA.off[id]) delete MA.off[id]; else MA.off[id] = true; renderSessPicks(); }
 function fillTypeSelect() {
   var sel = $('cType'), keep = sel.value;
   sel.innerHTML = '<option value="">모임 유형을 고르세요</option>' + S.types.map(function (t) {
@@ -518,16 +620,10 @@ function createSession() {
     description: $('cDesc').value.trim() || null,
     notify: $('cNotify').checked
   };
-  if (!MA.data) { setMsg('cMsg', '대상 명단을 불러오는 중이에요. 잠시 뒤 다시 눌러주세요', true); return; }
-  // 팀 전체(조·빼기 없음)는 예전처럼 팀 모임, 그 밖에는 고른 사람들로
-  var whole = MA.key !== 'all' && !MA.subs.length && maPool().length === maPicked().length;
-  p.team_id = MA.key === 'all' ? S.team.id : MA.key;
-  if (!whole) {
-    p.target_people = maPicked().map(function (m) { return m.id; });
-    p.scope = MA.key === 'all' ? 'all' : 'team';
-    p.target_label = maLabel();
-    if (!p.target_people.length) { setMsg('cMsg', '받는 사람이 없어요. 대상을 다시 골라주세요', true); return; }
-  }
+  // 팀 하나를 통째로 고르면 예전처럼 팀 모임, 그 밖에는 고른 사람들로
+  var tg = pkPayload('c');
+  if (tg.error) { setMsg('cMsg', tg.error, true); return; }
+  Object.assign(p, tg);
   if (p.team_id !== S.team.id && !p.title) { setMsg('cMsg', '다른 팀 모임은 제목을 적어주세요', true); return; }
   if (!p.meeting_type_id && !p.title) { setMsg('cMsg', '모임 유형을 고르거나 제목을 적어주세요!', true); return; }
   if (!p.session_date) { setMsg('cMsg', '날짜를 골라주세요!', true); return; }
@@ -543,7 +639,7 @@ function createSession() {
     if (s.team_id === S.team.id) S.sessions.push(s);
     S.sessions.sort(function (a, b) { return a.session_date + (a.start_time || '') < b.session_date + (b.start_time || '') ? -1 : 1; });
     ['cTitle', 'cStart', 'cEnd', 'cDesc'].forEach(function (id) { $(id).value = ''; }); setPlace('');
-    $('cType').value = ''; MA.subs = []; MA.off = {}; renderSessPicks();
+    $('cType').value = ''; pkReset('c');
     btn.disabled = false;
     haptic('success');
     renderList();
@@ -1503,11 +1599,15 @@ function closeFabMenu() {
 function openCiModal() {
   if (!$('ciDate').value) $('ciDate').value = todayStr();
   setMsg('ciMsg', '');
+  tplLoad('ci');
   openModal('ciModal');
+  pkOpen('ci');
 }
 function openHwModal() {
   setMsg('hwMsg', '');
+  tplLoad('hw');
   openModal('hwModal');
+  pkOpen('hw');
 }
 function fillTargets() {
   var h = '<option value="">팀 전체</option>' + S.groups.map(function (g) {
@@ -1548,7 +1648,7 @@ function renderCheckins() {
   if (!lead || !C.list.length) return;
   if (S.members) { $('ciBoard').innerHTML = C.list.map(ciBoardCard).join(''); return; }
   $('ciBoard').innerHTML = '<div class="empty inner"><b>불러오는 중...</b></div>';
-  loadMembers().then(renderCheckins).catch(function (err) { $('ciBoard').innerHTML = '<div class="empty inner">' + esc(err.message) + '</div>'; });
+  Promise.all([loadMembers(), needRoster(C.list)]).then(renderCheckins).catch(function (err) { $('ciBoard').innerHTML = '<div class="empty inner">' + esc(err.message) + '</div>'; });
 }
 
 function ciCard(c) {
@@ -1606,7 +1706,7 @@ function unCheckin(id, item) {
 function toggleCiBoard(id) { C.open = C.open === id ? null : id; renderCheckins(); }
 
 function ciBoardCard(c) {
-  var target = targetMembers(c.target_unit_id);
+  var target = targetList(c);
   var reps = c.reports || [];
   var counts = c.items.map(function (it) {
     var n = reps.filter(function (r) { return r.item === it; }).length;
@@ -1615,7 +1715,7 @@ function ciBoardCard(c) {
   var open = C.open === c.id;
   var html = '<div class="card ci-board"><div class="ci-board-head" onclick="toggleCiBoard(\'' + esc(c.id) + '\')"><div>' +
     '<div class="ci-board-title">' + esc(c.title) + '</div><div class="b-sub">' + shortD(c.check_date) +
-    (c.target_unit_id ? ' · ' + esc(groupName(c.target_unit_id)) + '만' : '') + '</div></div>' +
+    (c.target_label ? ' · ' + esc(c.target_label) : c.target_unit_id ? ' · ' + esc(groupName(c.target_unit_id)) + '만' : '') + '</div></div>' +
     '<span class="b-chev' + (open ? ' open' : '') + '">›</span></div><div class="b-chips">' + counts + '</div>';
   if (open) {
     html += '<div class="table-scroll"><table class="sched ci-table"><thead><tr><th>이름</th>' +
@@ -1634,14 +1734,18 @@ function ciBoardCard(c) {
 
 function createCheckin() {
   var items = [].slice.call(document.querySelectorAll('#ciItems input:checked')).map(function (x) { return x.value; });
-  var p = { team_id: S.team.id, title: $('ciTitle').value.trim(), check_date: $('ciDate').value, items: items, target_unit_id: $('ciTarget').value || null };
+  var p = { title: $('ciTitle').value.trim(), check_date: $('ciDate').value, items: items };
   if (!p.title) { setMsg('ciMsg', '제목을 적어주세요!', true); return; }
   if (!p.check_date) { setMsg('ciMsg', '날짜를 골라주세요!', true); return; }
   if (!items.length) { setMsg('ciMsg', '받을 항목을 하나 이상 골라주세요!', true); return; }
+  var tg = pkPayload('ci');
+  if (tg.error) { setMsg('ciMsg', tg.error, true); return; }
+  Object.assign(p, tg);
   var btn = $('ciBtn'); btn.disabled = true; setMsg('ciMsg', '만드는 중...');
   api('checkins.create', p).then(function (c) {
     c.mine = {}; c.reports = S.team.rank >= RANK.GROUP_LEADER ? [] : null;
-    C.list.unshift(c);
+    if (c.team_id === S.team.id || (c.target_people || []).indexOf(S.me.profile.id) !== -1) C.list.unshift(c);
+    pkReset('ci');
     C.list.sort(function (a, b) { return a.check_date < b.check_date ? 1 : -1; });
     $('ciTitle').value = '';
     btn.disabled = false; haptic('success');
@@ -1718,7 +1822,7 @@ function renderNotices() {
     var long = n.body && (n.body.length > 90 || n.body.split('\n').length > 3);
     return '<div class="ann' + (n.is_pinned ? ' pinned' : '') + (n.seen ? '' : ' unseen') + '" onclick="toggleNotice(\'' + esc(n.id) + '\')">' +
       '<div class="ann-top">' + (n.seen ? '' : '<span class="chip b-new">새 글 · 눌러서 확인</span>') + (n.is_pinned ? '<span class="chip dark">📌 고정</span>' : '') +
-        '<span class="chip">' + (n.scope === 'section' ? '방송예술과 전체' : esc(S.team.name)) + '</span>' +
+        '<span class="chip">' + (n.target_label ? esc(n.target_label) : n.scope === 'section' ? '방송예술과 전체' : esc(S.team.name)) + '</span>' +
         (n.target_names && n.target_names.length ? '<span class="chip">' + esc(n.target_names.join('·')) + '만</span>' : '') +
         (n.target_unit_id ? '<span class="chip">' + esc(groupName(n.target_unit_id)) + '만</span>' : '') +
         '<span class="ann-date">' + mdOf(n.published_at) + '</span></div>' +
@@ -1740,87 +1844,28 @@ function annTeams() {
     .concat(mine.map(function (t) { return { key: t.id, name: t.name, team_id: t.id, scope: 'team' }; }));
 }
 function openAnnEdit() {
-  var teams = annTeams();
-  var cur = teams.filter(function (t) { return t.key === S.team.id; })[0] || teams[0];
-  N.f = { key: cur.key, pos: [], grp: '' };
-  N.aud = N.aud || {};
   setMsg('annMsg', '');
+  tplLoad('ann');
   openModal('annModal');
-  annPickTeam(cur.key);
+  pkOpen('ann');
 }
 function closeAnnEdit() { closeModal('annModal'); }
-function annPickTeam(key) {
-  N.f = { key: key, pos: [], grp: '' };
-  renderAnnPicks();
-  if (N.aud[key]) return;
-  var t = annTeams().filter(function (x) { return x.key === key; })[0];
-  api('notices.audience', { team_id: t.team_id, scope: t.scope }).then(function (l) {
-    N.aud[key] = l;
-    if (N.f.key === key) renderAnnPicks();
-  }).catch(function (err) { $('annAud').innerHTML = '<b>명단을 불러오지 못했어요</b>' + esc(err.message); });
-}
-function annPickPos(code) {
-  var i = N.f.pos.indexOf(code);
-  if (!code) N.f.pos = [];
-  else if (i >= 0) N.f.pos.splice(i, 1);
-  else N.f.pos.push(code);
-  renderAnnPicks();
-}
-function annPickGrp(id) { N.f.grp = id; renderAnnPicks(); }
-function annRecipients() {
-  return (N.aud[N.f.key] || []).filter(function (m) {
-    return (!N.f.pos.length || N.f.pos.indexOf(m.code) >= 0) && (!N.f.grp || m.group_id === N.f.grp);
-  });
-}
-function renderAnnPicks() {
-  var chip = function (on, label, call) {
-    return '<button type="button" class="b-pick' + (on ? ' on' : '') + '" onclick="' + call + '">' + esc(label) + '</button>';
-  };
-  $('annTeams').innerHTML = annTeams().map(function (t) {
-    return chip(t.key === N.f.key, t.name, "annPickTeam('" + esc(t.key) + "')");
-  }).join('');
-  var all = N.aud[N.f.key];
-  if (!all) {
-    $('annPosRow').style.display = $('annGrpRow').style.display = 'none';
-    $('annAud').innerHTML = '<b>명단 불러오는 중...</b>';
-    return;
-  }
-  var pos = [], grps = [];
-  all.slice().sort(function (a, b) { return a.rank - b.rank; }).forEach(function (m) {
-    if (!pos.some(function (p) { return p.code === m.code; })) pos.push({ code: m.code, name: m.position });
-    if (m.group_id && !grps.some(function (g) { return g.id === m.group_id; })) grps.push({ id: m.group_id, name: m.group });
-  });
-  grps.sort(function (a, b) { return a.name.localeCompare(b.name); });
-  $('annPosRow').style.display = 'grid';
-  $('annPos').innerHTML = chip(!N.f.pos.length, '모두', "annPickPos('')") + pos.map(function (p) {
-    return chip(N.f.pos.indexOf(p.code) >= 0, p.name, "annPickPos('" + esc(p.code) + "')");
-  }).join('');
-  var showGrp = N.f.key !== 'section' && grps.length;
-  $('annGrpRow').style.display = showGrp ? 'grid' : 'none';
-  if (showGrp) $('annGrp').innerHTML = chip(!N.f.grp, '모든 조', "annPickGrp('')") + grps.map(function (g) {
-    return chip(N.f.grp === g.id, g.name, "annPickGrp('" + esc(g.id) + "')");
-  }).join('');
-  var who = annRecipients();
-  $('annAud').innerHTML = who.length
-    ? '<b>받는 사람 ' + who.length + '명</b><div class="who">' + who.map(function (m) {
-        return '<span>' + esc(m.name) + ' <small>' + esc(m.position) + (m.group ? '·' + esc(m.group) : '') + '</small></span>';
-      }).join('') + '</div>'
-    : '<b>조건에 맞는 사람이 없어요</b>';
-}
 
 function createNotice() {
-  var t = annTeams().filter(function (x) { return x.key === N.f.key; })[0];
-  var p = { team_id: t.team_id, scope: t.scope, title: $('annTitle').value.trim(), body: $('annBody').value.trim(),
-    is_pinned: $('annPinned').checked, target_positions: N.f.pos, target_unit_id: N.f.grp || null };
+  var p = { title: $('annTitle').value.trim(), body: $('annBody').value.trim(), is_pinned: $('annPinned').checked };
   if (!p.title) { setMsg('annMsg', '제목을 적어주세요!', true); return; }
-  if (N.aud[N.f.key] && !annRecipients().length) { setMsg('annMsg', '받는 사람이 없어요. 대상을 다시 골라주세요', true); return; }
+  var tg = pkPayload('ann');
+  if (tg.error) { setMsg('annMsg', tg.error, true); return; }
+  Object.assign(p, tg); p.scope = tg.scope === 'all' ? 'section' : 'team';   // 공지는 과 전체 = section
+  var other = p.scope === 'team' && p.team_id !== S.team.id, otherName = pkTeamName(p.team_id);
   var btn = $('annBtn'); btn.disabled = true; setMsg('annMsg', '올리는 중...');
   api('notices.create', p).then(function () {
     N.list = null;   // 고정·순서 반영해서 새로 받기
     ['annTitle', 'annBody'].forEach(function (id) { $(id).value = ''; });
     $('annPinned').checked = false;
     btn.disabled = false; haptic('success');
-    setMsg('annMsg', t.scope === 'team' && t.team_id !== S.team.id ? '올렸어요! ' + t.name + ' 탭에서 보여요' : '공지를 올렸어요!');
+    setMsg('annMsg', other ? '올렸어요! ' + otherName + ' 탭에서 보여요' : '공지를 올렸어요!');
+    pkReset('ann');
     setTimeout(function () { closeAnnEdit(); loadNotices(); }, 1000);
   }).catch(function (err) { setMsg('annMsg', err.message, true); btn.disabled = false; });
 }
@@ -1863,7 +1908,7 @@ function taskCard(a) {
   return '<button class="b-session b-task' + (sel ? ' b-sel' : '') + (a.seen ? '' : ' unseen') + '" onclick="openTask(\'' + esc(a.id) + '\')"><div class="b-info">' +
       (a.seen ? '' : '<span class="chip b-new">새 과제</span>') + (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
       '<b>' + esc(a.title) + '</b><span>' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') +
-      (a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + '</span></div>' +
+      (a.target_label ? ' · ' + esc(a.target_label) : a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + '</span></div>' +
     '<div class="b-side"><span class="st ' + st.c + '">' + st.t + '</span>' +
       (a.submitted_count != null ? '<small>제출 ' + a.submitted_count + '명</small>' : '') +
       (a.read_count != null ? '<small>확인 ' + a.read_count + '명</small>' : '') + '</div></button>';
@@ -1882,14 +1927,18 @@ function renderTasks() {
 
 function createTask() {
   var due = $('hwDue').value;
-  var p = { team_id: S.team.id, category: $('hwCat').value.trim() || null, title: $('hwTitle').value.trim(),
+  var p = { category: $('hwCat').value.trim() || null, title: $('hwTitle').value.trim(),
     description: $('hwDesc').value.trim() || null, due_at: due ? new Date(due).toISOString() : null,
-    needs_feedback: $('hwFeedback').checked, target_unit_id: $('hwTarget').value || null };
+    needs_feedback: $('hwFeedback').checked };
   if (!p.title) { setMsg('hwMsg', '과제 제목을 적어주세요!', true); return; }
+  var tg = pkPayload('hw');
+  if (tg.error) { setMsg('hwMsg', tg.error, true); return; }
+  Object.assign(p, tg);
   var btn = $('hwBtn'); btn.disabled = true; setMsg('hwMsg', '올리는 중...');
   api('assignments.create', p).then(function (a) {
-    a.my = null; a.submitted_count = S.team.rank >= RANK.GROUP_LEADER ? 0 : null;
-    A.list.unshift(a);
+    a.my = null; a.submitted_count = S.team.rank >= RANK.GROUP_LEADER ? 0 : null; a.read_count = 0; a.seen = true;
+    if (a.team_id === S.team.id || (a.target_people || []).indexOf(S.me.profile.id) !== -1) A.list.unshift(a);
+    pkReset('hw');
     ['hwTitle', 'hwDesc', 'hwDue'].forEach(function (id) { $(id).value = ''; });
     btn.disabled = false; haptic('success');
     setMsg('hwMsg', '과제를 냈어요!');
@@ -1911,7 +1960,7 @@ function openTask(id) {
   var st = taskState(a);
   $('tdHead').innerHTML = '<div class="b-dhead">' + (a.category ? '<span class="chip b-cat">' + esc(a.category) + '</span>' : '') +
     '<h1>' + esc(a.title) + '</h1><p>' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') +
-    (a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + ' · <span class="st ' + st.c + '">' + st.t + '</span></p>' +
+    (a.target_label ? ' · ' + esc(a.target_label) : a.target_unit_id ? ' · ' + esc(groupName(a.target_unit_id)) + '만' : '') + ' · <span class="st ' + st.c + '">' + st.t + '</span></p>' +
     (a.read_count != null ? '<div class="b-chips">' + readChip('assignment', a) + '</div>' : '') +
     (a.description ? '<div class="card b-desc">' + esc(a.description) + '</div>' : '') + '</div>';
   $('tdContent').value = (a.my && a.my.content) || '';
@@ -1955,7 +2004,7 @@ function submitTask() {
 function loadTaskBoard() {
   $('tdBoard').innerHTML = '<div class="b-group-sep">불러오는 중...</div>';
   var id = A.current.id;
-  Promise.all([loadMembers(), api('submissions.list', { assignment_id: id })]).then(function (r) {
+  Promise.all([loadMembers(), api('submissions.list', { assignment_id: id }), needRoster([A.current])]).then(function (r) {
     if (!A.current || A.current.id !== id) return;
     A.subs = r[1] || [];
     renderTaskBoard();
@@ -1966,7 +2015,7 @@ function toggleSub(personId) { A.openSub = A.openSub === personId ? null : perso
 
 function renderTaskBoard() {
   var a = A.current; if (!a || !A.subs) return;
-  var target = targetMembers(a.target_unit_id);
+  var target = targetList(a);
   var byPerson = {};
   A.subs.forEach(function (x) { byPerson[x.person_id] = x; });
   $('tdBoardCount').textContent = '제출 ' + target.filter(function (m) { return byPerson[m.id]; }).length + ' / ' + target.length + '명';
