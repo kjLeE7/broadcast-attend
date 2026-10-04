@@ -104,6 +104,8 @@ function showState(title, desc) {
 // 봇 알림의 '출결 체크하기' 버튼으로 열면 주소에 ?s=모임id 가 붙어 옴
 var DEEP_SESSION = (function () { try { return new URLSearchParams(location.search).get('s'); } catch (e) { return null; } })();
 // 업무가능 독촉 알림의 버튼: ?go=weekly&ws=월요일
+// 시간취합 알림의 버튼: ?poll=취합id
+var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || 'this') : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
@@ -148,6 +150,11 @@ function boot() {
       RC.pending = DEEP_REC; DEEP_REC = null;
       try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
       Promise.resolve(selectTeam(me.teams[0].id)).then(function () { goTab('rec'); });
+    }
+    else if (DEEP_POLL) {
+      var pollId = DEEP_POLL; DEEP_POLL = null;
+      try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+      Promise.resolve(selectTeam(me.teams[0].id)).then(function () { PL.pending = pollId; goTab('poll'); });
     }
     else if (DEEP_WEEK) {
       var ws = DEEP_WEEK; DEEP_WEEK = null;
@@ -396,7 +403,8 @@ var PCFG = {
   c: { min: RANK.GROUP_LEADER, all: RANK.TEAM_LEADER },
   hw: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER },
   ci: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER },
-  ann: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER, pos: true, dynAll: true }
+  ann: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER, pos: true, dynAll: true },
+  tp: { min: RANK.MEMBER, all: RANK.MEMBER, people: true }   // 시간취합: 과 사람 누구나, 언제나 사람 목록으로
 };
 var PK = {};
 function pk(k) { return PK[k] || (PK[k] = { key: '', teamOf: null, subs: [], pos: [], off: {}, pending: null }); }
@@ -491,7 +499,7 @@ function pkPayload(k) {
   if (!picked.length) return { error: '받는 사람이 없어요. 대상을 다시 골라주세요' };
   var all = P.key === 'all', whole = !P.subs.length && !P.pos.length && picked.length === pkPool(k).length;
   var out = { team_id: all ? pkAllTeam(k) : P.key, scope: all ? 'all' : 'team' };
-  if (!whole || (all && !PCFG[k].dynAll)) {
+  if (!whole || (all && !PCFG[k].dynAll) || PCFG[k].people) {
     out.target_people = picked.map(function (m) { return m.id; });
     out.target_label = pkLabel(k);
   }
@@ -1164,10 +1172,11 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'weekly' && W.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
+  if (curTab === 'poll' && PL.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   closeModal(); closeFabMenu();
   setTabUI(t);
   refreshTodos();
@@ -1179,7 +1188,7 @@ function goTab(t) {
 }
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
-function parentTab(t) { return t === 'weekly' ? 'profile' : t === 'task' ? taskFrom : t; }
+function parentTab(t) { return t === 'weekly' || t === 'poll' ? 'profile' : t === 'task' ? taskFrom : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1187,7 +1196,7 @@ function goTask(from) {
 }
 function renderTaskSeg() {
   var seg = taskFrom === 'profile'
-    ? [['나의 기록', "goTab('profile')", 0], ['내 과제', '', 1], ['업무가능', "goTab('weekly')", 0]]
+    ? [['나의 기록', "goTab('profile')", 0], ['내 과제', '', 1], ['업무가능', "goTab('weekly')", 0], ['시간취합', "goTab('poll')", 0]]
     : [['공지', "goTab('notice')", 0], ['과제', '', 1]];
   $('taskSeg').innerHTML = seg.map(function (x) {
     return '<button class="wkchip' + (x[2] ? ' active' : '') + '"' + (x[1] ? ' onclick="' + x[1] + '"' : '') + '>' + x[0] + '</button>';
@@ -1200,7 +1209,7 @@ function setTabUI(t) {
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
@@ -1213,6 +1222,7 @@ function refreshTab() {
   else if (curTab === 'weekly' && !W.data) openWeekly('next');
   else if (curTab === 'rec') loadRec();
   else if (curTab === 'profile') loadProfile();
+  else if (curTab === 'poll') loadPolls();
 }
 
 // =====================================================================
@@ -1345,7 +1355,10 @@ function renderWkGrid() {
 // 칸 칠하기
 // - 손가락: 탭 = 한 칸, 꾹(0.3초) 누른 채 쓸기 = 여러 칸, 그냥 쓸기 = 화면 스크롤
 // - 마우스: 누른 채 끌면 바로 칠하기
-function bindPaint(grid) {
+// get: 칠한 칸 저장소를 돌려주는 함수, dirty: 바뀌었을 때 (기본은 업무가능)
+function bindPaint(grid, get, dirty) {
+  get = get || function () { return W.mine; };
+  dirty = dirty || markWkDirty;
   var mode = null, hold = null, sx = 0, sy = 0, startEl = null;
   function cellAt(x, y) {
     var el = document.elementFromPoint(x, y);
@@ -1355,12 +1368,13 @@ function bindPaint(grid) {
   function paint(el) {
     if (!el) return;
     var k = el.getAttribute('data-k');
-    if (!!W.mine[k] === mode) return;
-    if (mode) W.mine[k] = true; else delete W.mine[k];
+    var st = get();
+    if (!!st[k] === mode) return;
+    if (mode) st[k] = true; else delete st[k];
     el.classList.toggle('on', mode);
-    markWkDirty();
+    dirty();
   }
-  function begin(el) { mode = !W.mine[el.getAttribute('data-k')]; paint(el); grid.classList.add('painting'); }
+  function begin(el) { mode = !get()[el.getAttribute('data-k')]; paint(el); grid.classList.add('painting'); }
   function end() { clearTimeout(hold); hold = null; startEl = null; mode = null; grid.classList.remove('painting'); }
   grid.addEventListener('pointerdown', function (e) {
     var el = cellAt(e.clientX, e.clientY);
@@ -1379,7 +1393,7 @@ function bindPaint(grid) {
     if (hold && (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8)) { clearTimeout(hold); hold = null; startEl = null; }
   });
   grid.addEventListener('pointerup', function () {
-    if (hold && startEl) { clearTimeout(hold); hold = null; mode = !W.mine[startEl.getAttribute('data-k')]; paint(startEl); }
+    if (hold && startEl) { clearTimeout(hold); hold = null; mode = !get()[startEl.getAttribute('data-k')]; paint(startEl); }
     end();
   });
   grid.addEventListener('pointercancel', end);
@@ -1578,6 +1592,252 @@ function saveFx() {
 // =====================================================================
 // 공통: 대상(조) 고르기, 접었다 펴기, 날짜·시간 표시
 // =====================================================================
+// =====================================================================
+// 시간취합 (가능시간 투표): 누구나 만들고, 대상자가 30분 칸을 칠해 다 같이 되는 때를 찾음
+// 화면 칸 키 = '날짜번호-30분칸', 서버로는 날짜번호*48 + 30분칸
+// =====================================================================
+var PL = { list: null, cur: null, mine: {}, dirty: false, view: 'mine', sel: '', fixed: [], pending: null };
+function markPlDirty() { PL.dirty = true; $('plSaveBtn').classList.add('dirty'); }
+function plKeys(nums) { var m = {}; (nums || []).forEach(function (n) { m[Math.floor(n / 48) + '-' + (n % 48)] = true; }); return m; }
+
+function loadPolls() {
+  if (!PL.list) $('pollOpen').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  return api('polls.list').then(function (list) {
+    PL.list = list; renderPolls();
+    if (PL.pending) { var id = PL.pending; PL.pending = null; openPoll(id); }
+  }).catch(function (err) { $('pollOpen').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function pollState(p) {
+  if (!p.open) return { t: '마감', c: 'st-none' };
+  if (!p.is_target) return { t: '진행 중', c: 'st-none' };
+  return p.answered ? { t: '입력 완료', c: 'st-참석' } : { t: '입력 전', c: 'st-불참' };
+}
+function pollCard(p) {
+  var st = pollState(p), sel = PL.cur && PL.cur.id === p.id;
+  var days = p.start_date === p.end_date ? shortD(p.start_date) : shortD(p.start_date) + ' ~ ' + shortD(p.end_date);
+  return '<button class="b-session b-task' + (sel ? ' b-sel' : '') + '" onclick="openPoll(\'' + esc(p.id) + '\')"><div class="b-info">' +
+      (p.is_mine ? '<span class="chip b-cat">내가 만듦</span>' : '') +
+      '<b>' + esc(p.title) + '</b><span>' + days + ' · 마감 ' + dtLabel(p.deadline) + (p.is_mine ? '' : ' · ' + esc(p.owner)) + '</span></div>' +
+    '<div class="b-side"><span class="st ' + st.c + '">' + st.t + '</span><small>응답 ' + p.responded + '/' + p.count + '명</small></div></button>';
+}
+function renderPolls() {
+  var open = PL.list.filter(function (p) { return p.open; }), past = PL.list.filter(function (p) { return !p.open; });
+  $('pollOpenCount').textContent = open.length ? open.length + '개' : '';
+  $('pollOpen').innerHTML = open.length ? open.map(pollCard).join('')
+    : '<div class="empty"><b>진행 중인 시간취합이 없어요</b>+ 버튼으로 모일 시간을 물어볼 수 있어요</div>';
+  $('pollPast').innerHTML = past.length ? past.map(pollCard).join('') : '<div class="empty"><b>최근 마감된 취합이 없어요</b></div>';
+}
+
+function openPoll(id) {
+  if (PL.dirty && PL.cur && PL.cur.id !== id && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
+  var wide = isWide();
+  $('pollList').style.display = wide ? 'block' : 'none';
+  $('pollView').classList.toggle('split', wide);
+  $('pollDetail').style.display = 'block';
+  $('plHead').innerHTML = '<div class="b-dhead"><h1>불러오는 중...</h1></div>';
+  $('plGrid').innerHTML = ''; $('plActs').innerHTML = ''; setMsg('plMsg', '');
+  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+  if (!wide) window.scrollTo(0, 0);
+  return api('polls.get', { id: id }).then(function (d) {
+    PL.cur = d; PL.dirty = false; PL.sel = ''; $('plSaveBtn').classList.remove('dirty');
+    PL.mine = plKeys(d.mine.slots);
+    PL.fixed = groupFixedRows(d.fixed);
+    $('plMemo').value = d.mine.memo || '';
+    if (PL.list && wide) renderPolls();
+    renderPollHead();
+    switchPoll(d.is_target && d.open ? 'mine' : 'result');
+  }).catch(function (err) {
+    $('plHead').innerHTML = '<div class="b-dhead"><h1>열 수 없어요</h1><p>' + esc(err.message) + '</p></div>';
+    $('plTabs').style.display = 'none'; $('plMine').style.display = 'none'; $('plResult').style.display = 'none';
+  });
+}
+function closePoll() {
+  if (PL.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 닫을까요?')) return;
+  PL.cur = null; PL.dirty = false;
+  $('pollView').classList.remove('split');
+  $('pollDetail').style.display = 'none';
+  $('pollList').style.display = 'block';
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+  if (PL.list) renderPolls();
+}
+function renderPollHead() {
+  var d = PL.cur, n = d.people.filter(function (p) { return p.answered; }).length;
+  var days = d.dates.length === 1 ? shortD(d.dates[0]) : shortD(d.dates[0]) + ' ~ ' + shortD(d.dates[d.dates.length - 1]);
+  $('plHead').innerHTML = '<div class="b-dhead"><h1>' + esc(d.title) + '</h1><p>' + days + ' · ' + d.hour_from + '시~' + d.hour_to + '시 · ' +
+    esc(d.owner) + '님이 만듦</p><div class="b-chips">' +
+    '<span class="chip' + (d.open ? '' : ' dark') + '">' + (d.open ? '마감 ' + dtLabel(d.deadline) : '마감됨') + '</span>' +
+    '<span class="chip">응답 ' + n + '/' + d.people.length + '명</span>' +
+    (d.is_target && d.open ? '<span class="chip' + (d.mine.answered ? ' dark' : ' bad') + '">' + (d.mine.answered ? '내 입력 완료' : '아직 입력 전') + '</span>' : '') +
+    '</div></div>';
+  var tabs = d.is_target && d.open;
+  $('plTabs').style.display = tabs ? 'flex' : 'none';
+  var a = '';
+  if (d.is_mine) {
+    var wait = d.people.filter(function (p) { return !p.answered && p.id !== S.me.profile.id; }).length;
+    a = '<div class="card b-pad b-gap"><div class="b-card-title">만든 사람 메뉴</div><div class="pd-actions">' +
+      (d.open && wait ? '<button class="ghost-btn" type="button" onclick="remindPoll()">🔔 안 한 ' + wait + '명에게 다시 알림</button>' : '') +
+      (d.open ? '<button class="ghost-btn" type="button" onclick="closePollNow()">지금 마감</button>' : '') +
+      '<button class="ghost-btn b-danger" type="button" onclick="deletePoll()">지우기</button></div><div class="msg" id="plActMsg"></div></div>';
+  }
+  $('plActs').innerHTML = a;
+}
+function switchPoll(v) {
+  PL.view = v;
+  document.querySelectorAll('.pl-v').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-v') === v); });
+  $('plMine').style.display = v === 'mine' ? 'block' : 'none';
+  $('plResult').style.display = v === 'result' ? '' : 'none';
+  if (v === 'mine') renderPollGrid(); else renderPollResult();
+}
+// 그 칸에 걸리는 내 고정 일정 이름
+function plBusy(di, s) {
+  if (s < 0) return '';
+  var wd = parseDate(PL.cur.dates[di]).getDay(), from = slotHm(s), to = slotHm(s + 1);
+  for (var i = 0; i < PL.fixed.length; i++) {
+    var f = PL.fixed[i];
+    if (f.weekdays.indexOf(wd) !== -1 && f.start < (to === '00:00' ? '24:00' : to) && f.end > from) return f.title;
+  }
+  return '';
+}
+function plCols(n) { return 'grid-template-columns: 34px repeat(' + n + ', minmax(' + (n > 7 ? 44 : 0) + 'px, 1fr));'; }
+function renderPollGrid() {
+  var d = PL.cur, any = false, n = d.dates.length;
+  var html = '<div class="tgrid half" style="' + plCols(n) + '">' + gridHead(d.dates);
+  for (var s = d.hour_from * 2; s < d.hour_to * 2; s++) {
+    var top = s % 2 === 0;
+    html += '<div class="gt' + (top ? ' hr' : '') + '">' + (top ? (s / 2) + '시' : '') + '</div>';
+    for (var di = 0; di < n; di++) {
+      var key = di + '-' + s, bl = plBusy(di, s);
+      if (bl) any = true;
+      var blTop = bl && (s === d.hour_from * 2 || bl !== plBusy(di, s - 1));   // 보이는 첫 줄에도 이름
+      html += '<div class="gc' + (top ? ' hr' : '') + (PL.mine[key] ? ' on' : '') + (bl ? ' busy' : '') + '" data-k="' + key + '"' +
+        (bl ? ' title="' + esc(bl) + '"' : '') + '>' + (blTop ? '<span class="bl">' + esc(bl) + '</span>' : '') + '</div>';
+    }
+  }
+  $('plGrid').innerHTML = html + '</div>';
+  $('plBusyLegend').style.display = any ? 'flex' : 'none';
+  bindPaint($('plGrid').firstChild, function () { return PL.mine; }, markPlDirty);
+  if (!d.mine.answered) setMsg('plMsg', '되는 칸을 칠하고 저장해주세요. 되는 시간이 없으면 빈 채로 저장해도 돼요.');
+}
+function clearPl() { if (!Object.keys(PL.mine).length) return; PL.mine = {}; markPlDirty(); renderPollGrid(); }
+function savePoll() {
+  var d = PL.cur; if (!d) return;
+  var slots = Object.keys(PL.mine).map(function (k) { var p = k.split('-'); return +p[0] * 48 + +p[1]; });
+  var memo = $('plMemo').value.trim(), btn = $('plSaveBtn');
+  btn.disabled = true; setMsg('plMsg', '저장 중...');
+  api('polls.save', { id: d.id, slots: slots, memo: memo }).then(function (r) {
+    PL.dirty = false; btn.classList.remove('dirty'); btn.disabled = false; haptic('success');
+    var first = !d.mine.answered;
+    d.mine = { slots: slots, memo: memo, answered: true };
+    d.people.forEach(function (p) { if (p.id === S.me.profile.id) { p.answered = true; p.slots = slots; p.memo = memo; } });
+    (PL.list || []).forEach(function (p) { if (p.id === d.id) { if (first) p.responded++; p.answered = true; } });
+    renderPollHead(); if (PL.list) renderPolls();
+    refreshTodos(true);
+    setMsg('plMsg', r.count ? r.count + '칸 저장했어요! 마감 전까지 언제든 고칠 수 있어요.' : (memo ? '특이사항을 저장했어요.' : '되는 시간이 없다고 저장했어요.'));
+  }).catch(function (err) { btn.disabled = false; setMsg('plMsg', err.message, true); haptic('error'); });
+}
+function pickPlCell(k) { PL.sel = PL.sel === k ? '' : k; renderPollResult(); }
+function renderPollResult() {
+  var d = PL.cur, n = d.dates.length, total = d.people.length, who = {};
+  d.people.forEach(function (p) { p.slots.forEach(function (x) { var k = Math.floor(x / 48) + '-' + (x % 48); (who[k] = who[k] || []).push(p.name); }); });
+  var runs = [];
+  for (var di = 0; di < n; di++) {
+    var cur = null;
+    for (var s = d.hour_from * 2; s < d.hour_to * 2; s++) {
+      var set = (who[di + '-' + s] || []).slice().sort().join(',');
+      if (cur && set && cur.set === set) { cur.end = s + 1; continue; }
+      if (cur) runs.push(cur);
+      cur = set ? { di: di, start: s, end: s + 1, set: set, n: set.split(',').length } : null;
+    }
+    if (cur) runs.push(cur);
+  }
+  runs.sort(function (x, y) { return y.n - x.n || (y.end - y.start) - (x.end - x.start) || x.di - y.di || x.start - y.start; });
+  $('plBest').innerHTML = runs.length
+    ? '<div class="best"><h3>가장 많이 되는 시간</h3><ol>' + runs.slice(0, 3).map(function (r) {
+        return '<li>' + shortD(d.dates[r.di]) + ' ' + slotHm(r.start) + '~' + slotHm(r.end) + ' <small>' + r.n + '/' + total + '명' + (r.n === total ? ' · 전원 가능 ✨' : '') + '</small></li>';
+      }).join('') + '</ol></div>'
+    : '<div class="empty inner"><b>아직 입력한 사람이 없어요</b>입력이 들어오면 여기에 모여요</div>';
+  var html = '<div class="tgrid res half" style="' + plCols(n) + '">' + gridHead(d.dates);
+  for (var s2 = d.hour_from * 2; s2 < d.hour_to * 2; s2++) {
+    var top = s2 % 2 === 0;
+    html += '<div class="gt' + (top ? ' hr' : '') + '">' + (top ? (s2 / 2) + '시' : '') + '</div>';
+    for (var d2 = 0; d2 < n; d2++) {
+      var key = d2 + '-' + s2, c = (who[key] || []).length, a = c && total ? 0.15 + 0.85 * c / total : 0;
+      html += '<div class="gc' + (top ? ' hr' : '') + (c === total && c > 0 ? ' full' : '') + (PL.sel === key ? ' sel' : '') + '"' +
+        (c ? ' style="background: rgba(79,78,48,' + a.toFixed(2) + '); border-color: transparent;' + (a > 0.55 ? ' color:#fff;' : '') + '"' : '') +
+        ' onclick="pickPlCell(\'' + key + '\')">' + (c || '') + '</div>';
+    }
+  }
+  $('plResGrid').innerHTML = html + '</div>';
+  if (PL.sel) {
+    var p2 = PL.sel.split('-'), yes = who[PL.sel] || [];
+    var no = d.people.filter(function (p) { return p.answered && yes.indexOf(p.name) === -1; }).map(function (p) { return p.name; });
+    $('plCellInfo').innerHTML = '<b>' + shortD(d.dates[+p2[0]]) + ' ' + slotHm(+p2[1]) + '~' + slotHm(+p2[1] + 1) + '</b><br>가능 ' + yes.length + '명: ' +
+      (yes.length ? esc(yes.join(', ')) : '없음') + (no.length ? '<br>안 됨: ' + esc(no.join(', ')) : '');
+  } else $('plCellInfo').textContent = '칸을 누르면 누가 되는지 보여요';
+  var memos = d.people.filter(function (p) { return p.memo; });
+  $('plMemos').innerHTML = memos.length
+    ? '<div class="memo-list"><h3>📝 특이사항</h3>' + memos.map(function (p) { return '<div><b>' + esc(p.name) + '</b>' + esc(p.memo) + '</div>'; }).join('') + '</div>' : '';
+  var wait = d.people.filter(function (p) { return !p.answered; }).map(function (p) { return p.name; });
+  $('plWho').innerHTML = wait.length
+    ? '<div class="who-row">아직 입력 전 <b>' + wait.length + '명</b>: ' + esc(wait.join(', ')) + '</div>'
+    : '<div class="who-row"><b>모두 입력했어요 🎉</b></div>';
+}
+function remindPoll() {
+  var d = PL.cur; if (!d) return;
+  setMsg('plActMsg', '보내는 중...');
+  api('polls.remind', { id: d.id }).then(function (r) {
+    setMsg('plActMsg', r.sent + '명에게 다시 알렸어요' + (r.failed.length ? ' · 못 받은 사람: ' + r.failed.join(', ') + ' (봇 대화 시작 안 함 등)' : ''));
+  }).catch(function (err) { setMsg('plActMsg', err.message, true); });
+}
+function closePollNow() {
+  var d = PL.cur; if (!d || !confirm('지금 마감할까요? 마감하면 더 입력할 수 없어요.')) return;
+  api('polls.close', { id: d.id }).then(function () { PL.list = null; loadPolls(); openPoll(d.id); })
+    .catch(function (err) { setMsg('plActMsg', err.message, true); });
+}
+function deletePoll() {
+  var d = PL.cur; if (!d || !confirm('「' + d.title + '」 취합과 모든 입력을 지울까요?')) return;
+  api('polls.delete', { id: d.id }).then(function () { PL.dirty = false; closePoll(); PL.list = null; loadPolls(); })
+    .catch(function (err) { setMsg('plActMsg', err.message, true); });
+}
+
+// ----- 만들기 팝업 -----
+function tpFromChanged() {
+  var f = $('tpFrom').value, t = $('tpTo').value;
+  if (f && (!t || t < f)) $('tpTo').value = f;
+}
+function openTpModal() {
+  if (!$('tpH0').options.length) {
+    var o = function (a, b, sel) { var h = ''; for (var i = a; i <= b; i++) h += '<option value="' + i + '"' + (i === sel ? ' selected' : '') + '>' + i + '시</option>'; return h; };
+    $('tpH0').innerHTML = o(0, 23, 9); $('tpH1').innerHTML = o(1, 24, 22);
+  }
+  if (!$('tpFrom').value) { $('tpFrom').value = addDays(1); $('tpTo').value = addDays(7); }
+  if (!$('tpDue').value) { var d = new Date(); d.setDate(d.getDate() + 1); d.setHours(22, 0, 0, 0); $('tpDue').value = ymd(d) + 'T22:00'; }
+  setMsg('tpMsg', '');
+  openModal('tpModal');
+  pkOpen('tp');
+}
+function createPoll() {
+  var p = { title: $('tpTitle').value.trim(), start_date: $('tpFrom').value, end_date: $('tpTo').value,
+    hour_from: +$('tpH0').value, hour_to: +$('tpH1').value, deadline: $('tpDue').value };
+  if (!p.title) { setMsg('tpMsg', '무엇을 정하는지 적어주세요!', true); return; }
+  if (!p.start_date || !p.end_date) { setMsg('tpMsg', '후보 날짜를 골라주세요!', true); return; }
+  if (p.end_date < p.start_date) { setMsg('tpMsg', '끝 날짜가 시작 날짜보다 빨라요', true); return; }
+  if ((parseDate(p.end_date) - parseDate(p.start_date)) / 86400000 >= 14) { setMsg('tpMsg', '후보 날짜는 14일 안으로 골라주세요', true); return; }
+  if (p.hour_from >= p.hour_to) { setMsg('tpMsg', '시간대를 확인해주세요', true); return; }
+  if (!p.deadline) { setMsg('tpMsg', '마감 시각을 골라주세요!', true); return; }
+  var t = pkPayload('tp');
+  if (t.error) { setMsg('tpMsg', t.error, true); return; }
+  Object.assign(p, t);
+  var btn = $('tpBtn'); btn.disabled = true; setMsg('tpMsg', '만드는 중...');
+  api('polls.create', p).then(function (r) {
+    btn.disabled = false; haptic('success');
+    $('tpTitle').value = ''; pkReset('tp');
+    setMsg('tpMsg', '만들었어요! ' + r.sent + '명에게 알림을 보냈어요.' + (r.failed.length ? ' (못 받은 사람: ' + r.failed.join(', ') + ')' : ''));
+    PL.pending = r.id; PL.list = null; loadPolls();
+    setTimeout(function () { setMsg('tpMsg', ''); closeModal('tpModal'); }, 1400);
+  }).catch(function (err) { btn.disabled = false; setMsg('tpMsg', err.message, true); });
+}
+
 var N = { list: null, open: null };                  // 공지
 var A = { list: null, current: null, subs: null, openSub: null };   // 과제
 var C = { list: [], open: null };                     // 체크인
@@ -1607,7 +1867,7 @@ function closeModal(id) {
   m.classList.remove('show'); m.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('modal-open');
   MODAL = null;
-  try { if (tg && tg.BackButton && !S.current && !A.current && !RC.current) tg.BackButton.hide(); } catch (e) {}
+  try { if (tg && tg.BackButton && !S.current && !A.current && !RC.current && !PL.cur) tg.BackButton.hide(); } catch (e) {}
 }
 // 출결 FAB: 만들 수 있는 게 하나면 바로 팝업, 둘이면 작은 메뉴를 펼침
 function attFabTap() {
@@ -2640,6 +2900,7 @@ document.addEventListener('keydown', function (e) {
   else if (curTab === 'task' && $('taskView').classList.contains('split')) closeTask();
   else if (curTab === 'profile' && $('profileView').classList.contains('split')) closePfEdit();
   else if (curTab === 'rec' && $('recView').classList.contains('split')) closeRec();
+  else if (curTab === 'poll' && $('pollView').classList.contains('split')) closePoll();
 });
 
 // ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
@@ -3038,6 +3299,7 @@ function renderTodos() {
       if (t.kind === 'task') return row(i, '📝', '과제 제출 · ' + t.name, t.due ? '마감 ' + dtLabel(t.due) : '마감 없음', t.urgent);
       if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
       if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
+      if (t.kind === 'poll') return row(i, '📅', '가능시간 입력 · ' + t.name, '마감 ' + mdw(Date.parse(t.due)) + ' ' + hmMs(Date.parse(t.due)), t.urgent);
       if (t.kind === 'recask') return row(i, '🎙', '녹음 요청 응답 · ' + t.name, t.role + ' · ' + mdw(t.start) + ' ' + hmMs(t.start) + (t.place ? ' · ' + t.place : ''), t.urgent);
       return '';
     }).join('') + '</div>';
@@ -3051,6 +3313,7 @@ function openTodo(i) {
   };
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
   if (t.kind === 'recask') { openAsk(t.id); return; }
+  if (t.kind === 'poll') { PL.pending = t.id; if (curTab === 'poll') loadPolls(); else goTab('poll'); return; }
   if (t.kind === 'reason' || t.kind === 'plan') {
     inTeam(function () { goTab('attend'); return refreshSessions().then(function () { if (byId(S.sessions, t.id)) openSession(t.id); }); });
     return;
@@ -3160,6 +3423,7 @@ if (tg && tg.BackButton) {
     if (MODAL) closeModal();
     else if (curTab === 'task' && A.current) closeTask();
     else if (curTab === 'rec' && RC.current) closeRec();
+    else if (curTab === 'poll' && PL.cur) closePoll();
     else if (curTab === 'profile' && $('pfEdit').style.display === 'block') closePfEdit();
     else if (S.current) showList();
   });

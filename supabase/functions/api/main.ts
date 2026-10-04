@@ -1050,6 +1050,97 @@ async function cronWeeklyNag(ctx: Ctx) {
   return { week_start: ws, ...result };
 }
 
+// ----- 시간취합 (가능시간 투표, 운영 앱에서 옮겨 옴) -----
+// 칸 번호 = 날짜번호 × 48 + 30분칸(0 = 00:00~00:30)
+const POLL_MAX_DAYS = 14;
+function pollDates(p: any): string[] {
+  const out: string[] = [];
+  for (let d = p.start_date; d <= p.end_date && out.length < POLL_MAX_DAYS; d = addDaysStr(d, 1)) out.push(d);
+  return out;
+}
+function pollOpen(p: any) { return p.status === "진행중" && Date.parse(p.deadline) > Date.now(); }
+function canSeePoll(p: any, me: string) { return p.created_by === me || (p.target_people ?? []).includes(me); }
+async function pollRow(ctx: Ctx, id: any) {
+  const p = must(await ctx.db.from("time_polls").select("*").eq("id", String(id ?? "")).maybeSingle());
+  if (!p || p.status === "취소") throw new HttpError(404, "시간취합을 찾을 수 없어요");
+  if (!canSeePoll(p, ctx.me.id)) throw new HttpError(403, "이 시간취합의 대상이 아니에요");
+  return p;
+}
+function pollButton(id: string, text = "가능시간 입력하기") {
+  return { inline_keyboard: [[{ text, web_app: { url: `${MINIAPP_URL}?poll=${id}` } }]] };
+}
+function mdLabel(d: string) {
+  const t = new Date(d + "T00:00:00Z");
+  return `${t.getUTCMonth() + 1}/${t.getUTCDate()}(${"일월화수목금토"[t.getUTCDay()]})`;
+}
+function slotText(s: number) { return `${String(Math.floor(s / 2)).padStart(2, "0")}:${s % 2 ? "30" : "00"}`; }
+// 같은 사람들이 되는 연속 칸을 하나로 묶어 '많이 되는 시간' 순으로
+function pollBest(p: any, answers: any[], n: number) {
+  const dates = pollDates(p), who = new Map<number, string[]>();
+  for (const a of answers) {
+    if (!(p.target_people ?? []).includes(a.person_id)) continue;
+    for (const k of a.slots ?? []) { if (!who.has(k)) who.set(k, []); who.get(k)!.push(a.person_id); }
+  }
+  const runs: any[] = [];
+  dates.forEach((_, di) => {
+    let cur: any = null;
+    for (let s = p.hour_from * 2; s < p.hour_to * 2; s++) {
+      const set = (who.get(di * 48 + s) ?? []).slice().sort().join(",");
+      if (cur && set && cur.set === set) { cur.end = s + 1; continue; }
+      if (cur) runs.push(cur);
+      cur = set ? { di, start: s, end: s + 1, set, n: set.split(",").length } : null;
+    }
+    if (cur) runs.push(cur);
+  });
+  runs.sort((x, y) => y.n - x.n || (y.end - y.start) - (x.end - x.start) || x.di - y.di || x.start - y.start);
+  return runs.slice(0, n).map((r) => ({ label: `${mdLabel(dates[r.di])} ${slotText(r.start)}~${slotText(r.end)}`, n: r.n }));
+}
+async function pollWaiting(ctx: Ctx, p: any) {
+  const ans: any[] = must(await ctx.db.from("time_poll_answers").select("person_id").eq("poll_id", p.id)) ?? [];
+  const done = new Set(ans.map((a) => a.person_id));
+  return (p.target_people ?? []).filter((id: string) => !done.has(id) && id !== p.created_by);
+}
+async function pollRemind(ctx: Ctx, p: any, lead: string) {
+  const ids = await pollWaiting(ctx, p);
+  const people = await withTelegram(ctx, ids);
+  const text = `${lead}\n\n「${escHtml(p.title)}」\n${mdLabel(p.start_date)}${p.end_date !== p.start_date ? " ~ " + mdLabel(p.end_date) : ""}\n` +
+    `마감 ${msLabel(Date.parse(p.deadline))}`;
+  return { ...(await sendToMembers(people, text, pollButton(p.id))), total: ids.length };
+}
+// 마감: 만든 사람에게 결과(많이 되는 시간 3개 + 특이사항) 알림
+async function pollFinish(ctx: Ctx, p: any) {
+  const answers: any[] = must(await ctx.db.from("time_poll_answers").select("person_id, slots, memo").eq("poll_id", p.id)) ?? [];
+  const best = pollBest(p, answers, 3);
+  const names = await nameMap(ctx, answers.map((a) => a.person_id));
+  const answered = answers.filter((a) => (p.target_people ?? []).includes(a.person_id)).length;
+  const memos = answers.filter((a) => a.memo).map((a) => `· ${escHtml(names.get(a.person_id) ?? "")}: ${escHtml(a.memo)}`);
+  const text = `<b>⏰ 시간취합이 마감됐어요</b>\n\n「${escHtml(p.title)}」 ${answered}/${(p.target_people ?? []).length}명 응답\n` +
+    (best.length ? best.map((b, i) => `${i + 1}. ${b.label} (${b.n}명 가능)`).join("\n") : "겹치는 시간이 없어요.") +
+    (memos.length ? `\n\n📝 특이사항\n${memos.join("\n")}` : "");
+  const owner = await withTelegram(ctx, [p.created_by].filter(Boolean));
+  const r = await sendToMembers(owner, text, pollButton(p.id, "결과 보기"));
+  must(await ctx.db.from("time_polls").update({ status: "마감", closed_at: new Date().toISOString(), close_result: { sent: r.sent, why: r.why } }).eq("id", p.id));
+  return r;
+}
+// 10분마다: 마감이 지난 취합은 마감 + 결과 알림, 마감 24시간 전에는 아직 안 한 사람에게 한 번 알림(밤 0~8시 제외)
+async function cronPolls(ctx: Ctx) {
+  const now = Date.now(), out: any[] = [];
+  const rows: any[] = must(await ctx.db.from("time_polls").select("*").eq("status", "진행중")
+    .lte("deadline", new Date(now + 24 * HOUR).toISOString())) ?? [];
+  const night = new Date(now + 9 * HOUR).getUTCHours() < 8;
+  for (const p of rows) {
+    try {
+      const due = Date.parse(p.deadline);
+      if (due <= now) out.push({ id: p.id, finished: (await pollFinish(ctx, p)).sent });
+      else if (!p.reminded_at && !night && Date.parse(p.created_at) < due - 24 * HOUR) {
+        must(await ctx.db.from("time_polls").update({ reminded_at: new Date().toISOString() }).eq("id", p.id));
+        out.push({ id: p.id, reminded: (await pollRemind(ctx, p, "<b>🔔 시간취합 마감이 다가와요</b>\n아직 입력 전이에요!")).sent });
+      }
+    } catch (e) { console.error("poll cron", p.id, e); }
+  }
+  return out;
+}
+
 // 10분마다 pg_cron이 부름: 72시간 전·24시간 전이 된 모임에 자동 알림 + 업무가능 독촉
 async function cronReminders(db: any) {
   const ctx = { db, me: { id: null, name: "자동 알림" }, payload: {} } as unknown as Ctx;
@@ -1070,9 +1161,10 @@ async function cronReminders(db: any) {
     try { out.push({ id: s.id, ...(await remindUnplanned(ctx, s, kind)) }); }
     catch (e) { console.error("remind", s.id, e); }
   }
-  let weekly = null;
+  let weekly = null, polls = null;
   try { weekly = await cronWeeklyNag(ctx); } catch (e) { console.error("weekly nag", e); }
-  return { sessions: out, weekly };
+  try { polls = await cronPolls(ctx); } catch (e) { console.error("polls", e); }
+  return { sessions: out, weekly, polls };
 }
 
 // 출결 행에서 다른 사람에게 보여도 되는 칸 / 사유까지 (본인·조장 이상)
@@ -1430,7 +1522,17 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       items.push({ kind: "recask", id: a.id, name: a.recording_sessions.recording_requests?.title ?? "녹음", role: REC_ROLE_KO[a.role] ?? a.role,
         start: st, place: a.recording_sessions.location ?? "", urgent: st - now < 48 * HOUR });
     }
-    const order: Record<string, number> = { reason: 0, recask: 1, weekly: 2, checkin: 3, plan: 4, task: 5, notice: 6 };
+    // 시간취합: 대상인데 아직 안 칠한 것 (내가 만든 건 빼고)
+    const polls: any[] = must(await ctx.db.from("time_polls").select("id, title, deadline, created_by").contains("target_people", [me])
+      .eq("status", "진행중").gt("deadline", new Date(now).toISOString())) ?? [];
+    const pollIds = polls.filter((p) => p.created_by !== me).map((p) => p.id);
+    const pollDone: any[] = pollIds.length ? must(await ctx.db.from("time_poll_answers").select("poll_id").eq("person_id", me).in("poll_id", pollIds)) ?? [] : [];
+    for (const p of polls) {
+      if (p.created_by === me || pollDone.some((x) => x.poll_id === p.id)) continue;
+      const due = Date.parse(p.deadline);
+      items.push({ kind: "poll", id: p.id, name: p.title, due: p.deadline, urgent: due - now < 24 * HOUR });
+    }
+    const order: Record<string, number> = { reason: 0, recask: 1, weekly: 2, checkin: 3, poll: 4, plan: 5, task: 6, notice: 7 };
     items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0) || order[x.kind] - order[y.kind]);
     return { count: items.length, items };
   },
@@ -1464,7 +1566,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "sessions.audience"(ctx) {
     const roster = await sectionRoster(ctx, ctx.payload.team_id);
     const ranks = await Promise.all(roster.teams.map((t: any) => rankIn(ctx, t.id)));
-    if (!ranks.some((r) => r >= RANK.GROUP_LEADER)) throw new HttpError(403, "모임은 조장 이상만 만들 수 있어요");
+    // 시간취합은 누구나 대상을 고르니 과 사람이면 명단을 받음 (만들 수 있는지는 각 '만들기'에서 서열로 다시 확인)
+    if (!ranks.some((r) => r >= RANK.MEMBER)) throw new HttpError(403, "권한이 없습니다");
     return {
       section: roster.section,
       can_all: ranks.some((r) => r >= RANK.TEAM_LEADER),
@@ -2225,6 +2328,130 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "checkins.unreport"(ctx) {
     must(await ctx.db.from("checkin_reports").delete()
       .eq("checkin_id", ctx.payload.checkin_id).eq("person_id", ctx.me.id).eq("item", ctx.payload.item));
+    return { ok: true };
+  },
+
+  // ----- 시간취합 (누구나 만들고, 대상자가 가능한 30분 칸을 칠함) -----
+  // 내가 만들었거나 대상인 취합: 진행 중 + 마감 7일 안
+  async "polls.list"(ctx) {
+    const me = ctx.me.id, since = new Date(Date.now() - 7 * 24 * HOUR).toISOString();
+    const [a, b] = await Promise.all([
+      ctx.db.from("time_polls").select("*").eq("created_by", me).neq("status", "취소").gte("deadline", since),
+      ctx.db.from("time_polls").select("*").contains("target_people", [me]).neq("status", "취소").gte("deadline", since),
+    ]);
+    const map = new Map<string, any>();
+    for (const p of [...(must(a as any) ?? []), ...(must(b as any) ?? [])]) map.set(p.id, p);
+    const list = [...map.values()];
+    const ids = list.map((p) => p.id);
+    const ans: any[] = ids.length ? must(await ctx.db.from("time_poll_answers").select("poll_id, person_id").in("poll_id", ids)) ?? [] : [];
+    const owners = await nameMap(ctx, list.map((p) => p.created_by));
+    return list.map((p) => {
+      const mine = ans.filter((x) => x.poll_id === p.id);
+      return {
+        id: p.id, title: p.title, start_date: p.start_date, end_date: p.end_date, deadline: p.deadline, target_label: p.target_label,
+        owner: owners.get(p.created_by) ?? "", is_mine: p.created_by === me, is_target: (p.target_people ?? []).includes(me),
+        open: pollOpen(p), status: p.status, count: (p.target_people ?? []).length,
+        responded: mine.filter((x) => (p.target_people ?? []).includes(x.person_id)).length,
+        answered: mine.some((x) => x.person_id === me),
+      };
+    }).sort((x, y) => Number(y.open) - Number(x.open) || (x.open ? Date.parse(x.deadline) - Date.parse(y.deadline) : Date.parse(y.deadline) - Date.parse(x.deadline)));
+  },
+
+  // 취합 하나: 날짜·시간대, 대상자(응답 여부·특이사항), 사람마다 칠한 칸, 내 칸, 내 고정 일정(음영용)
+  async "polls.get"(ctx) {
+    const p = await pollRow(ctx, ctx.payload.id);
+    const [ans, fixed] = await Promise.all([
+      ctx.db.from("time_poll_answers").select("person_id, slots, memo, updated_at").eq("poll_id", p.id),
+      ctx.db.from("fixed_schedules").select("title, weekday, start_time, end_time").eq("person_id", ctx.me.id),
+    ]);
+    const answers: any[] = must(ans as any) ?? [];
+    const names = await nameMap(ctx, [...(p.target_people ?? []), p.created_by]);
+    const byPerson = new Map(answers.map((a) => [a.person_id, a]));
+    const mine = byPerson.get(ctx.me.id);
+    return {
+      id: p.id, title: p.title, dates: pollDates(p), hour_from: p.hour_from, hour_to: p.hour_to, deadline: p.deadline,
+      status: p.status, open: pollOpen(p), target_label: p.target_label, created_at: p.created_at,
+      owner: names.get(p.created_by) ?? "", is_mine: p.created_by === ctx.me.id, is_target: (p.target_people ?? []).includes(ctx.me.id),
+      people: (p.target_people ?? []).map((id: string) => {
+        const a = byPerson.get(id);
+        return { id, name: names.get(id) ?? "", answered: !!a, memo: a?.memo ?? "", slots: a?.slots ?? [] };
+      }).sort((x: any, y: any) => x.name.localeCompare(y.name)),
+      mine: { slots: mine?.slots ?? [], memo: mine?.memo ?? "", answered: !!mine, at: mine?.updated_at ?? null },
+      fixed: must(fixed as any) ?? [],
+      reminded_at: p.reminded_at,
+    };
+  },
+
+  // 만들기: { team_id, scope, target_people, target_label, title, start_date, end_date, hour_from, hour_to, deadline:"YYYY-MM-DDTHH:MM"(한국 시간) }
+  // 과 사람 누구나. 만든 사람도 대상에 들어감. 대상자에게 봇 알림
+  async "polls.create"(ctx) {
+    const p = ctx.payload;
+    const title = String(p.title ?? "").trim().slice(0, 80);
+    if (!title) throw new HttpError(400, "무엇을 정하는지 주제를 적어주세요");
+    if (!Array.isArray(p.target_people)) throw new HttpError(400, "대상자를 골라주세요");
+    const picked = (await pickedPeople(ctx, p, RANK.MEMBER, RANK.MEMBER))!;
+    const targets = [...new Set([ctx.me.id, ...picked])];
+    if (targets.length < 2) throw new HttpError(400, "나 말고 대상자를 한 명 이상 골라주세요");
+    if (targets.length > 200) throw new HttpError(400, "대상이 너무 많아요");
+    if (!isDate(p.start_date) || !isDate(p.end_date)) throw new HttpError(400, "후보 날짜를 골라주세요");
+    const today = kstToday();
+    if (p.start_date < today) throw new HttpError(400, "후보 날짜는 오늘부터 고를 수 있어요");
+    if (p.end_date < p.start_date) throw new HttpError(400, "끝 날짜가 시작 날짜보다 빨라요");
+    if (addDaysStr(p.start_date, POLL_MAX_DAYS - 1) < p.end_date) throw new HttpError(400, `후보 날짜는 ${POLL_MAX_DAYS}일 안으로 골라주세요`);
+    const h0 = Number(p.hour_from), h1 = Number(p.hour_to);
+    if (!(Number.isInteger(h0) && Number.isInteger(h1) && h0 >= 0 && h1 <= 24 && h0 < h1)) throw new HttpError(400, "시간대를 확인해주세요");
+    const m = String(p.deadline ?? "").match(/^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)$/);
+    if (!m) throw new HttpError(400, "마감 시각을 골라주세요");
+    const due = kstMs(m[1], m[2]);
+    if (!(due > Date.now())) throw new HttpError(400, "마감은 지금 이후로 골라주세요");
+    if (due > Date.now() + 60 * 24 * HOUR) throw new HttpError(400, "마감은 두 달 안으로 골라주세요");
+    await rateLimit(ctx, "poll_new", 5, 24 * 60);
+    const row = must(await ctx.db.from("time_polls").insert({
+      team_id: p.team_id, title, start_date: p.start_date, end_date: p.end_date, hour_from: h0, hour_to: h1,
+      deadline: new Date(due).toISOString(), target_people: targets, target_label: labelOf(p), created_by: ctx.me.id,
+    }).select().single());
+    const others = await withTelegram(ctx, targets.filter((id) => id !== ctx.me.id));
+    const text = `<b>📅 가능시간 취합</b>\n\n「${escHtml(title)}」\n${escHtml(ctx.me.name)}님이 가능한 시간을 여쭤요.\n` +
+      `${mdLabel(p.start_date)}${p.end_date !== p.start_date ? " ~ " + mdLabel(p.end_date) : ""} · ${h0}시~${h1}시\n마감 ${msLabel(due)}`;
+    const r = await sendToMembers(others, text, pollButton(row.id));
+    return { id: row.id, count: targets.length, sent: r.sent, failed: r.failed };
+  },
+
+  // 내 가능시간 저장: { id, slots: [칸번호…], memo }
+  async "polls.save"(ctx) {
+    const p = await pollRow(ctx, ctx.payload.id);
+    if (!(p.target_people ?? []).includes(ctx.me.id)) throw new HttpError(403, "이 시간취합의 대상이 아니에요");
+    if (!pollOpen(p)) throw new HttpError(409, "마감된 시간취합이에요");
+    const days = pollDates(p).length;
+    const raw = Array.isArray(ctx.payload.slots) ? ctx.payload.slots.slice(0, days * 48) : [];
+    const slots = [...new Set(raw.map((x: any) => Number(x)))].filter((k: any) => {
+      if (!Number.isInteger(k)) return false;
+      const di = Math.floor(k / 48), s = k % 48;
+      return di >= 0 && di < days && s >= p.hour_from * 2 && s < p.hour_to * 2;
+    }).sort((a: any, b: any) => a - b) as number[];
+    const memo = String(ctx.payload.memo ?? "").trim().slice(0, 200) || null;
+    must(await ctx.db.from("time_poll_answers").upsert({ poll_id: p.id, person_id: ctx.me.id, slots, memo }, { onConflict: "poll_id,person_id" }));
+    return { count: slots.length };
+  },
+
+  // 만든 사람: 일찍 마감(결과 알림은 안 보냄) / 아직 안 한 사람에게 다시 알림(10분에 한 번) / 지우기
+  async "polls.close"(ctx) {
+    const p = await pollRow(ctx, ctx.payload.id);
+    if (p.created_by !== ctx.me.id) throw new HttpError(403, "만든 사람만 마감할 수 있어요");
+    must(await ctx.db.from("time_polls").update({ status: "마감", closed_at: new Date().toISOString() }).eq("id", p.id));
+    return { ok: true };
+  },
+  async "polls.remind"(ctx) {
+    const p = await pollRow(ctx, ctx.payload.id);
+    if (p.created_by !== ctx.me.id) throw new HttpError(403, "만든 사람만 알림을 보낼 수 있어요");
+    if (!pollOpen(p)) throw new HttpError(409, "마감된 시간취합이에요");
+    await rateLimit(ctx, "poll_remind:" + p.id, 1, 10);
+    return await pollRemind(ctx, p, `<b>🔔 ${escHtml(ctx.me.name)}님이 가능시간 입력을 기다려요</b>`);
+  },
+  async "polls.delete"(ctx) {
+    const p = await pollRow(ctx, ctx.payload.id);
+    if (p.created_by !== ctx.me.id) throw new HttpError(403, "만든 사람만 지울 수 있어요");
+    must(await ctx.db.from("time_polls").delete().eq("id", p.id));
     return { ok: true };
   },
 

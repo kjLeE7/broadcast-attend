@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261004t">
+  <link rel="stylesheet" href="beta.css?v=20261005a">
 </head>
 <body>
   <div class="app">
@@ -274,7 +274,7 @@
         <p class="page-desc">지금 할 일, 내 정보와 한 달 동안 걸어온 길을 모아봐요</p>
         <!-- 지금 할 일 (업무가능 미제출·사전체크·사유·과제·공지·체크인) -->
         <div id="todoArea"></div>
-        <div class="b-attseg"><button class="wkchip active" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip" onclick="goTab('weekly')">업무가능</button></div>
+        <div class="b-attseg"><button class="wkchip active" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip" onclick="goTab('weekly')">업무가능</button><button class="wkchip" onclick="goTab('poll')">시간취합</button></div>
 
         <div class="card pf-card" id="pfCard"><div class="b-wait">불러오는 중...</div></div>
 
@@ -341,7 +341,7 @@
     <section id="weeklyView" style="display:none;">
       <h1 class="page-title">업무가능 시간 취합</h1>
       <p class="page-desc">녹음·사회·촬영 등 업무가 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
-      <div class="b-attseg"><button class="wkchip" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip active" onclick="goTab('weekly')">업무가능</button></div>
+      <div class="b-attseg"><button class="wkchip" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip active" onclick="goTab('weekly')">업무가능</button><button class="wkchip" onclick="goTab('poll')">시간취합</button></div>
 
       <div class="subtabs">
         <button class="subtab wk-which" data-wk="next" onclick="openWeekly('next')">다음 주</button>
@@ -400,7 +400,53 @@
       </div>
     </section>
 
-    <p class="b-foot" id="foot">베타 · 홈·출결·체크인·공지·과제·업무가능</p>
+    <!-- ===== 시간취합 (가능시간 투표: 누구나 만들고 대상자가 칸을 칠함) ===== -->
+    <section id="pollView" style="display:none;">
+      <div id="pollList">
+        <h1 class="page-title">함께할 시간 찾기</h1>
+        <p class="page-desc">모일 사람을 고르고 후보 날짜를 정하면, 각자 되는 시간을 칠해서 다 같이 되는 때를 찾아요</p>
+        <div class="b-attseg"><button class="wkchip" onclick="goTab('profile')">나의 기록</button><button class="wkchip" onclick="goTask('profile')">내 과제</button><button class="wkchip" onclick="goTab('weekly')">업무가능</button><button class="wkchip active" onclick="goTab('poll')">시간취합</button></div>
+        <div class="b-fab" id="pollFab">
+          <button class="fab" type="button" onclick="openTpModal()" aria-label="시간취합 만들기" title="시간취합 만들기"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+        <div class="section-head"><h2>진행 중</h2><span class="section-count" id="pollOpenCount"></span></div>
+        <div id="pollOpen"></div>
+        <div class="section-head b-gap"><h2>마감된 취합</h2><span class="section-count">최근 7일</span></div>
+        <div id="pollPast"></div>
+      </div>
+
+      <div id="pollDetail" style="display:none;">
+        <button class="back" onclick="closePoll()">‹ 시간취합 목록</button>
+        <button class="b-close" type="button" onclick="closePoll()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+        <div id="plHead"></div>
+        <div class="subtabs" id="plTabs">
+          <button class="subtab pl-v" data-v="mine" onclick="switchPoll('mine')">내 가능시간</button>
+          <button class="subtab pl-v" data-v="result" onclick="switchPoll('result')">모아보기</button>
+        </div>
+        <div id="plMine">
+          <p class="pd-hint">탭: 한 칸 · 꾹 누른 채 쓸기: 여러 칸 · 그냥 쓸면 스크롤</p>
+          <div class="grid-wrap" id="plGrid"></div>
+          <div class="busy-legend" id="plBusyLegend" style="display:none;"><span class="sw"></span>고정 일정이 있는 시간 (되면 그대로 고를 수 있어요)</div>
+          <label class="field-label" for="plMemo">특이사항 <span class="hint">선택 · 칸으로 애매할 때</span></label>
+          <textarea id="plMemo" rows="2" maxlength="200" placeholder="예) 19:40부터 가능해요" oninput="markPlDirty()"></textarea>
+          <div class="pd-actions">
+            <button class="ghost-btn" type="button" onclick="clearPl()">전부 지우기</button>
+            <button class="btn-primary" id="plSaveBtn" onclick="savePoll()">저장</button>
+          </div>
+          <div class="msg" id="plMsg"></div>
+        </div>
+        <div id="plResult" style="display:none;">
+          <div id="plBest"></div>
+          <div class="grid-wrap" id="plResGrid"></div>
+          <div class="pd-cell-info" id="plCellInfo">칸을 누르면 누가 되는지 보여요</div>
+          <div id="plMemos"></div>
+          <div id="plWho"></div>
+        </div>
+        <div id="plActs"></div>
+      </div>
+    </section>
+
+    <p class="b-foot" id="foot">베타 · 홈·출결·체크인·공지·과제·업무가능·시간취합</p>
   </div>
 
   <!-- 하단 탭 -->
@@ -560,6 +606,31 @@
       <div class="b-modal-body" id="bdayBody"></div>
     </div>
   </div>
+  <div class="b-modal" id="tpModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="tpModalT">
+      <div class="b-modal-head">
+        <div><h1 id="tpModalT">시간취합 만들기</h1><p>대상자에게 봇으로 알림이 가요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body">
+        <label class="field-label" for="tpTitle">무엇을 정하나요</label>
+        <input type="text" id="tpTitle" class="b-input" maxlength="80" placeholder="예) 웹드라마 대본 리딩">
+        <label class="field-label">후보 날짜 <span class="hint">최대 14일</span></label>
+        <div class="tp-row"><input type="date" id="tpFrom" class="b-input" onchange="tpFromChanged()"><span>~</span><input type="date" id="tpTo" class="b-input"></div>
+        <label class="field-label">시간대</label>
+        <div class="tp-row"><div class="select-wrap"><select id="tpH0"></select></div><span>~</span><div class="select-wrap"><select id="tpH1"></select></div></div>
+        <label class="field-label" for="tpDue">마감</label>
+        <input type="datetime-local" id="tpDue">
+        <small class="tp-note">마감 24시간 전에 아직 안 한 사람에게 한 번 더 알리고, 마감되면 결과를 보내 드려요</small>
+        <label class="field-label">대상 <span class="hint">나는 자동으로 들어가요</span></label>
+        <div id="tpPick"></div>
+        <button class="btn-primary" id="tpBtn" onclick="createPoll()">시간취합 만들기</button>
+        <div class="msg" id="tpMsg"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="b-modal" id="hwModal" aria-hidden="true">
     <div class="b-modal-dim" onclick="closeModal()"></div>
     <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="hwModalT">
@@ -656,6 +727,6 @@
 
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261004e"></script>
-  <script src="beta.js?v=20261004y"></script>
+  <script src="beta.js?v=20261005a"></script>
 </body>
 </html>
