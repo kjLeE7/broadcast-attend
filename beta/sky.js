@@ -51,37 +51,89 @@ function closeTalk() { talkQ = null; if (box) box.hidden = true; }
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ---------- 그리기 ----------
+// ---------- 소품 (진한 외곽선 + 위쪽 밝은 면 + 아래 그림자: 동네지도와 같은 도트 말투) ----------
+const OL = '#2a2228';
+const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16), f = v => Math.max(0, Math.min(255, Math.round(v * k))); return '#' + [n >> 16, n >> 8 & 255, n & 255].map(v => f(v).toString(16).padStart(2, '0')).join(''); };
+function pbox(c, x, y, w, h, col, o) {   // 외곽선 상자 (o.top 윗면 높이, o.noShadow)
+  o = o || {};
+  if (!o.noShadow) { c.fillStyle = 'rgba(40,25,20,.22)'; c.fillRect(x + 1, y + h, w, 2); }
+  R(c, OL, x - 1, y - 1, w + 2, h + 2); R(c, col, x, y, w, h);
+  if (o.top) R(c, shade(col, 1.18), x, y, w, o.top);
+  R(c, shade(col, .82), x, y + h - 1, w, 1);
+}
+function plant(c, x, y, big) {
+  pbox(c, x, y + 10, 10, 8, '#b5673f', { top: 2 });
+  const g = ['#3f6b35', '#4f8243', '#6b9f55'];
+  R(c, OL, x - 3, y - (big ? 8 : 1), 16, big ? 20 : 12); R(c, g[0], x - 2, y - (big ? 7 : 0), 14, big ? 18 : 10);
+  R(c, g[1], x, y - (big ? 5 : 1), 6, 6); R(c, g[2], x + 6, y + (big ? -2 : 2), 4, 4); if (big) R(c, g[2], x + 1, y + 3, 4, 3);
+}
+function pframe(c, x, y, w, h, inner) { pbox(c, x, y, w, h, '#7a4f33', { noShadow: 1 }); R(c, inner || '#f7f1e3', x + 2, y + 2, w - 4, h - 4); }
+function windowArt(c, x, y, w, h, curtain) {
+  pbox(c, x, y, w, h, '#f4efe4', { noShadow: 1 });
+  const sky = ['#9fd0e8', '#b7dcec', '#cde6ef'];
+  for (let i = 0; i < 3; i++) R(c, sky[i], x + 2, y + 2 + i * Math.floor((h - 4) / 3), w - 4, Math.ceil((h - 4) / 3));
+  R(c, '#ffffff', x + 6, y + 6, 8, 2); R(c, '#ffffff', x + 9, y + 4, 4, 2);                    // 구름
+  R(c, '#f4efe4', x + Math.floor(w / 2) - 1, y, 2, h); R(c, '#f4efe4', x, y + Math.floor(h / 2), w, 2);
+  R(c, '#d9cbae', x - 2, y + h, w + 4, 3);                                                      // 창틀
+  if (curtain) { R(c, curtain, x - 4, y - 2, 5, h + 4); R(c, curtain, x + w - 1, y - 2, 5, h + 4); R(c, shade(curtain, .8), x - 2, y - 2, 1, h + 4); R(c, shade(curtain, .8), x + w + 1, y - 2, 1, h + 4); }
+}
+function books(c, x, y, w) { const cols = ['#b56576', '#3d7ea6', '#e9c46a', '#4f772d', '#e07a5f', '#6d597a', '#efe6d8']; for (let i = 0, bx = x; bx < x + w - 2; i++) { const bw = 2 + (i % 3 === 0 ? 1 : 0), bh = 7 - (i % 4 === 1 ? 2 : 0); R(c, cols[i % cols.length], bx, y + 8 - bh, bw, bh); bx += bw + 1; } }
+function shelf(c, x, y, w, h) { pbox(c, x, y, w, h, '#8a5a3b', { top: 2 }); for (let sy = y + 3; sy < y + h - 6; sy += 11) { R(c, '#5e3c27', x + 2, sy, w - 4, 9); books(c, x + 3, sy + 1, w - 6); R(c, '#a8714a', x + 2, sy + 9, w - 4, 1); } }
+function rug(c, x, y, w, h, a, b) { R(c, OL, x - 1, y - 1, w + 2, h + 2); R(c, a, x, y, w, h); R(c, b, x + 3, y + 3, w - 6, h - 6); R(c, a, x + 5, y + 5, w - 10, h - 10); for (let i = x + 8; i < x + w - 8; i += 8) R(c, shade(a, 1.15), i, y + h / 2, 3, 1); }
+function lamp(c, x, y) { R(c, OL, x, y, 2, 30); R(c, '#55505e', x, y + 28, 6, 2); pbox(c, x - 5, y - 8, 12, 8, '#f2d8a0', { top: 2, noShadow: 1 }); c.fillStyle = 'rgba(255,226,150,.18)'; c.fillRect(x - 10, y, 22, 30); }
+function sofa(c, x, y, w, col) { pbox(c, x, y, w, 10, shade(col, .85), { noShadow: 1 }); pbox(c, x, y + 8, w, 8, col, { top: 2 }); pbox(c, x - 3, y + 4, 4, 12, shade(col, .8)); pbox(c, x + w - 1, y + 4, 4, 12, shade(col, .8)); R(c, shade(col, 1.2), x + 3, y + 9, w / 2 - 4, 2); R(c, shade(col, 1.2), x + w / 2 + 1, y + 9, w / 2 - 4, 2); }
+function micStand(c, x, y) { R(c, OL, x, y, 2, 26); R(c, '#55505e', x - 4, y + 25, 10, 2); pbox(c, x - 2, y - 7, 6, 8, '#3a3740', { noShadow: 1 }); R(c, '#9aa0a6', x - 1, y - 6, 4, 2); R(c, 'rgba(60,60,70,.35)', x + 4, y - 9, 7, 9); }
+function plank(c, x, y, w, h, a, b) { R(c, a, x, y, w, h); for (let yy = y, r = 0; yy < y + h; yy += 6, r++) { for (let xx = x - (r % 2) * 14; xx < x + w; xx += 28) { R(c, (r + xx / 28) % 3 < 1 ? b : a, Math.max(x, xx), yy, Math.min(27, x + w - Math.max(x, xx)), 5); } R(c, shade(a, .85), x, yy + 5, w, 1); } }
+
 function bg(c) {
   const W = scene.W;
   if (scene.id === 'lobby') {
-    R(c, '#cfd8e3', 0, 0, W, 70); R(c, '#b9c4d1', 0, 62, W, 8);                         // 하늘색 벽
-    for (let x = 0; x < W; x += 40) R(c, '#c3cedb', x, 0, 2, 62);
-    R(c, '#2f4858', 104, 10, 112, 22); R(c, '#f2f0ea', 106, 12, 108, 18);                // 간판
-    R(c, '#e9dfcb', 0, 70, W, 80); for (let y = 70; y < 150; y += 10) for (let x = (y / 10 % 2) * 10; x < W; x += 20) R(c, '#e1d5bd', x, y, 10, 10);   // 바닥 체크
-    plant(c, 20, 60); plant(c, 236, 60);
-    stairsArt(c, 278); R(c, '#b5533f', 140, 140, 40, 10); R(c, '#e07a5f', 142, 141, 36, 8);   // 입구 매트
+    R(c, '#cfd9e6', 0, 0, W, 70); for (let x = 0; x < W; x += 32) R(c, '#c4cfdd', x, 0, 16, 52);   // 하늘색 줄무늬 벽
+    R(c, '#8fa3b8', 0, 52, W, 18); R(c, '#a7b8ca', 0, 52, W, 2); R(c, '#6f8399', 0, 68, W, 2);         // 아래 판넬·걸레받이
+    R(c, '#2f4858', 102, 8, 116, 26); R(c, OL, 101, 7, 118, 1); R(c, '#f7f3e8', 105, 11, 110, 20); R(c, '#e8584a', 108, 14, 4, 4);   // 간판 + ON AIR 등
+    windowArt(c, 18, 10, 44, 34, '#e07a5f'); windowArt(c, 232, 10, 30, 34, '#e07a5f');
+    pframe(c, 76, 18, 18, 22, '#e9c46a'); R(c, '#3d7ea6', 80, 24, 10, 10); pframe(c, 226 - 2, 46, 0, 0);   // 포스터
+    plank(c, 0, 70, W, 80, '#e9dfcb', '#e1d4bb');
+    rug(c, 104, 100, 112, 34, '#2f4858', '#e9c46a');                                               // 로비 카펫
+    sofa(c, 22, 86, 36, '#6b8fa8'); plant(c, 8, 74, true); plant(c, 70, 74, true); lamp(c, 250, 70);
+    for (const px of [96, 224]) { pbox(c, px, 0, 8, 70, '#e8eef5', { noShadow: 1 }); R(c, '#cfd9e6', px + 2, 0, 2, 70); }   // 기둥
+    stairsArt(c, 270); pbox(c, 136, 142, 48, 8, '#b5533f', { top: 2 });                              // 입구 매트
   } else if (scene.id === 'floor') {
-    R(c, '#e8e0d0', 0, 0, W, 70); R(c, '#d2c8b4', 0, 64, W, 6);
-    R(c, '#c9b38f', 0, 70, W, 80); for (let x = 0; x < W; x += 16) R(c, '#bfa883', x, 70, 1, 80);   // 나무 복도
-    R(c, '#6b8fa8', 0, 108, W, 14); R(c, '#5f8299', 0, 108, W, 2);                       // 복도 카펫
-    stairsArt(c, 16);
-    for (const a of scene.acts) if (a.p) door(c, a.x, a.p);
+    R(c, '#efe6d4', 0, 0, W, 70); R(c, '#e3d7bf', 0, 0, W, 6);
+    R(c, '#a8794f', 0, 46, W, 22); R(c, '#bf8f62', 0, 46, W, 2); R(c, '#6e4630', 0, 66, W, 4);        // 나무 판넬·걸레받이
+    plank(c, 0, 70, W, 80, '#c9a073', '#bd9468');
+    R(c, OL, 0, 103, W, 22); R(c, '#2f4858', 0, 104, W, 20); R(c, '#e9c46a', 0, 106, W, 1); R(c, '#e9c46a', 0, 121, W, 1);   // 복도 러너
+    stairsArt(c, 10);
+    const ds = scene.acts.filter(a => a.p);
+    ds.forEach((a, i) => { if (i < ds.length - 1) { const lx = a.x + 23; pbox(c, lx - 3, 10, 6, 6, '#f2d8a0', { noShadow: 1 }); c.fillStyle = 'rgba(255,226,150,.16)'; c.fillRect(lx - 8, 16, 16, 30); if (i % 2) plant(c, lx - 4, 78); } });
+    for (const a of ds) door(c, a.x, a.p);
+    windowArt(c, W - 34, 10, 26, 30, '#6b8fa8');
   } else {
     const o = scene.owner;
-    R(c, '#efe6d0', 0, 0, W, 70); R(c, '#d9cbae', 0, 64, W, 6);
-    R(c, '#b98a5e', 0, 70, W, 80); for (let y = 70; y < 150; y += 8) R(c, '#a8794f', 0, y, W, 1);
-    R(c, '#6b8fa8', 20, 10, 50, 30); R(c, '#bfe3ec', 22, 12, 46, 26); R(c, '#e9dfcb', 44, 12, 2, 26);   // 창문
-    (o.badges || []).slice(0, 6).forEach((ic, i) => { R(c, '#7a4f33', 92 + i * 22, 14, 18, 18); R(c, '#f7f1e3', 94 + i * 22, 16, 14, 14); });   // 배지 액자
-    R(c, '#5a4636', 188, 74, 18, 20); R(c, '#f2f0ea', 190, 76, 14, 10); R(c, '#e8584a', 196, 70, 2, 6);   // 방명록 받침대
-    plant(c, 214, 58); R(c, '#4a3a2c', 108, 140, 24, 10);                                // 나가는 문
+    R(c, '#f3e6cc', 0, 0, W, 70); for (let x = 0; x < W; x += 12) R(c, '#efdfc1', x, 0, 6, 46);     // 줄무늬 벽지
+    R(c, '#a8794f', 0, 46, W, 22); R(c, '#bf8f62', 0, 46, W, 2); for (let x = 6; x < W; x += 18) R(c, '#966b44', x, 50, 12, 14);   // 판넬
+    R(c, '#6e4630', 0, 66, W, 4);
+    plank(c, 0, 70, W, 80, '#b98a5e', '#ad7f55');
+    shelf(c, 4, 18, 30, 62);                                                                         // 책장
+    windowArt(c, 44, 10, 46, 32, '#b56576');
+    (o.badges || []).slice(0, 5).forEach((ic, i) => pframe(c, 104 + i * 20, 12, 16, 18));             // 배지 액자 (아이콘은 글자로)
+    if (!(o.badges || []).length) { pframe(c, 120, 14, 30, 20, '#9fd0e8'); R(c, '#4f772d', 124, 26, 22, 6); }
+    micStand(c, 210, 46); R(c, '#34323e', 222, 30, 8, 2); R(c, '#34323e', 222, 30, 2, 8); R(c, '#34323e', 228, 30, 2, 8);   // 마이크 + 헤드폰 걸이
+    rug(c, 48, 98, 120, 30, '#6d597a', '#e9c46a');
+    pbox(c, 70, 74, 12, 10, '#3a3740', { top: 2 });                                                    // 의자 등받이 (사람 뒤)
+    sofa(c, 150, 110, 40, '#4f772d');
+    lamp(c, 228, 74); plant(c, 6, 124, true); plant(c, 196, 76);
+    pbox(c, 186, 82, 22, 14, '#5a4636', { top: 3 }); R(c, '#f7f3e8', 189, 84, 16, 7); R(c, '#e8584a', 196, 77, 2, 7); R(c, OL, 191, 86, 12, 1); R(c, OL, 191, 88, 9, 1);   // 방명록 받침대 + 깃펜
+    pbox(c, 106, 140, 28, 10, '#4a3a2c', { noShadow: 1 }); R(c, '#e9c46a', 128, 144, 2, 2);            // 나가는 문
   }
 }
-function plant(c, x, y) { R(c, '#8a5a3b', x, y + 10, 10, 8); R(c, '#4f772d', x - 2, y, 14, 11); R(c, '#6b8f4e', x + 1, y + 2, 6, 5); }
-function stairsArt(c, x) { for (let i = 0; i < 6; i++) { R(c, '#9a8b74', x + i * 4, 40 + i * 10, 28 - i * 4, 10); R(c, '#b5a68e', x + i * 4, 40 + i * 10, 28 - i * 4, 2); } }
+function stairsArt(c, x) { for (let i = 0; i < 6; i++) pbox(c, x + i * 4, 40 + i * 10, 28 - i * 4, 10, '#a6977f', { top: 2, noShadow: 1 }); R(c, '#6e4630', x + 26, 20, 2, 30); R(c, '#6e4630', x, 20, 28, 2); }
 function door(c, x, p) {
-  R(c, '#5a4636', x - 11, 28, 22, 36); R(c, '#8a6a4f', x - 9, 30, 18, 34); R(c, '#e9c46a', x + 5, 46, 2, 2);
-  R(c, '#2f4858', x - 14, 18, 28, 8);   // 이름표 자리
-  if (p.id === data.me) R(c, '#f2b84b', x - 11, 64, 22, 2);
+  pbox(c, x - 13, 26, 26, 40, '#5a4636', { noShadow: 1 });
+  R(c, '#8a6a4f', x - 10, 29, 20, 37); R(c, '#9c7a5c', x - 8, 31, 16, 14); R(c, '#9c7a5c', x - 8, 48, 16, 16);   // 문 판넬
+  R(c, '#bfe3ec', x - 5, 33, 10, 8); R(c, '#e9c46a', x + 6, 50, 2, 3);                                // 작은 창·손잡이
+  pbox(c, x - 15, 15, 30, 9, '#2f4858', { noShadow: 1 });                                              // 이름표
+  if (p.id === data.me) { R(c, '#f2b84b', x - 13, 66, 26, 2); R(c, '#e8584a', x - 2, 70, 4, 3); }
 }
 function person(c, p, x, y, face, moving, dir) {
   Town.drawPerson(c, { id: p.id, look: Town.withLook(p.id, p.look), seed: (p.seed = p.seed || (p.id.charCodeAt(0) + p.id.charCodeAt(5)) % 97), x, y, face, moving, dir, spot: null, seg: { type: '휴식' }, hidden: false }, t);
@@ -131,7 +183,7 @@ function labels() {
   const tag = (txt, x, y, col, bgc, size) => { ctx.font = `700 ${size || fs}px Pretendard, sans-serif`; const w = ctx.measureText(txt).width + 10; ctx.fillStyle = bgc || 'rgba(23,21,29,.82)'; ctx.fillRect(x - w / 2, y - (size || fs) * .7, w, (size || fs) * 1.4); ctx.fillStyle = col || '#f1e8d9'; ctx.fillText(txt, x, y); };
   if (scene.id === 'lobby') { ctx.font = `800 ${k * 9}px 'Gowun Batang', serif`; ctx.fillStyle = '#2f4858'; ctx.fillText('하늘방송국', X(160), 21 * k); }
   if (scene.id === 'floor') for (const a of scene.acts) if (a.p) { tag(a.p.name, X(a.x), 22 * k, a.p.id === data.me ? '#f2b84b' : '#f1e8d9', 'rgba(0,0,0,0)', fs * .95); if (a.p.title) tag(a.p.title, X(a.x), 12 * k, '#f2b84b', 'rgba(23,21,29,.7)', fs * .8); }
-  if (scene.id === 'office') { (scene.owner.badges || []).slice(0, 6).forEach((ic, i) => { ctx.font = `${k * 10}px sans-serif`; ctx.fillText(ic, X(101 + i * 22), 23.5 * k); });
+  if (scene.id === 'office') { (scene.owner.badges || []).slice(0, 5).forEach((ic, i) => { ctx.font = `${k * 9}px sans-serif`; ctx.fillText(ic, X(112 + i * 20), 21.5 * k); });
     tag((scene.owner.title ? scene.owner.title + ' · ' : '') + scene.owner.name + '님 사무실', X(120), 52 * k, '#f1e8d9', 'rgba(23,21,29,.8)'); }
   if (near && !talkQ) tag((near.npc ? '💬 ' : '') + near.label + ' · Space', X(near.x), (near.y - 30) * k, '#17151d', '#f2b84b');
   tag('나', X(me.x), (me.y + 5) * k, '#17151d', '#f2b84b', fs * .8);
