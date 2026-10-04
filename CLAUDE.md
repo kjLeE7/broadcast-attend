@@ -110,12 +110,12 @@
   import "https://raw.githubusercontent.com/kjLeE7/broadcast-attend/<커밋SHA>/supabase/functions/api/main.ts";
   ```
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 그 커밋 SHA로 `index.ts`를 바꿔 `deploy_edge_function` (verify_jwt = false).
-- 현재 배포: SHA `41869efcbaf5b207789dc38a19dec6fb34ff04e2` (함수 버전 21, 업무가능 독촉·생일).
+- 현재 배포: SHA `421a9ac60927bc661111196a52827f1d8bd8be72` (함수 버전 22, 모임 대상 칩·사람 지정).
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
-`sessions.create/update/delete/list/board/close/remind`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
+`sessions.create/update/delete/list/board/close/remind/audience`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
@@ -201,6 +201,12 @@
 6. **사유 입력**: 최종이 지각·불참·조퇴면 본인 화면에 사유 칸, 목록 위에 '사유를 적어주세요' 알림. 조장 이상이 대신 적을 수 있음
 7. **월간 리포트**: 마감된 모임만 셈. 사람별 출석률(참석+지각+조퇴)/정시율/지각률/불참률/사전체크율/평균 지각 분/사유 목록.
    조장 이상은 팀 전체 + '텍스트로 복사', 팀원은 본인 것만. (자동 발송은 아직 없음)
+9. **대상 고르기** (2026-10-04, 함수 버전 22): 모임 만들기 팝업에서 팀 칩(전체·성우팀·아나운서팀·엔지니어팀) → 조 칩(조가 있는 팀만: 운영진·1조·2조·3조, 여러 개)
+   → 아래 받는 사람 명단(이름 누르면 빼기). 운영진 = 그 팀 교관 이상 + 4조, 4조 칩은 숨김(운영진으로 대신). 아나운서·엔지니어팀은 조가 없어 명단만.
+   `sessions.audience { team_id }` = 과의 팀(내가 조장 이상이면 can), 팀마다 조, 사람(팀별 서열 `ranks`). 전체 칩은 어느 팀이든 팀장 이상.
+   팀 전체(조·빼기 없음)면 예전처럼 팀 모임. 그 밖엔 `meeting_sessions.target_people`(사람 id 배열) + `target_label`(표시 글자)로 저장.
+   전체 모임은 지금 팀 소속으로 만들어지고, 다른 팀 사람은 `sessions.list`에서 `target_people`에 내가 있으면 같이 보임. `sessionMembers`는 target_people이 있으면 그 사람들.
+   다른 팀 모임은 그 팀의 모임 유형을 못 골라서 제목 필수.
 8. **사전체크 알림** (2026-10-04, 함수 버전 16)
    - 만들 때: 대상자 전원에게 알림(1번, 원래 있던 것).
    - 자동: 시작 **72시간 전·24시간 전**에 사전체크 안 한 사람(사전·최종 출결 둘 다 없음)에게만. pg_cron 작업 `session-reminders`가 **10분마다**
