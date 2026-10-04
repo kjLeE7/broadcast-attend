@@ -2335,11 +2335,11 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
         start: st, place: a.recording_sessions.location ?? "", urgent: st - now < 48 * HOUR });
     }
     // 오늘 녹음: 성우는 '녹음실 도착', 엔지니어는 '시작 보고'·'녹음 마쳤습니다'
-    const today: any[] = must(await ctx.db.from("recording_participants")
+    const recToday: any[] = must(await ctx.db.from("recording_participants")
       .select("id, role, arrived_at, recording_sessions!inner(id, status, scheduled_start, scheduled_end, started_at, ended_at, location, recording_requests(title))")
       .eq("person_id", me).eq("selected", true).eq("recording_sessions.status", "예정")
       .gte("recording_sessions.scheduled_start", new Date(now - 6 * HOUR).toISOString()).lt("recording_sessions.scheduled_start", new Date(now + 2 * HOUR).toISOString())) ?? [];
-    for (const a of today) {
+    for (const a of recToday) {
       const rs = a.recording_sessions, st = Date.parse(rs.scheduled_start), name = rs.recording_requests?.title ?? "녹음";
       if (!recArriveOpen(rs)) continue;
       if (a.role === "엔지니어") items.push({ kind: "recrun", id: a.id, name, step: rs.started_at ? "end" : "start", start: st, place: rs.location ?? "", urgent: true });
