@@ -56,6 +56,28 @@ const PROPS = {
   bench: (c, x, y, w) => { w = w || 1.6; cube(c, x + .1, y + .1, .1, .4, 5, '#55505e'); cube(c, x + w - .2, y + .1, .1, .4, 5, '#55505e'); cube(c, x, y, w, .6, 2, '#a8714a', 5); },
   trophy: (c, x, y) => { cube(c, x, y, .6, 1.8, 28, '#7a4f33'); for (let i = 0; i < 3; i++) { onRight(c, x, y, .6, .15 + i * .55, .55 + i * .55, 6, 24, '#d9e6ee'); onRight(c, x, y, .6, .28 + i * .55, .42 + i * .55, 12, 18, ['#e9c46a', '#cfc9bf', '#c98f5a'][i]); } },
   tv: (c, x, y) => { cube(c, x, y, .5, 1.6, 8, '#3a3740'); cube(c, x + .15, y + .1, .15, 1.4, 16, '#1f1b20', 8); onRight(c, x + .15, y + .1, .15, .08, 1.32, 10, 22, '#3d6e8f'); onRight(c, x + .15, y + .1, .15, .2, .7, 17, 21, '#7fc6e0'); },
+  // ----- 방송국 장비 -----
+  console: (c, x, y, w) => { w = w || 2.4;   // 믹싱 콘솔: 경사진 판 + 페이더 줄 + 노브 + 작은 화면
+    cube(c, x, y, w, 1.1, 12, '#3a3740'); poly(c, [P(x, y + .1, 12), P(x + w, y + .1, 12), P(x + w, y + 1, 16), P(x, y + 1, 16)], '#4a4652', OL);
+    for (let i = 0; i < Math.floor(w / .2); i++) { const fx = x + .12 + i * .2; poly(c, [P(fx, y + .45, 14.5), P(fx + .05, y + .45, 14.5), P(fx + .05, y + .9, 16), P(fx, y + .9, 16)], '#1f1b20');
+      cube(c, fx - .02, y + .55 + ((i * 7) % 5) * .06, .09, .07, 1.5, i % 4 ? '#cfc9bf' : '#e8584a', 15); cube(c, fx, y + .2, .06, .06, 1.5, ['#e9c46a', '#7aa6e8', '#9cc75f'][i % 3], 13); }
+    cube(c, x + w / 2 - .35, y + .05, .7, .12, 8, '#1f1b20', 12); onFront(c, x + w / 2 - .35, y + .05, .12, .05, .65, 13, 19, '#3d6e8f'); },
+  server: (c, x, y) => { cube(c, x, y, .8, .8, 40, '#2f2c36');   // 장비 랙: 깜빡이는 불빛
+    for (let r = 0; r < 7; r++) { onFront(c, x, y, .8, .08, .72, 4 + r * 5, 8 + r * 5, '#3f3b48'); for (let i = 0; i < 4; i++) onFront(c, x, y, .8, .12 + i * .1, .17 + i * .1, 5.5 + r * 5, 6.5 + r * 5, (Math.floor(t * 3 + r * 1.7 + i * 2.3) % 3) ? ['#9cc75f', '#e9c46a', '#e8584a', '#7fc6e0'][(r + i) % 4] : '#24212a'); } },
+  speaker: (c, x, y) => { cube(c, x + .2, y + .2, .55, .5, 26, '#2a2730'); onFront(c, x + .2, y + .2, .5, .14, .41, 15, 23, '#55505e'); onFront(c, x + .2, y + .2, .5, .2, .35, 17, 21, '#1f1b20'); onFront(c, x + .2, y + .2, .5, .19, .36, 5, 12, '#1f1b20'); },
+  camera: (c, x, y) => { for (const [a, b] of [[.15, .7], [.8, .7], [.48, .2]]) cube(c, x + a, y + b, .06, .06, 22, '#3a3740');   // 삼각대 + 카메라
+    cube(c, x + .25, y + .3, .5, .45, 10, '#2a2730', 22); cube(c, x + .32, y + .75, .3, .25, 6, '#1f1b20', 24); cube(c, x + .38, y + .98, .18, .06, 4, '#7fc6e0', 25); cube(c, x + .6, y + .35, .08, .08, 2, '#e8584a', 32); },
+  softbox: (c, x, y) => { cube(c, x + .45, y + .45, .1, .1, 30, '#55505e'); cube(c, x + .35, y + .4, .3, .2, 2, '#55505e'); cube(c, x + .05, y + .3, .9, .4, 16, '#f7f3e8', 30); onFront(c, x + .05, y + .3, .4, .1, .8, 32, 44, '#fffdf2'); },
+  prompter: (c, x, y) => { cube(c, x + .4, y + .4, .2, .2, 20, '#3a3740'); cube(c, x + .1, y + .35, .8, .3, 12, '#1f1b20', 20); onFront(c, x + .1, y + .35, .3, .08, .72, 22, 30, '#24384a'); for (let i = 0; i < 3; i++) onFront(c, x + .1, y + .35, .3, .14, .5 - i * .08, 27 - i * 2, 27.6 - i * 2, '#e9f2f7'); },
+  newsdesk: (c, x, y) => { cube(c, x, y, 3, 1, 14, '#2f4858'); onFront(c, x, y, 1, .3, 2.7, 3, 11, '#3d6e8f'); onFront(c, x, y, 1, 1.2, 1.8, 5, 9, '#e9c46a'); cube(c, x + .6, y + .2, .5, .3, 1, '#f7f3e8', 14); cube(c, x + 1.9, y + .3, .14, .14, 6, '#34323e', 14); },
+  stand: (c, x, y) => { cube(c, x + .45, y + .45, .1, .1, 22, '#55505e'); cube(c, x + .15, y + .3, .7, .1, 10, '#3a3740', 18); cube(c, x + .2, y + .35, .6, .04, 8, '#f7f3e8', 20); },   // 대본 보면대
+  phones: (c, x, y) => { cube(c, x + .3, y + .3, .4, .2, 3, '#34323e', 12); cube(c, x + .32, y + .28, .1, .25, 4, '#e8584a', 13); cube(c, x + .58, y + .28, .1, .25, 4, '#e8584a', 13); },
+  glass: (c, x, y, w, d, h) => { h = h || 44;   // 유리 칸막이 (녹음 부스)
+    const fr = '#55505e', g = 'rgba(170,215,235,.32)';
+    if (w > d) { poly(c, [P(x, y + d, 0), P(x + w, y + d, 0), P(x + w, y + d, h), P(x, y + d, h)], g, fr); for (let u = 0; u <= w; u += 1) cube(c, x + u - .04, y, .08, d, h, fr); }
+    else { poly(c, [P(x + w, y, 0), P(x + w, y + d, 0), P(x + w, y + d, h), P(x + w, y, h)], g, fr); for (let u = 0; u <= d; u += 1) cube(c, x, y + u - .04, w, .08, h, fr); }
+    cube(c, x, y, w, d, 2, fr, h); },
+  cable: (c, x, y, w) => { poly(c, [P(x, y, 0), P(x + w, y + .1, 0), P(x + w, y + .16, 0), P(x, y + .06, 0)], '#1f1b20'); },
   foam: (c, x, y) => {},
   mat: (c, x, y) => poly(c, [P(x, y, 0), P(x + 1.6, y, 0), P(x + 1.6, y + .8, 0), P(x, y + .8, 0)], '#b5533f', OL),
 };
@@ -71,7 +93,7 @@ function makeScene(id, arg) {
       prop('trophy', .1, 1.4, .6, 1.8), prop('cooler', .1, 3.4, 1, 1), prop('plant', .1, .2, 1, 1), prop('plant', .1, 8.9, 1, 1), prop('plant', 9.4, .2, 1, 1),
       prop('lamp', 4.2, 4.6, 1, 1), prop('bench', 10.4, 6.2, 1.8, .6), prop('bench', 10.4, 7.8, 1.8, .6), prop('plant', 12.9, 8.9, 1, 1), prop('bin', 9.1, 3.5, 1, 1),
       prop('stairs', 11.8, .2, 2, 2.5), prop('mat', 6.2, 9.2, 1.6, .8, [], false)],
-    deco: c => { win(c, 'L', 5.4, 7.4); win(c, 'B', 1.2, 2.8); win(c, 'B', 9.6, 11.2); poster(c, 'B', 3.4, '#e9c46a', '#3d7ea6'); board(c, 'L', 1.4, 3.2); clock(c, 'B', 9.0);
+    deco: c => { win(c, 'L', 5.4, 7.4); win(c, 'B', 9.6, 11.2); for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) screen(c, 1 + i * 1.1, 2 + i * 1.1, 24 + j * 13, 36 + j * 13, i * 2 + j + 3); poster(c, 'B', 3.4, '#e9c46a', '#3d7ea6'); board(c, 'L', 1.4, 3.2); clock(c, 'B', 9.0); onAir(c, 'B', 6.5);
       onBack(c, 5.2, 8.8, 30, 48, '#2f4858', OL); onBack(c, 5.35, 8.65, 32, 46, '#f7f3e8'); onBack(c, 5.5, 5.75, 41, 44, '#e8584a'); },
     npc: [7, 1.6], acts: [ { x: 7, y: 3.6, r: 1.3, label: '안내 데스크', npc: true, act: () => talk(NPC_SAY) }, { x: 12.8, y: 3.1, r: 1.1, label: '계단', act: stairs } ] };
   if (id === 'floor') {
@@ -81,23 +103,51 @@ function makeScene(id, arg) {
     const props = [prop('stairs', .2, .2, 2, 2.5), prop('rug', 0, 2.6, W, 1.4, [W, 1.4, '#2f4858', '#e9c46a'], false), prop('cooler', W - 1.1, .1, 1, 1), prop('plant', W - 1.1, 4, 1, 1)];
     list.forEach((p, i) => { if (i < list.length - 1) props.push(i % 2 ? prop('plant', dx(i) + 1.1, .1, 1, 1) : prop('bench', dx(i) + .8, .15, 1.6, .6)); });
     return { id, W, D: 5, floorA: '#c9a073', floorB: '#bd9468', wall: '#efe6d4', panel: '#a8794f', fl: arg.floor, list, spawn: arg.at || [2.8, 3.4], props,
-      deco: c => { doors.forEach(a => door(c, a.x, a.p)); win(c, 'L', 2.8, 4.4); list.forEach((p, i) => { if (i < list.length - 1) wallLamp(c, dx(i) + 1.6); }); board(c, 'B', 2.6, 3.8); },
+      deco: c => { doors.forEach(a => door(c, a.x, a.p)); win(c, 'L', 2.8, 4.4); list.forEach((p, i) => { if (i % 2 === 0 && i < list.length - 1) poster(c, 'B', dx(i) + 1.05, ['#e07a5f', '#3d7ea6', '#4f772d'][i % 3], '#f7f3e8', .5); }); list.forEach((p, i) => { if (i < list.length - 1) wallLamp(c, dx(i) + 1.6); }); board(c, 'B', 2.6, 3.8); },
       acts: [{ x: 1.4, y: 3.2, r: 1.1, label: '계단', act: stairs }].concat(doors) };
   }
-  const o = arg.p, mine = o.id === data.me;
-  return { id, W: 11, D: 9, floorA: '#b98a5e', floorB: '#ad7f55', wall: '#f3e6cc', panel: '#a8794f', owner: o, back: arg.back, spawn: [5.5, 8.4],
-    props: [prop('rug', 2, 3.6, 5, 3.4, [5, 3.4, '#6d597a', '#e9c46a'], false), prop('shelf', .1, .4, .7, 2), prop('shelf', .1, 2.6, .7, 2),
-      prop('desk', 4.4, 1.1, 2, 1), prop('chair', 5.1, .4, .6, .6, [], false), prop('plant', 6.6, .2, 1, 1),
-      prop('sofa', 3, 6.6, 2.2, .9, ['#4f772d']), prop('table', 3.5, 5.2, 1.2, .8), prop('lamp', 2, 6.7, 1, 1),
-      prop('mic', 9.6, 1.4, 1, 1), prop('mic', 8.4, 1.4, 1, 1), prop('book', 9.6, 4.6, 1, 1), prop('rack', 9.8, 7.6, 1, 1), prop('bin', 7.2, 1.3, 1, 1),
-      prop('plant', .1, 7.9, 1, 1), prop('plant', 9.8, 6.2, 1, 1), prop('mat', 4.7, 8.2, 1.6, .8, [], false)],
-    deco: c => { win(c, 'B', 1.4, 3.2); win(c, 'L', 5.2, 7, '#b56576'); clock(c, 'B', 3.8); (o.badges || []).slice(0, 5).forEach((ic, i) => poster(c, 'B', 4.4 + i * .62, '#f7f1e3', null, .5));
-      for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) onBack(c, 7.9 + i * .7, 8.5 + i * .7, 22 + j * 13, 33 + j * 13, j === i % 2 ? '#3a3740' : '#55505e', OL);   // 녹음 흡음판
-      onBack(c, 10.4, 10.7, 34, 42, '#34323e'); },
-    who: mine ? null : [5.4, .2],
-    acts: [ { x: 5.5, y: 8.6, r: .9, label: '나가기', act: () => go('floor', { floor: arg.back.floor, at: [arg.back.x, 1.8] }) },
-      { x: 10, y: 5.1, r: 1, label: '방명록', act: () => opts.onGuest && opts.onGuest(o) } ].concat(mine ? [] : [
-      { x: 5.4, y: 2.6, r: 1, label: o.name + '님', act: () => talk([(o.title ? o.title + ' ' : '') + o.name + '님의 사무실이에요.', '오른쪽 방명록에 한마디 남겨 보세요 📮']) }]) };
+  const o = arg.p, mine = o.id === data.me, fl = arg.back.floor;
+  // 사무실 공통: 책장·책상·소파·방명록·옷걸이·화분. 층(팀)마다 방송국 장비가 다름
+  const base = [prop('rug', 1.6, 4.4, 4.2, 3, [4.2, 3, '#6d597a', '#e9c46a'], false), prop('shelf', .1, .4, .7, 2), prop('shelf', .1, 2.6, .7, 2),
+    prop('desk', 3.6, 1.1, 2, 1), prop('chair', 4.3, .4, .6, .6, [], false), prop('plant', 2.6, .2, 1, 1), prop('bin', 5.8, 1.3, 1, 1),
+    prop('sofa', 2.2, 7.4, 2.2, .9, ['#4f772d']), prop('table', 2.7, 6.1, 1.2, .8), prop('lamp', 1.2, 7.5, 1, 1),
+    prop('book', 9.9, 5.6, 1, 1), prop('rack', 9.9, 7.9, 1, 1), prop('plant', .1, 7.9, 1, 1), prop('mat', 4.7, 8.2, 1.6, .8, [], false)];
+  const theme = {
+    2: { name: '녹음 부스', props: [prop('glass', 7, 3.4, 4, .1, [4, .1], true), prop('glass', 6.9, 0, .1, 3.5, [.1, 3.5], true),
+        prop('mic', 8.4, .9, 1, 1), prop('mic', 9.7, .9, 1, 1), prop('stand', 8.4, 1.8, 1, 1), prop('stand', 9.7, 1.8, 1, 1), prop('console', 6.9, 4.4, 2.2, 1.1, [2.2]),
+        prop('speaker', 6.4, 4.2, 1, 1), prop('speaker', 9.1, 4.2, 1, 1), prop('cable', 7.5, 2.8, 2, .2, [2], false)],
+      deco: c => { for (let i = 0; i < 5; i++) for (let j = 0; j < 2; j++) onBack(c, 7.2 + i * .75, 7.85 + i * .75, 20 + j * 14, 32 + j * 14, j === i % 2 ? '#3a3740' : '#55505e', OL); onAir(c, 'B', 9.1); } },
+    3: { name: '뉴스 스튜디오', props: [prop('newsdesk', 7, 1, 3, 1), prop('chair', 8.2, .35, .6, .6, [], false), prop('camera', 8, 4.2, 1, 1), prop('camera', 9.7, 3.6, 1, 1),
+        prop('softbox', 6.6, 3.6, 1, 1), prop('softbox', 10, 2.2, 1, 1), prop('prompter', 8.3, 3, 1, 1), prop('cable', 7.2, 4.9, 2.6, .2, [2.6], false)],
+      deco: c => { for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) screen(c, 7.2 + i * 1.15, 7.2 + i * 1.15 + 1, 22 + j * 15, 35 + j * 15, i + j); onAir(c, 'B', 10.2); } },
+    4: { name: '주조정실', props: [prop('console', 6.8, 2, 3, 1.1, [3]), prop('chair', 7.6, 3.3, .6, .6, [], false), prop('chair', 8.8, 3.3, .6, .6, [], false),
+        prop('server', 10, .2, .8, .8), prop('server', 10, 1.1, .8, .8), prop('speaker', 6.3, 1.8, 1, 1), prop('speaker', 9.8, 2.2, 1, 1), prop('phones', 7.4, 2.2, 1, 1, [], false),
+        prop('cable', 9.2, 1.4, 1, .2, [1], false)],
+      deco: c => { for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) screen(c, 6.6 + i * .95, 6.6 + i * .95 + .85, 24 + j * 14, 36 + j * 14, i * 2 + j); onAir(c, 'B', 6.0); } },
+  }[fl] || null;
+  return { id, W: 11, D: 9, floorA: '#b98a5e', floorB: '#ad7f55', wall: '#f3e6cc', panel: '#a8794f', owner: o, back: arg.back, spawn: [5.5, 8.4], theme: theme && theme.name,
+    props: base.concat(theme ? theme.props : []),
+    deco: c => { win(c, 'L', 5, 6.8, '#b56576'); clock(c, 'B', 2.6); (o.badges || []).slice(0, 5).forEach((ic, i) => poster(c, 'B', 3.4 + i * .62, '#f7f1e3', null, .5));
+      if (theme) theme.deco(c); onLeft(c, 1.2, 2.3, 26, 44, '#2f4858', OL); onLeft(c, 1.3, 2.2, 28, 42, '#e9c46a'); },   // 왼벽 방송국 포스터
+    who: mine ? null : [4.6, .2],
+    acts: [ { x: 5.5, y: 8.6, r: .9, label: '나가기', act: () => go('floor', { floor: fl, at: [arg.back.x, 1.8] }) },
+      { x: 10.3, y: 6.1, r: 1, label: '방명록', act: () => opts.onGuest && opts.onGuest(o) } ].concat(mine ? [] : [
+      { x: 4.6, y: 2.6, r: 1, label: o.name + '님', act: () => talk([(o.title ? o.title + ' ' : '') + o.name + '님의 사무실이에요.', (theme ? theme.name + '도 함께 쓰는 방이에요. ' : '') + '오른쪽 방명록에 한마디 남겨 보세요 📮']) }]) };
+}
+// 벽 화면 (모니터 월): 화면마다 다른 색 막대가 천천히 움직임
+function screen(c, u0, u1, v0, v1, k) {
+  onBack(c, u0, u1, v0, v1, '#1f1b20', OL);
+  const cols = ['#3d6e8f', '#4f772d', '#6d597a', '#b5533f', '#2f4858', '#7a4f33'], bg = cols[k % cols.length];
+  onBack(c, u0 + .05, u1 - .05, v0 + 1, v1 - 1, bg);
+  const ph = (t * .6 + k * .37) % 1;
+  onBack(c, u0 + .1, u0 + .1 + (u1 - u0 - .2) * (.3 + .6 * ph), v0 + 2, v0 + 3, '#e9f2f7');
+  onBack(c, u0 + .1, u1 - .3, v1 - 4, v1 - 3, 'rgba(255,255,255,.5)');
+}
+// ON AIR 등 (천천히 깜빡임)
+function onAir(c, side, u) {
+  const f = side === 'B' ? onBack : onLeft, on = Math.floor(t * 1.2) % 2 === 0;
+  f(c, u, u + .9, 50, 56, '#2a2228', OL); f(c, u + .05, u + .85, 51, 55, on ? '#ff5a48' : '#7a2e2e');
+  if (on) poly(c, [P(u - .2, 0, 46), P(u + 1.1, 0, 46), P(u + .85, 0, 51), P(u + .05, 0, 51)], 'rgba(255,90,72,.18)');
 }
 function board(c, side, u0, u1) {
   const f = side === 'B' ? onBack : onLeft;
@@ -228,7 +278,7 @@ function labels() {
   if (scene.id === 'floor') for (const a of scene.acts) if (a.p) { skewed(a.p.name, 'B', a.x - .7, a.x + .7, 46, fs * .85, a.p.id === data.me ? '#f2b84b' : '#f1e8d9');
     if (a.p.title) tag(a.p.title, S(a.x, 0, 60), '#f2b84b', 'rgba(23,21,29,.7)', fs * .78); }
   if (scene.id === 'office') { (scene.owner.badges || []).slice(0, 5).forEach((ic, i) => skewed(ic, 'B', 5 + i * .62, 5.5 + i * .62, 38, k * 7, '#000'));
-    tag((scene.owner.title ? scene.owner.title + ' · ' : '') + scene.owner.name + '님 사무실', S(4, 0, WALL + 8), '#f1e8d9', 'rgba(23,21,29,.8)'); }
+    tag((scene.owner.title ? scene.owner.title + ' · ' : '') + scene.owner.name + '님 사무실' + (scene.theme ? ' · ' + scene.theme : ''), S(4, 0, WALL + 8), '#f1e8d9', 'rgba(23,21,29,.8)'); }
   if (near && !talkQ) tag((near.npc ? '💬 ' : '') + near.label + ' · Space', S(near.x, near.y, 34), '#17151d', '#f2b84b');
   tag('나', S(me.x, me.y, -6), '#17151d', '#f2b84b', fs * .75);
 }
