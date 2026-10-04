@@ -343,6 +343,7 @@
 ### 하늘방송국 (2026-10-05, 함수 버전 47, PC 전용 탭)
 - 아래 탭(PC 왼쪽 메뉴) '하늘방송국'(`skyView`, `#skyTab`, 동네지도처럼 `townAllowed()`일 때만). 그림은 `beta/sky.js`(`Sky.mount(상자, {load, onGuest})`), 캐릭터는 town.js `Town.drawPerson`·`withLook`을 같이 씀(꾸미기·탈것 그대로).
 - **실시간 없음**(2026-10-05 사용자 결정): 나만 걸어 다니고, 다른 사람은 자기 사무실에 서 있음. 방향키·WASD 이동, Space/Enter·클릭 = 말 걸기·들어가기, 화면 클릭하면 그쪽으로 걸어감.
+- **아이소메트릭 시점**(2026-10-05): 방 = 바닥 칸(gx, gy) + 뒤쪽 두 벽, `P(x,y,z)`로 2:1 투영, 가구는 `cube`(윗면·두 옆면 명암+외곽선) 조합 `PROPS`(desk·chair·shelf·sofa·plant·lamp·mic·book·counter·stairs·rug·mat), 벽 장식은 `onBack/onLeft`(창문·액자·문·이름표). 그리는 순서 = gx+gy. 방향키는 화면 기준(오른쪽 = +gx −gy). 가구 칸은 못 지나감(`blocked`).
 - 장면: 1층 로비(안내 NPC 말풍선 `NPC_SAY`, 오른쪽 계단) → 계단에서 층 고르기 → 2층 성우팀 · 3층 아나운서팀 · 4층 엔지니어팀·운영진(과 소속이나 부과장 이상) 복도(사람 수만큼 문, 이름표·대표 칭호) → 사무실(주인 캐릭터·배지 액자·방명록 받침대·나가는 문).
 - 서버 `sky.load { team_id }` = 과원(층·직책·꾸미기·배지 아이콘·대표 칭호). 층은 서버가 정함.
 - **방명록** `guestbook`(owner_id, author_id, text 200자, `supabase/migrations/20261005_guestbook.sql`): **쓴 사람과 사무실 주인만 봄**(사용자 결정). `guest.list`(주인이면 전부, 아니면 내가 쓴 것만) / `guest.write`(같은 과, 본인 사무실엔 못 씀, 하루 20개, 주인에게 '방명록이 왔어요' 봇 알림 — 내용은 안 보냄) / `guest.delete`(쓴 사람·주인). 팝업 `#guestModal`.
