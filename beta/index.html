@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006t">
+  <link rel="stylesheet" href="beta.css?v=20261006u">
 </head>
 <body>
   <div class="app">
@@ -269,6 +269,8 @@
         <p class="page-desc" id="recDesc">우리 과에서 지금 진행 중인 녹음과 지난 요청을 모두 함께 봐요</p>
         <!-- 내가 맡은 녹음 (누구나): 누르면 응답·도착·보고 팝업 -->
         <div id="recMine"></div>
+        <!-- 작업 흐름 (누구나 봄, 교관 이상이 만듦): 단계·담당·차례·진행 -->
+        <div id="flowArea"></div>
       </div>
       <div id="recListWrap">
         <div class="b-fab" id="recFab">
@@ -760,6 +762,27 @@
       <div class="b-modal-body" id="bdayBody"></div>
     </div>
   </div>
+  <div class="b-modal" id="flowModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box b-modal-wide" role="dialog" aria-modal="true" aria-labelledby="flowModalT">
+      <div class="b-modal-head">
+        <div><h1 id="flowModalT">작업 흐름 만들기</h1><p>단계마다 담당을 정하면, 앞 단계가 끝날 때 다음 담당자에게 알림이 가요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body">
+        <label class="field-label" for="fwTitle">작업 이름</label>
+        <input type="text" id="fwTitle" class="b-input" maxlength="80" placeholder="예) 감정 연기 수업 준비">
+        <label class="field-label" for="fwNote">원문 <span class="hint">선택 · 텔레그램에 쓴 글을 붙여넣으면 단계 초안을 만들어 드려요</span></label>
+        <textarea id="fwNote" rows="4" maxlength="3000" placeholder="예) PPT 오늘까지 제가 1차로 제작하고, 소현성우님께 공유드려서 보완해나갈 예정입니다"></textarea>
+        <button type="button" class="ghost-btn fw-parse" onclick="fwParse()">✨ 글에서 단계 뽑기</button>
+        <label class="field-label">단계 <span class="hint">위에서부터 · '앞 단계'를 고르면 그게 끝나야 차례가 와요 · 안 고르면 바로 시작</span></label>
+        <div id="fwSteps"></div>
+        <button type="button" class="ghost-btn fw-add" onclick="fwAddStep()">+ 단계 추가</button>
+        <button class="btn-primary" id="fwBtn" onclick="saveFlow()">만들고 알림 보내기</button>
+        <div class="msg" id="fwMsg"></div>
+      </div>
+    </div>
+  </div>
   <div class="b-modal" id="itemModal" aria-hidden="true">
     <div class="b-modal-dim" onclick="closeModal()"></div>
     <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="itemModalT">
@@ -967,6 +990,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006b"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006t"></script>
+  <script src="beta.js?v=20261006u"></script>
 </body>
 </html>

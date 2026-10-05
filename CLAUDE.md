@@ -161,7 +161,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/mark/cancel`(작업 흐름), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -406,6 +406,14 @@
 - 업무가능 시간 입력(`weeklyView`)은 **개인 하위 메뉴**로(부모 탭 profile). 개인 메뉴 = 프로필 · 월간 리포트 · 업무가능 시간 · 회비.
 - 프로필 배치: 위 [내 정보 | 나의 배지] → [나의 성장 | 받은 피드백] → 맨 아래 내 캐릭터(PC: 왼쪽 미리보기 | 오른쪽 고르기 두 줄).
 - 일정 탭 + 메뉴(모임 안 고른 상태)에 '회의 안건 올리기·회의 열기' → 다가오는·진행 중 모임 고르기(`pickMeeting`).
+
+### 작업 흐름 (2026-10-06, 함수 버전 56)
+- 업무 탭 위 '작업 흐름'(`#flowArea`, `loadFlows`/`renderFlows`/`fwCard`). 과원 누구나 봄(과의 진행 중 + 30일 안에 끝난 것), **교관 이상이 만듦**(+ 메뉴 '작업 흐름 만들기', `#flowModal`).
+- 표(`supabase/migrations/20261006_work_flows.sql`): `work_flows`(team_id, title, note 원문, status 진행·완료·취소, created_by) / `work_steps`(sort, title, detail, due_on, done_rule 한 명·모두, after_ids = 앞 단계, ready_at, done_at, reminded_d1/over_at) / `work_step_people`(person_id 또는 null + name(앱에 없는 사람), state 대기·시작·완료·막힘, note).
+- 흐름: 만들면 앞 단계가 없는 단계 담당자에게 '내 차례' 알림. 담당자(또는 지시자·그 팀 교관 이상이 대신)가 [시작][끝냈어요][막혔어요(메모 필수)][되돌리기] → 지시자에게 알림 → `flowSync`가 단계 완료(done_rule) 판단 → 다음 단계 담당자 알림 → 다 끝나면 지시자에게 '모두 끝남'. 마감 하루 전·지남 알림(`cronFlows`), '지금 할 일' kind `flowstep`.
+- 그림: 단계 깊이(앞 단계 사슬)마다 열, 칸 색 = 진행(카키)·완료(초록)·기다림(점선)·막힘(빨강), 사람 칩에 상태.
+- **글에서 단계 뽑기**(`fwParse`, AI 없이 규칙): 문장·'하고/해서/드려서'로 나누고 같은 문장 안은 앞 단계로 이음, '○○님께 공유' 조각은 다음 조각과 합침, 명단 이름·'제가'(나)·'교관님들'(교관 이상 모두)·명단에 없는 '○○님께'(이름만), 오늘/내일/모레/M/D, '(내일까지 …)' 같은 덧붙임은 앞 단계 마감으로. 지시자가 고쳐서 저장.
+- 기능: `flow.list/create/mark/cancel`(cancel `remove: true`면 지움). 2026-10-06 샘플 1건(감정 연기 수업 준비, 안소현 대신 임지윤) SQL로 넣음(알림 없이).
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)

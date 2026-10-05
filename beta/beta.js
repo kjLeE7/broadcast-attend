@@ -2731,7 +2731,7 @@ function freeRoles(r) {
 function loadRec() {
   if (!STF.data) loadStatForm().then(function () { if (RC.current && statCan()) renderRecBoard(); });
   if (!S.team) return Promise.resolve();
-  loadRecMine();
+  loadRecMine(); loadFlows();
   // 진행 상황은 과원 모두 봄 (2026-10-06). 올리기·배치·알림 같은 관리와 업무가능 2주 모아보기는 교관 이상만
   var mgr = recAllowed();
   $('recView').classList.toggle('rec-ro', !mgr); $('recAvail').style.display = mgr ? '' : 'none'; $('recFab').style.display = mgr ? '' : 'none';
@@ -3860,6 +3860,7 @@ function renderTodos() {
       if (t.kind === 'task') return row(i, '📝', '과제 제출 · ' + t.name, t.due ? '마감 ' + dtLabel(t.due) : '마감 없음', t.urgent);
       if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
       if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
+      if (t.kind === 'flowstep') return row(i, '🧩', t.flow + ' · ' + t.name, (t.state === '막힘' ? '막힘 · ' : t.state === '시작' ? '하는 중 · ' : '내 차례 · ') + (t.due ? t.due.slice(5).replace('-', '/') + '까지 · ' : '') + '눌러서 보고', t.urgent);
       if (t.kind === 'mtgaction') return row(i, '📋', '회의에서 맡은 일 · ' + t.name, t.due ? t.due.slice(5).replace('-', '/') + '까지 · 눌러서 완료' : '눌러서 완료', t.urgent);
       if (t.kind === 'mtgprep') return row(i, '🗂', '회의 안건 의견 · ' + t.name, shortD(t.date) + ' 회의 · 안건 ' + t.left + '개 남음', t.urgent);
       if (t.kind === 'poll') return row(i, '📅', '가능시간 입력 · ' + t.name, '마감 ' + mdw(Date.parse(t.due)) + ' ' + hmMs(Date.parse(t.due)), t.urgent);
@@ -3879,6 +3880,7 @@ function openTodo(i) {
   };
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
   if (t.kind === 'recask' || t.kind === 'recarrive' || t.kind === 'recrun') { openAsk(t.id); return; }
+  if (t.kind === 'flowstep') { FW.pending = t.id; if (curTab === 'rec') loadFlows(); else goTab('rec'); return; }
   if (t.kind === 'mtgaction') { if (confirm('「' + t.name + '」 끝냈나요?')) api('mtg.actionDone', { id: t.id }).then(function () { haptic('success'); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); return; }
   if (t.kind === 'mtgprep') { inTeam(function () { openMeeting(t.id); }); return; }
   if (t.kind === 'poll') { PL.pending = t.id; if (curTab === 'poll') loadPolls(); else goTab('poll'); return; }
@@ -5027,6 +5029,7 @@ function actItems() {
     else if (inst) add('plus', '과제 내기', openHwModal);
   }
   if (t === 'rec' && recAllowed() && !RC.current) add('plus', '녹음 요청 올리기', openRecModal);
+  if (t === 'rec' && FW.can && !RC.current) add('plus', '작업 흐름 만들기', openFlowModal);
   if (t === 'profile') add('edit', '특이사항 알리기', function () { openNote({}); });
   if (t === 'profile' && statCan()) add('star', '스탯 주기', function () { closeAct(); openStatGrant({}); });
   if (t === 'dues' && DU.d && DU.d.treasurer) add('won', '회계 (확인·현황)', mgToggle('dues', renderDues), MG.dues);
@@ -5330,4 +5333,175 @@ function pickMeeting() {
     return '<button type="button" class="card" onclick="closeModal(\'itemModal\');openMeeting(\'' + x.id + '\')"><b>' + esc(x.title || '모임') + '</b><small>' + shortD(x.session_date) + (x.start_time ? ' ' + String(x.start_time).slice(0, 5) : '') + (x.location ? ' · ' + esc(x.location) : '') + '</small></button>';
   }).join('') + '</div>';
   openModal('itemModal');
+}
+
+// =====================================================================
+// 작업 흐름: 업무 탭 위. 단계는 '앞 단계'로 이어지고, 열(단계 깊이)마다 나란히 그려짐
+// =====================================================================
+var FW = { list: null, can: false, pending: null };
+var FW_IC = { '대기': '·', '시작': '▶', '완료': '✓', '막힘': '!' };
+function loadFlows() {
+  if (!S.team) return;
+  api('flow.list', { team_id: S.team.id }).then(function (d) {
+    FW.list = d.flows; FW.can = d.can_create; renderFlows();
+    if (FW.pending) { var id = FW.pending; FW.pending = null; fwAct(id); }
+  }).catch(function (err) { $('flowArea').innerHTML = '<div class="empty"><b>작업 흐름을 불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function fwLevels(steps) {
+  var lv = {}, by = {}; steps.forEach(function (x) { by[x.id] = x; });
+  function L(x) { if (lv[x.id] != null) return lv[x.id]; lv[x.id] = 0; var m = 0; x.after.forEach(function (a) { if (by[a]) m = Math.max(m, L(by[a]) + 1); }); return (lv[x.id] = m); }
+  steps.forEach(L); return lv;
+}
+function fwStepSt(x) { return x.done ? 'done' : !x.ready ? 'wait' : x.people.some(function (p) { return p.state === '막힘'; }) ? 'stuck' : 'now'; }
+function fwDue(d, done) {
+  if (!d) return ''; var n = dayDiff(parseDate(d).getTime());
+  return '<em class="fw-due' + (!done && n < 0 ? ' late' : !done && n <= 1 ? ' soon' : '') + '">' + d.slice(5).replace('-', '/') + (done ? '' : n < 0 ? ' 지남' : n === 0 ? ' 오늘' : ' D-' + n) + '</em>';
+}
+function fwCard(f) {
+  var me = S.me.profile.id, lv = fwLevels(f.steps), cols = [];
+  f.steps.forEach(function (x) { (cols[lv[x.id]] = cols[lv[x.id]] || []).push(x); });
+  var done = f.steps.filter(function (x) { return x.done; }).length, idx = {};
+  f.steps.forEach(function (x, i) { idx[x.id] = i + 1; });
+  var h = '<div class="card fw-card' + (f.status === '완료' ? ' fin' : '') + '"><div class="fw-top"><div><b>' + esc(f.title) + '</b><small>' + esc(f.by) + ' · ' + shortD(f.created_at.slice(0, 10)) + (f.status === '완료' ? ' · 모두 끝남 🎉' : '') + '</small></div>' +
+    '<span class="fw-prog"><i style="width:' + Math.round(done / Math.max(1, f.steps.length) * 100) + '%"></i></span><span class="fw-cnt">' + done + ' / ' + f.steps.length + '</span></div>' +
+    (f.note ? '<details class="fw-note"><summary>원문 보기</summary><p>' + esc(f.note) + '</p></details>' : '') + '<div class="fw-cols">';
+  cols.forEach(function (col) {
+    h += '<div class="fw-col">' + col.map(function (x) {
+      var st = fwStepSt(x);
+      return '<div class="fw-node s-' + st + '"><div class="fw-nh"><span class="fw-no">' + idx[x.id] + '</span><b>' + esc(x.title) + '</b>' + fwDue(x.due_on, x.done) + '</div>' +
+        (x.detail ? '<p class="fw-det">' + esc(x.detail) + '</p>' : '') +
+        '<div class="fw-ps">' + x.people.map(function (p) {
+          var can = x.ready && f.status === '진행' && (p.person_id === me || f.manage);
+          return '<' + (can ? 'button type="button" onclick="fwAct(\'' + p.id + '\')"' : 'span') + ' class="fw-p p-' + p.state + (p.person_id === me ? ' me' : '') + (p.person_id ? '' : ' ext') + '" title="' + esc(p.state + (p.note ? ' · ' + p.note : '')) + '"><i>' + FW_IC[p.state] + '</i>' + esc(p.name) + '</' + (can ? 'button' : 'span') + '>';
+        }).join('') + '</div>' +
+        x.people.filter(function (p) { return p.note && (p.state === '막힘' || p.state === '완료'); }).map(function (p) { return '<div class="fw-pn">💬 <b>' + esc(p.name) + '</b> ' + esc(p.note) + '</div>'; }).join('') +
+        '<div class="fw-foot">' + (st === 'wait' ? '⏳ ' + x.after.map(function (a) { return idx[a]; }).join('·') + '번 끝나면 차례' : st === 'done' ? '완료' : (x.people.length > 1 ? (x.done_rule === '모두' ? '모두 완료해야 끝' : '한 명만 완료하면 끝') : '')) + '</div></div>';
+    }).join('') + '</div>';
+  });
+  h += '</div>' + (f.manage && f.status === '진행' ? '<div class="fw-acts"><button type="button" onclick="fwCancel(\'' + f.id + '\')">작업 취소</button><button type="button" class="bad" onclick="fwCancel(\'' + f.id + '\',true)">지우기</button></div>' : '');
+  return h + '</div>';
+}
+function renderFlows() {
+  var open = FW.list.filter(function (f) { return f.status === '진행'; }), fin = FW.list.filter(function (f) { return f.status === '완료'; });
+  if (!FW.list.length && !FW.can) { $('flowArea').innerHTML = ''; return; }
+  $('flowArea').innerHTML = '<div class="section-head b-gap"><h2>작업 흐름</h2><span class="section-count">' + (open.length ? open.length + '건 진행 중' : '') + '</span></div>' +
+    (open.length ? open.map(fwCard).join('') : '<p class="rec-none">진행 중인 작업이 없어요' + (FW.can ? '. 오른쪽 아래 + 에서 \'작업 흐름 만들기\'' : '') + '</p>') +
+    (fin.length ? '<details class="rm-past"><summary>끝난 작업 ' + fin.length + '건 (30일)</summary>' + fin.map(fwCard).join('') + '</details>' : '');
+}
+function fwFind(spId) {
+  var r = null; (FW.list || []).forEach(function (f) { f.steps.forEach(function (x) { x.people.forEach(function (p) { if (p.id === spId) r = { f: f, x: x, p: p }; }); }); });
+  return r;
+}
+function fwAct(spId) {
+  var r = fwFind(spId); if (!r) return;
+  var mine = r.p.person_id === S.me.profile.id;
+  $('itemModalT').textContent = mine ? '내 단계 보고' : r.p.name + '님 단계 (대신 누르기)';
+  $('itemBody').innerHTML = '<div class="fw-am"><small>' + esc(r.f.title) + '</small><b>' + esc(r.x.title) + '</b>' + (r.x.due_on ? '<span>' + r.x.due_on.slice(5).replace('-', '/') + '까지</span>' : '') + '<span>지금: ' + esc(r.p.state) + '</span></div>' +
+    '<div class="fw-abtns">' + [['시작', '▶ 시작했어요'], ['완료', '✓ 끝냈어요'], ['막힘', '🆘 막혔어요'], ['대기', '되돌리기']].map(function (b) { return '<button type="button" class="fw-ab a-' + b[0] + (r.p.state === b[0] ? ' on' : '') + '" onclick="fwMark(\'' + spId + '\',\'' + b[0] + '\')">' + b[1] + '</button>'; }).join('') + '</div>' +
+    '<label class="field-label" for="fwANote">메모 <span class="hint">막혔어요는 필수 · 지시자에게 같이 가요</span></label><input type="text" id="fwANote" class="b-input" maxlength="300" value="' + esc(r.p.note || '') + '" placeholder="예) 자료 링크 공유했어요 / 영상 원본이 없어요"><div class="msg" id="fwAMsg"></div>';
+  openModal('itemModal');
+}
+function fwMark(spId, state) {
+  api('flow.mark', { id: spId, state: state, note: $('fwANote').value }).then(function () { haptic('success'); closeModal('itemModal'); loadFlows(); refreshTodos(true); })
+    .catch(function (err) { setMsg('fwAMsg', err.message, true); });
+}
+function fwCancel(id, remove) {
+  if (!confirm(remove ? '이 작업 흐름을 지울까요? 기록도 같이 지워져요' : '이 작업을 취소할까요? 더 이상 알림이 안 가요')) return;
+  api('flow.cancel', { id: id, remove: !!remove }).then(function () { haptic('success'); loadFlows(); }).catch(function (err) { alertMsg(err.message); });
+}
+// ----- 만들기 -----
+var FWF = { steps: [], n: 0 };
+function openFlowModal() {
+  loadRoster().then(function () { renderFwSteps(); }).catch(function () {});
+  if (!FWF.steps.length) fwAddStep(); else renderFwSteps();
+  setMsg('fwMsg', ''); openModal('flowModal');
+}
+function fwNew() { return { key: 'k' + (++FWF.n), title: '', detail: '', due_on: '', people: [], after: [], done_rule: '한 명' }; }
+function fwAddStep() { var x = fwNew(), last = FWF.steps[FWF.steps.length - 1]; if (last) x.after = [last.key]; FWF.steps.push(x); renderFwSteps(); }
+function fwRoster() { return ROSTER.data ? ROSTER.data.members : []; }
+function renderFwSteps() {
+  var ro = fwRoster();
+  $('fwSteps').innerHTML = FWF.steps.map(function (x, i) {
+    return '<div class="card fw-ed" data-i="' + i + '"><div class="fw-edh"><span class="fw-no">' + (i + 1) + '</span><input type="text" class="b-input" maxlength="80" placeholder="할 일 · 예) PPT 1차 제작" value="' + esc(x.title) + '" oninput="FWF.steps[' + i + '].title=this.value">' +
+      '<button type="button" class="c-ag-x" onclick="fwDel(' + i + ')" aria-label="단계 빼기">✕</button></div>' +
+      '<input type="text" class="b-input" maxlength="500" placeholder="자세히 (선택)" value="' + esc(x.detail) + '" oninput="FWF.steps[' + i + '].detail=this.value">' +
+      '<div class="fw-row"><span>담당</span><div class="fw-chips">' + x.people.map(function (p, j) { return '<span class="fw-p' + (p.person_id ? '' : ' ext') + '">' + esc(p.name) + '<button type="button" onclick="fwPDel(' + i + ',' + j + ')" aria-label="빼기">×</button></span>'; }).join('') +
+        '<div class="select-wrap fw-psel"><select onchange="fwPAdd(' + i + ',this)"><option value="">+ 담당 추가</option><option value="@staff">교관 이상 모두</option>' +
+        ro.map(function (m) { return '<option value="' + m.id + '">' + esc(m.name) + (m.position ? ' · ' + esc(m.position) : '') + '</option>'; }).join('') + '<option value="@ext">앱에 없는 사람 (이름만)</option></select></div></div></div>' +
+      (x.people.length > 1 ? '<div class="fw-row"><span>끝나는 때</span><div class="fw-chips">' + ['한 명', '모두'].map(function (r) { return '<button type="button" class="b-pick' + (x.done_rule === r ? ' on' : '') + '" onclick="FWF.steps[' + i + '].done_rule=\'' + r + '\';renderFwSteps()">' + (r === '한 명' ? '한 명만 끝내면' : '모두 끝내야') + '</button>'; }).join('') + '</div></div>' : '') +
+      '<div class="fw-row"><span>마감</span><input type="date" class="b-input fw-date" value="' + esc(x.due_on) + '" onchange="FWF.steps[' + i + '].due_on=this.value"></div>' +
+      (i ? '<div class="fw-row"><span>앞 단계</span><div class="fw-chips">' + FWF.steps.slice(0, i).map(function (y, j) { return '<button type="button" class="b-pick' + (x.after.indexOf(y.key) !== -1 ? ' on' : '') + '" onclick="fwAfter(' + i + ',\'' + y.key + '\')">' + (j + 1) + '번' + (y.title ? ' ' + esc(y.title.slice(0, 10)) : '') + '</button>'; }).join('') + '<small>' + (x.after.length ? '' : '바로 시작') + '</small></div></div>' : '') + '</div>';
+  }).join('');
+}
+function fwDel(i) { var k = FWF.steps[i].key; FWF.steps.splice(i, 1); FWF.steps.forEach(function (x) { x.after = x.after.filter(function (a) { return a !== k; }); }); renderFwSteps(); }
+function fwAfter(i, k) { var a = FWF.steps[i].after, j = a.indexOf(k); if (j === -1) a.push(k); else a.splice(j, 1); renderFwSteps(); }
+function fwPDel(i, j) { FWF.steps[i].people.splice(j, 1); renderFwSteps(); }
+function fwPush(x, p) { if (!x.people.some(function (q) { return p.person_id ? q.person_id === p.person_id : !q.person_id && q.name === p.name; })) x.people.push(p); }
+function fwPAdd(i, sel) {
+  var v = sel.value, x = FWF.steps[i]; sel.value = ''; if (!v) return;
+  if (v === '@ext') { var n = (prompt('이름을 적어주세요 (앱에 없는 사람은 알림이 안 가고, 지시자가 대신 완료를 눌러요)') || '').trim().slice(0, 30); if (n) fwPush(x, { person_id: null, name: n }); }
+  else if (v === '@staff') fwRoster().filter(function (m) { return m.rank >= RANK.INSTRUCTOR; }).forEach(function (m) { fwPush(x, { person_id: m.id, name: m.name }); });
+  else { var m = fwRoster().filter(function (m) { return m.id === v; })[0]; if (m) fwPush(x, { person_id: m.id, name: m.name }); }
+  renderFwSteps();
+}
+function saveFlow() {
+  var title = $('fwTitle').value.trim(), steps = FWF.steps.filter(function (x) { return x.title.trim() || x.people.length; });
+  if (!title) { setMsg('fwMsg', '작업 이름을 적어주세요', true); return; }
+  if (!steps.length) { setMsg('fwMsg', '단계를 하나 이상 적어주세요', true); return; }
+  var bad = steps.filter(function (x) { return !x.title.trim() || !x.people.length; })[0];
+  if (bad) { setMsg('fwMsg', (FWF.steps.indexOf(bad) + 1) + '번 단계의 할 일과 담당을 채워주세요', true); return; }
+  var btn = $('fwBtn'); btn.disabled = true; setMsg('fwMsg', '만드는 중...');
+  api('flow.create', { team_id: S.team.id, title: title, note: $('fwNote').value, steps: steps.map(function (x) { return { key: x.key, title: x.title, detail: x.detail, due_on: x.due_on || null, done_rule: x.done_rule, after: x.after, people: x.people }; }) })
+    .then(function () {
+      haptic('success'); btn.disabled = false; FWF.steps = []; $('fwTitle').value = ''; $('fwNote').value = '';
+      setMsg('fwMsg', '만들었어요! 지금 차례인 담당자에게 알림을 보냈어요'); setTimeout(function () { closeModal('flowModal'); }, 1300); loadFlows();
+    }).catch(function (err) { btn.disabled = false; setMsg('fwMsg', err.message, true); });
+}
+// ----- 붙여넣은 글 → 단계 초안 (규칙 기반: 문장·'하고/해서' 나누기, 명단 이름·'제가'·'교관님들', 오늘/내일/날짜) -----
+function fwDateOf(t) {
+  if (/오늘/.test(t)) return todayStr(); if (/내일/.test(t)) return addDays(1); if (/모레/.test(t)) return addDays(2);
+  var m = t.match(/(\d{1,2})\s*[\/월]\s*(\d{1,2})\s*일?/);
+  if (m) { var y = new Date().getFullYear(), d = y + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2); return d < todayStr() ? (y + 1) + d.slice(4) : d; }
+  return '';
+}
+var FW_VERB = /(제작|만들|보완|수정|찾|분류|정리|피드백|준비|녹음|편집|검토|작성|확인|도와|촬영|연습|업로드|전달|보내)/;
+function fwClean(t) {
+  return t.replace(/[\u{1F000}-\u{1FFFF}☀-➿️*()]/gu, ' ')
+    .replace(/[가-힣]{2,3}\s*(성우|교관|팀장|조장)?\s*님(께|에게)\s*공유\s*/g, ' ')
+    .replace(/(오늘|내일|모레)까지|제가|혹시|교관님들|(연기\s*)?교관분들은?|추가적으로/g, ' ')
+    .replace(/(해나갈 예정입니다|할 예정입니다|예정입니다|주시면 좋을 것 같습니다|좋을 것 같습니다|주실 수 있으실까요|수 있으실까요|해주세요|부탁드립니다|합니다|입니다)[\s?!.~]*$/, '')
+    .replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+function fwParse() {
+  var text = $('fwNote').value.trim(); if (!text) { setMsg('fwMsg', '원문을 먼저 붙여넣어 주세요', true); return; }
+  var ro = fwRoster(), meId = S.me.profile.id, meName = S.me.profile.name, out = [];
+  var who = function (t) {
+    var ps = [];
+    if (/제가|저는|제가/.test(t)) ps.push({ person_id: meId, name: meName });
+    if (/교관\s*(님들|분들)/.test(t)) ro.filter(function (m) { return m.rank >= RANK.INSTRUCTOR; }).forEach(function (m) { ps.push({ person_id: m.id, name: m.name }); });
+    ro.forEach(function (m) { if (t.indexOf(m.name) !== -1 || (m.name.length === 3 && new RegExp(m.name.slice(1) + '\\s*(님|성우|교관|팀장|조장)').test(t))) ps.push({ person_id: m.id, name: m.name }); });
+    // 명단에 없는 '○○성우님께/○○님께' (함께하는 사람 '○○님과'는 빼고)
+    var re = /([가-힣]{2,3})\s*(?:성우|교관|팀장|조장)?\s*님(께|에게|이|은|는|,)/g, m;
+    while ((m = re.exec(t))) if (!ps.some(function (p) { return p.name.slice(-2) === m[1].slice(-2); }) && !/^(교관|성우|팀장|조장)$/.test(m[1])) ps.push({ person_id: null, name: m[1] });
+    var seen = {}; return ps.filter(function (p) { var k = p.person_id || p.name; return seen[k] ? false : (seen[k] = true); });
+  };
+  text.split(/\n+|(?<=[.!?。])\s+/).forEach(function (sent) {
+    sent = sent.trim(); if (!sent) return;
+    var parts = sent.split(/(?:하고|해서|드려서|한 뒤|한 후)\s*,?\s+/), prev = null;
+    // '○○님께 공유' 같은 조각은 다음 조각과 합침 (받는 사람이 다음 일을 함)
+    for (var i = 0; i < parts.length - 1; i++) if (/(께|에게)\s*\S*$/.test(parts[i]) && !FW_VERB.test(parts[i].replace(/공유/, ''))) { parts[i + 1] = parts[i] + ' ' + parts[i + 1]; parts[i] = ''; }
+    parts.forEach(function (c) {
+      c = c.trim(); if (!c) return;
+      var due = fwDateOf(c), ps = who(c), title = fwClean(c);
+      // '(내일까지 찾아주세요)'처럼 짧은 덧붙임은 앞 단계 마감으로
+      if (due && out.length && title.replace(/찾아주시면|찾아|해주시면/g, '').trim().length < 8) { out[out.length - 1].due_on = out[out.length - 1].due_on || due; return; }
+      if (!FW_VERB.test(c) || (/필요합니다/.test(c) && !ps.length)) return;
+      var x = fwNew(); x.title = title; x.due_on = due; x.people = ps; if (prev) x.after = [prev.key];
+      out.push(x); prev = x;
+    });
+  });
+  if (!out.length) { setMsg('fwMsg', '단계를 찾지 못했어요. 직접 적어주세요', true); return; }
+  if (!$('fwTitle').value.trim()) $('fwTitle').value = out[0].title.slice(0, 30);
+  FWF.steps = out; renderFwSteps();
+  setMsg('fwMsg', out.length + '단계를 뽑았어요. 담당·마감·앞 단계가 맞는지 확인해 주세요');
 }

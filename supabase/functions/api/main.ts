@@ -1190,9 +1190,10 @@ async function cronReminders(db: any) {
   let dues = null, files = null;
   try { dues = await cronDuesNag(ctx); } catch (e) { console.error("dues nag", e); }
   try { files = await cronFiles(ctx); } catch (e) { console.error("files", e); }
-  let meetings = null;
+  let meetings = null, flows = null;
   try { meetings = await cronMeetings(ctx); } catch (e) { console.error("meetings", e); }
-  return { sessions: out, weekly, polls, dues, files, meetings };
+  try { flows = await cronFlows(ctx); } catch (e) { console.error("flows", e); }
+  return { sessions: out, weekly, polls, dues, files, meetings, flows };
 }
 
 // 출결 행에서 다른 사람에게 보여도 되는 칸 / 사유까지 (본인·조장 이상)
@@ -1700,6 +1701,68 @@ async function cronMeetings(ctx: Ctx) {
     }
   }
   return prep || d1 || over ? { prep, d1, over } : null;
+}
+
+// =====================================================================
+// 작업 흐름 (2026-10-06): 단계(할 일·담당·마감·앞 단계) → 차례가 되면 담당자 알림 → 시작·완료·막힘 → 지시자 알림
+// 단계 완료 = done_rule '한 명'이면 한 명만, '모두'면 앱에 있는 담당자 모두(앱에 없는 사람은 지시자가 대신 누름)
+// =====================================================================
+const FLOW_STATES = ["대기", "시작", "완료", "막힘"];
+async function flowLoad(ctx: Ctx, flowId: string) {
+  if (!UUID_RE.test(String(flowId))) throw new HttpError(400, "잘못된 작업 흐름이에요");
+  const f = must(await ctx.db.from("work_flows").select("*").eq("id", flowId).maybeSingle());
+  if (!f) throw new HttpError(404, "없는 작업 흐름이에요");
+  return f;
+}
+async function flowCanManage(ctx: Ctx, f: any) { return f.created_by === ctx.me.id || (await rankIn(ctx, f.team_id)) >= RANK.INSTRUCTOR; }
+function stepDone(st: any, ps: any[]) {
+  const mine = ps.filter((x) => x.step_id === st.id);
+  if (!mine.length) return false;
+  return st.done_rule === "모두" ? mine.every((x) => x.state === "완료") : mine.some((x) => x.state === "완료");
+}
+// 상태 다시 계산: 끝난 단계 done_at, 차례가 된 단계 ready_at + 알림, 모두 끝나면 흐름 완료 + 지시자 알림
+async function flowSync(ctx: Ctx, flowId: string) {
+  const f = await flowLoad(ctx, flowId);
+  if (f.status !== "진행") return;
+  const steps: any[] = must(await ctx.db.from("work_steps").select("*").eq("flow_id", flowId).order("sort")) ?? [];
+  const ps: any[] = steps.length ? must(await ctx.db.from("work_step_people").select("*").in("step_id", steps.map((x) => x.id))) ?? [] : [];
+  const now = new Date().toISOString(), done = new Set<string>();
+  for (const st of steps) {
+    const d = stepDone(st, ps);
+    if (d) done.add(st.id);
+    if (d && !st.done_at) { st.done_at = now; must(await ctx.db.from("work_steps").update({ done_at: now }).eq("id", st.id)); }
+    if (!d && st.done_at) { st.done_at = null; must(await ctx.db.from("work_steps").update({ done_at: null }).eq("id", st.id)); }
+  }
+  const ready = steps.filter((st) => !st.ready_at && !done.has(st.id) && (st.after_ids ?? []).every((a: string) => done.has(a)));
+  for (const st of ready) {
+    must(await ctx.db.from("work_steps").update({ ready_at: now }).eq("id", st.id));
+    const ids = ps.filter((x) => x.step_id === st.id && x.person_id && x.state !== "완료").map((x) => x.person_id);
+    const who = await withTelegram(ctx, ids);
+    if (who.length) await sendToMembers(who, `🧩 <b>내 차례예요</b> · ${escHtml(f.title)}\n${escHtml(st.title)}${st.due_on ? ` · ${st.due_on.slice(5).replace("-", "/")}까지` : ""}${st.detail ? `\n${escHtml(st.detail)}` : ""}\n앱에서 [시작]·[완료]를 눌러주세요`, appButton("작업 보기", "?go=rec"));
+  }
+  if (steps.length && steps.every((st) => done.has(st.id))) {
+    must(await ctx.db.from("work_flows").update({ status: "완료", done_at: now }).eq("id", flowId));
+    const boss = await withTelegram(ctx, [f.created_by]);
+    if (boss.length) await sendToMembers(boss, `🎉 <b>작업 흐름이 모두 끝났어요</b>\n${escHtml(f.title)} · ${steps.length}단계`, appButton("작업 보기", "?go=rec"));
+  }
+}
+// 마감 하루 전·지남 알림 (차례가 됐는데 안 끝난 단계, 8시 이후)
+async function cronFlows(ctx: Ctx) {
+  const hour = new Date(Date.now() + 9 * HOUR).getUTCHours(); if (hour < 8) return null;
+  const today = kstToday(), tomorrow = addDaysStr(today, 1);
+  const steps: any[] = must(await ctx.db.from("work_steps").select("id, title, due_on, reminded_d1_at, reminded_over_at, work_flows!inner(title, status)")
+    .eq("work_flows.status", "진행").not("ready_at", "is", null).is("done_at", null).not("due_on", "is", null).lte("due_on", tomorrow)) ?? [];
+  let d1 = 0, over = 0;
+  for (const st of steps) {
+    const late = st.due_on < today;
+    if (late ? st.reminded_over_at : st.reminded_d1_at) continue;
+    const ps: any[] = must(await ctx.db.from("work_step_people").select("person_id").eq("step_id", st.id).neq("state", "완료").not("person_id", "is", null)) ?? [];
+    const who = await withTelegram(ctx, ps.map((x) => x.person_id));
+    if (who.length) await sendToMembers(who, `${late ? "⏰ <b>작업 마감이 지났어요</b>" : "📌 <b>작업 마감이 다가와요</b>"} · ${escHtml(st.work_flows.title)}\n${escHtml(st.title)} · ${st.due_on.slice(5).replace("-", "/")}까지`, appButton("작업 보기", "?go=rec"));
+    must(await ctx.db.from("work_steps").update(late ? { reminded_over_at: new Date().toISOString() } : { reminded_d1_at: new Date().toISOString() }).eq("id", st.id));
+    late ? over++ : d1++;
+  }
+  return { d1, over };
 }
 
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
@@ -2567,6 +2630,94 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // ----- 회의 모드 -----
   // 열기 { session_id } → 없으면 만듦(진행자 = 모임 만든 사람). 안건·의견·주차장·할 일·참석자(의견 준비 여부)·내 역할
+  // ----- 작업 흐름 -----
+  async "flow.list"(ctx) {
+    await requireRank(ctx, ctx.payload.team_id, RANK.MEMBER);
+    const sec = await sectionOf(ctx, ctx.payload.team_id);
+    const old = new Date(Date.now() - 30 * 86400000).toISOString();
+    const flows: any[] = (must(await ctx.db.from("work_flows").select("*").in("team_id", sec.teamIds).neq("status", "취소")
+      .order("created_at", { ascending: false }).limit(80)) ?? []).filter((f: any) => f.status === "진행" || (f.done_at ?? "") >= old);
+    const ids = flows.map((f) => f.id);
+    const steps: any[] = ids.length ? must(await ctx.db.from("work_steps").select("*").in("flow_id", ids).order("sort")) ?? [] : [];
+    const ps: any[] = steps.length ? must(await ctx.db.from("work_step_people").select("*").in("step_id", steps.map((x) => x.id)).order("created_at")) ?? [] : [];
+    const names = await nameMap(ctx, flows.map((f) => f.created_by));
+    const myRank = await rankIn(ctx, ctx.payload.team_id);
+    return {
+      can_create: myRank >= RANK.INSTRUCTOR,
+      flows: flows.map((f) => ({
+        id: f.id, team_id: f.team_id, title: f.title, note: f.note, status: f.status, created_by: f.created_by, by: names.get(f.created_by) ?? "", created_at: f.created_at, done_at: f.done_at,
+        manage: f.created_by === ctx.me.id || myRank >= RANK.INSTRUCTOR && f.team_id === ctx.payload.team_id,
+        steps: steps.filter((st) => st.flow_id === f.id).map((st) => ({
+          id: st.id, title: st.title, detail: st.detail, due_on: st.due_on, done_rule: st.done_rule, after: st.after_ids ?? [], ready: !!st.ready_at, done: !!st.done_at,
+          people: ps.filter((x) => x.step_id === st.id).map((x) => ({ id: x.id, person_id: x.person_id, name: x.name, state: x.state, note: x.note, at: x.changed_at })),
+        })),
+      })),
+    };
+  },
+  async "flow.create"(ctx) {
+    const p = ctx.payload ?? {};
+    await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
+    const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n);
+    const title = t(p.title, 80); if (!title) throw new HttpError(400, "작업 이름을 적어주세요");
+    const steps = Array.isArray(p.steps) ? p.steps.slice(0, 30) : [];
+    if (!steps.length) throw new HttpError(400, "단계를 하나 이상 적어주세요");
+    const roster = await sectionRoster(ctx, p.team_id), ok = new Map<string, string>(roster.members.map((m: any) => [m.id, m.name]));
+    const keys = steps.map((x: any) => String(x.key ?? ""));
+    for (const [i, x] of steps.entries()) {
+      if (!t(x.title, 80)) throw new HttpError(400, `${i + 1}단계 할 일을 적어주세요`);
+      if (!Array.isArray(x.people) || !x.people.length) throw new HttpError(400, `${i + 1}단계 담당을 정해주세요`);
+      if (x.due_on && !isDate(x.due_on)) throw new HttpError(400, "마감 날짜가 이상해요");
+      for (const a of x.after ?? []) { const j = keys.indexOf(String(a)); if (j < 0 || j >= i) throw new HttpError(400, `${i + 1}단계의 앞 단계는 그보다 위에 있는 단계만 고를 수 있어요`); }
+      for (const q of x.people) if (q.person_id && !ok.has(q.person_id)) throw new HttpError(400, "우리 과 사람만 담당으로 고를 수 있어요");
+    }
+    await rateLimit(ctx, "flow_new", 10, 1440);
+    const f = must(await ctx.db.from("work_flows").insert({ team_id: p.team_id, title, note: t(p.note, 3000) || null, created_by: ctx.me.id }).select("id").single());
+    const idOf = new Map<string, string>();
+    for (const [i, x] of steps.entries()) {
+      const st = must(await ctx.db.from("work_steps").insert({
+        flow_id: f.id, sort: i, title: t(x.title, 80), detail: t(x.detail, 500) || null, due_on: x.due_on || null,
+        done_rule: x.done_rule === "모두" ? "모두" : "한 명", after_ids: (x.after ?? []).map((a: any) => idOf.get(String(a))).filter(Boolean),
+      }).select("id").single());
+      idOf.set(keys[i], st.id);
+      const seen = new Set<string>();
+      const rows = x.people.map((q: any) => q.person_id ? { step_id: st.id, person_id: q.person_id, name: ok.get(q.person_id) } : { step_id: st.id, person_id: null, name: t(q.name, 30) })
+        .filter((r: any) => r.name && !seen.has(r.person_id ?? "n:" + r.name) && seen.add(r.person_id ?? "n:" + r.name));
+      if (!rows.length) throw new HttpError(400, `${i + 1}단계 담당을 정해주세요`);
+      must(await ctx.db.from("work_step_people").insert(rows));
+    }
+    await flowSync(ctx, f.id);
+    return { id: f.id };
+  },
+  async "flow.mark"(ctx) {
+    const p = ctx.payload ?? {};
+    if (!UUID_RE.test(String(p.id)) || !FLOW_STATES.includes(p.state)) throw new HttpError(400, "잘못된 요청이에요");
+    const sp = must(await ctx.db.from("work_step_people").select("*, work_steps!inner(id, title, flow_id, ready_at)").eq("id", p.id).maybeSingle());
+    if (!sp) throw new HttpError(404, "없는 담당이에요");
+    const f = await flowLoad(ctx, sp.work_steps.flow_id);
+    if (f.status !== "진행") throw new HttpError(400, "끝났거나 취소된 작업이에요");
+    const self = sp.person_id === ctx.me.id;
+    if (!self && !(await flowCanManage(ctx, f))) throw new HttpError(403, "담당자 본인이나 지시자만 누를 수 있어요");
+    if (!sp.work_steps.ready_at && p.state !== "대기") throw new HttpError(400, "아직 앞 단계가 안 끝났어요");
+    const note = String(p.note ?? "").trim().slice(0, 300) || null;
+    if (p.state === "막힘" && !note) throw new HttpError(400, "어디서 막혔는지 한 줄 적어주세요");
+    await rateLimit(ctx, "flow_mark", 120, 60);
+    must(await ctx.db.from("work_step_people").update({ state: p.state, note: p.state === "막힘" || p.state === "완료" ? note : null, changed_at: new Date().toISOString() }).eq("id", sp.id));
+    if (f.created_by !== ctx.me.id && p.state !== "대기") {
+      const boss = await withTelegram(ctx, [f.created_by]);
+      const ic = { 시작: "▶️", 완료: "✅", 막힘: "🆘" }[p.state as "시작"];
+      if (boss.length) await sendToMembers(boss, `${ic} <b>${escHtml(sp.name)}</b> · ${p.state}\n${escHtml(f.title)} › ${escHtml(sp.work_steps.title)}${note ? `\n💬 ${escHtml(note)}` : ""}`, appButton("작업 보기", "?go=rec"));
+    }
+    await flowSync(ctx, f.id);
+    return { ok: true };
+  },
+  async "flow.cancel"(ctx) {
+    const f = await flowLoad(ctx, ctx.payload?.id);
+    if (!(await flowCanManage(ctx, f))) throw new HttpError(403, "지시자나 그 팀 교관 이상만 할 수 있어요");
+    if (ctx.payload?.remove) { must(await ctx.db.from("work_flows").delete().eq("id", f.id)); return { ok: true }; }
+    must(await ctx.db.from("work_flows").update({ status: "취소" }).eq("id", f.id));
+    return { ok: true };
+  },
+
   async "mtg.get"(ctx) {
     const sid = String(ctx.payload?.session_id ?? "");
     if (!UUID_RE.test(sid)) throw new HttpError(400, "모임을 다시 골라주세요");
@@ -3005,6 +3156,10 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     // 회의에서 맡은 일 (안 끝난 것)
     const macts: any[] = must(await ctx.db.from("meeting_actions").select("id, task, due_on").eq("assignee_id", me).is("done_at", null).order("due_on")) ?? [];
     for (const a of macts) items.push({ kind: "mtgaction", id: a.id, name: a.task, due: a.due_on, urgent: !!a.due_on && a.due_on <= addDaysStr(kstToday(), 1) });
+    // 작업 흐름: 차례가 된 내 단계 (안 끝난 것)
+    const fsteps: any[] = must(await ctx.db.from("work_step_people").select("id, state, work_steps!inner(title, due_on, ready_at, done_at, work_flows!inner(title, status))")
+      .eq("person_id", me).neq("state", "완료").not("work_steps.ready_at", "is", null).is("work_steps.done_at", null).eq("work_steps.work_flows.status", "진행")) ?? [];
+    for (const a of fsteps) items.push({ kind: "flowstep", id: a.id, name: a.work_steps.title, flow: a.work_steps.work_flows.title, state: a.state, due: a.work_steps.due_on, urgent: !!a.work_steps.due_on && a.work_steps.due_on <= addDaysStr(kstToday(), 1) });
     // 사흘 안 회의인데 안건에 의견을 다 안 남긴 것
     const soon: any[] = must(await ctx.db.from("meetings").select("id, session_id, meeting_sessions!inner(session_date, title, team_id, target_unit_id, target_people, meeting_types(name))").eq("status", "준비")
       .gte("meeting_sessions.session_date", kstToday()).lte("meeting_sessions.session_date", addDaysStr(kstToday(), 3))) ?? [];
