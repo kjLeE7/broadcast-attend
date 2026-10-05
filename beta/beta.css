@@ -1644,3 +1644,21 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .my-row.done .my-body b { text-decoration: line-through; color: var(--muted); }
 .my-due { flex: none; font-style: normal; font-size: 12px; font-weight: 700; color: var(--muted); } .my-due.soon { color: var(--warn); } .my-due.late { color: var(--bad); }
 .my-del { margin-top: 8px; color: var(--bad); }
+
+/* 승인함 */
+.apr-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.apr-tile { display: block; text-decoration: none; color: var(--muted); background: var(--card); border-radius: 18px; padding: 16px 18px; box-shadow: var(--shadow); }
+.apr-tile b { display: block; font-size: 30px; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; } .apr-tile span { font-size: 13px; font-weight: 700; }
+.apr-tile.on { background: var(--accent); color: #fff; } .apr-tile.on b { color: #fff; }
+.apr-list { display: grid; gap: 10px; }
+@media (min-width: 1000px) { .apr-list { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); } }
+.apr-card { padding: 14px 16px; margin: 0; display: grid; gap: 4px; border-left: 4px solid var(--warn); }
+.apr-top { display: flex; justify-content: space-between; align-items: center; } .apr-kind { font-size: 12px; font-weight: 800; color: var(--muted); } .apr-top small { font-size: 11.5px; color: var(--muted); }
+.apr-t { font-size: 16px; } .apr-when { font-size: 13.5px; font-weight: 700; color: var(--accent); }
+.apr-who { font-size: 13.5px; } .apr-note { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
+.apr-btns { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; margin-top: 8px; }
+.apr-btns button { border: 1.5px solid var(--line); background: var(--card); border-radius: 12px; font: inherit; font-weight: 800; font-size: 14px; padding: 10px; cursor: pointer; color: var(--text); }
+.apr-btns .ok { background: var(--accent); border-color: var(--accent); color: #fff; } .apr-btns .no { color: var(--bad); }
+.apr-done { padding: 8px 14px; display: grid; gap: 6px; font-size: 13px; } .apr-done small { color: var(--muted); }
+.apr-whobox { margin-top: 28px; padding: 14px 16px; display: grid; gap: 6px; font-size: 13.5px; background: var(--card-soft); box-shadow: none; }
+.apr-whobox span { display: inline-block; width: 80px; color: var(--muted); font-weight: 700; } .apr-whobox .ghost-btn { width: auto; justify-self: start; margin: 4px 0 0; }

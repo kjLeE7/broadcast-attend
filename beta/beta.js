@@ -108,7 +108,7 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'rec', 'mytodo'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'rec', 'mytodo', 'approve'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -139,6 +139,7 @@ function boot() {
     $('tabbar').classList.remove('b-off');
     setupRecTab();
     $('adminTab').style.display = me.is_admin ? '' : 'none';   // 관리자 탭은 관리자 명단만
+    $('approveTab').style.display = me.can_approve ? '' : 'none';   // 승인함은 관리자·회계·장소 승인자만
     $('peopleTab').style.display = me.teams.some(function (t) { return t.rank >= RANK.INSTRUCTOR; }) ? '' : 'none';   // 인원 탭은 교관 이상
     setupTownTab();
     document.body.classList.add('b-nav');
@@ -1293,7 +1294,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView', approve: 'approveView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1371,7 +1372,7 @@ function setTabUI(t) {
   togglePfSub(!pfFloating() && pt === 'rec', 'recSub');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'mytodo' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'mytodo' && t !== 'approve' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
   setTimeout(renderAct, 0);
@@ -1395,6 +1396,7 @@ function refreshTab() {
   else if (curTab === 'mtg') loadMeeting();
   else if (curTab === 'flow') loadFlows();
   else if (curTab === 'mytodo') loadMyTodos();
+  else if (curTab === 'approve') loadApprove();
   else if (curTab === 'pmonth') { if (!P.month) P.month = curMonth(); loadPfReport(); }
 }
 
@@ -3892,6 +3894,7 @@ function setTodoHtml(html) { document.querySelectorAll('.todo-area').forEach(fun
 function renderTodos() {
   var d = TODO.data, n = d ? d.count : 0, bd = $('todoBadge');
   bd.hidden = !n; bd.textContent = n > 99 ? '99+' : String(n);
+  var ap = d && d.items.filter(function (x) { return x.kind === 'approve'; })[0], ab = $('aprBadge'); ab.hidden = !ap; ab.textContent = ap ? String(ap.n) : '';
   if (!d) return;
   if (!d.items.length) { setTodoHtml('<div class="todo-ok">✅ 지금 할 일을 다 했어요</div>'); return; }
   var wkLabel = function (ws) { var m = parseDate(ws), e = parseDate(ws); e.setDate(e.getDate() + 6); return (m.getMonth() + 1) + '/' + m.getDate() + '~' + (e.getMonth() + 1) + '/' + e.getDate(); };
@@ -3908,6 +3911,7 @@ function renderTodos() {
       if (t.kind === 'task') return row(i, '📝', '과제 제출 · ' + t.name, t.due ? '마감 ' + dtLabel(t.due) : '마감 없음', t.urgent);
       if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
       if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
+      if (t.kind === 'approve') return row(i, '🗳', '승인할 신청 ' + t.n + '건', t.name + ' · 승인함에서 확인', true);
       if (t.kind === 'mytodo') return row(i, '✅', t.name, (t.due < todayStr() ? '마감 지남 · ' : t.due === todayStr() ? '오늘까지 · ' : t.due.slice(5).replace('-', '/') + '까지 · ') + '내 할 일', t.urgent);
       if (t.kind === 'flowstep') return row(i, '🧩', t.flow + ' · ' + t.name, (t.state === '막힘' ? '막힘 · ' : t.state === '시작' ? '하는 중 · ' : '내 차례 · ') + (t.due ? t.due.slice(5).replace('-', '/') + '까지 · ' : '') + '눌러서 보고', t.urgent);
       if (t.kind === 'mtgaction') return row(i, '📋', '회의에서 맡은 일 · ' + t.name, t.due ? t.due.slice(5).replace('-', '/') + '까지 · 눌러서 완료' : '눌러서 완료', t.urgent);
@@ -3929,6 +3933,7 @@ function openTodo(i) {
   };
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
   if (t.kind === 'recask' || t.kind === 'recarrive' || t.kind === 'recrun') { openAsk(t.id); return; }
+  if (t.kind === 'approve') { goTab('approve'); return; }
   if (t.kind === 'mytodo') { goTab('mytodo'); return; }
   if (t.kind === 'flowstep') { FW.pending = t.id; if (curTab === 'flow') loadFlows(); else goTab('flow'); return; }
   if (t.kind === 'mtgaction') { if (confirm('「' + t.name + '」 끝냈나요?')) api('mtg.actionDone', { id: t.id }).then(function () { haptic('success'); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); return; }
@@ -5646,4 +5651,69 @@ function saveMyTodo(id) {
 function delMyTodo(id) {
   if (!confirm('이 할 일을 지울까요?')) return;
   api('mytodo.delete', { id: id }).then(function () { closeModal('itemModal'); loadMyTodos(); refreshTodos(true); }).catch(function (err) { setMsg('myMsg', err.message, true); });
+}
+
+// =====================================================================
+// 승인함: 관리자·회계·장소 승인자만. 장소 신청(녹음실·외부) 승인/반려 + 회비 확인/반려 + 최근 7일 처리 기록
+// =====================================================================
+var APR = { d: null };
+function loadApprove() {
+  if (!S.team) return;
+  api('approve.get', { team_id: S.team.id }).then(function (d) { APR.d = d; renderApprove(); })
+    .catch(function (err) { $('aprArea').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+var APR_KIND = { recording: '🎙 녹음실', external: '🏛 다른 부서와 쓰는 곳' };
+function aprWhen(a, b) { return mdw(Date.parse(a)) + ' ' + hmMs(Date.parse(a)) + '~' + hmMs(Date.parse(b)); }
+function aprDuesLabel(e) { return e.kind === '회비' ? e.months.map(function (m) { return +m.slice(5) + '월'; }).join('·') + ' 회비 ' + Number(e.amount).toLocaleString() + '원' : '후원물품 ' + e.item + (e.qty ? ' ' + e.qty : ''); }
+function renderApprove() {
+  var d = APR.d;
+  if (!d.can) { $('aprArea').innerHTML = '<div class="empty"><b>승인할 권한이 없어요</b>회계담당자·장소 승인자로 지정되면 여기에 신청이 모여요</div>'; return; }
+  var r = d.role, roles = [r.admin ? '관리자 (전부 볼 수 있어요)' : '', r.dues ? '회계' : '', r.recording ? '녹음실 승인' : '', r.external ? '외부 장소 승인' : ''].filter(Boolean);
+  $('aprDesc').textContent = '내 역할: ' + roles.join(' · ');
+  var showPlace = r.admin || r.recording || r.external, showDues = r.admin || r.dues;
+  var h = '<div class="apr-sum">' +
+    (showPlace ? '<a href="#aprPlace" class="apr-tile' + (d.place.length ? ' on' : '') + '"><b>' + d.place.length + '</b><span>장소 신청 대기</span></a>' : '') +
+    (showDues ? '<a href="#aprDues" class="apr-tile' + (d.dues.length ? ' on' : '') + '"><b>' + d.dues.length + '</b><span>회비 확인 대기</span></a>' : '') + '</div>';
+  if (showPlace) {
+    h += '<div class="section-head b-gap" id="aprPlace"><h2>장소 신청</h2><span class="section-count">' + (d.place.length ? d.place.length + '건 기다려요' : '기다리는 신청 없음') + '</span></div>';
+    h += d.place.length ? '<div class="apr-list">' + d.place.map(function (b) {
+      return '<div class="card apr-card"><div class="apr-top"><span class="apr-kind">' + (APR_KIND[b.kind] || '') + '</span><small>' + esc(fromNow(b.created_at)) + ' 신청</small></div>' +
+        '<b class="apr-t">' + esc(b.place) + '</b><div class="apr-when">' + aprWhen(b.starts_at, b.ends_at) + '</div>' +
+        '<div class="apr-who"><b>' + esc(b.name) + '</b> · ' + esc(b.purpose) + '</div>' +
+        (!b.mine && r.admin ? '<p class="apr-note">관리자로 대신 처리하게 돼요</p>' : '') +
+        '<div class="apr-btns"><button class="ok" onclick="aprPlace(\'' + b.id + '\',true)">승인</button><button class="no" onclick="aprPlace(\'' + b.id + '\',false)">반려</button></div></div>';
+    }).join('') + '</div>' : '<p class="rec-none">모두 처리했어요 👍</p>';
+  }
+  if (showDues) {
+    h += '<div class="section-head b-gap" id="aprDues"><h2>회비 확인</h2><span class="section-count">' + (d.dues.length ? d.dues.length + '건 기다려요 · 통장 입금 내역과 맞춰 보고 눌러요' : '기다리는 요청 없음') + '</span></div>';
+    h += d.dues.length ? '<div class="apr-list">' + d.dues.map(function (e) {
+      return '<div class="card apr-card"><div class="apr-top"><span class="apr-kind">' + (e.kind === '회비' ? '💰 회비' : '🎁 후원물품') + '</span><small>' + esc(fromNow(e.created_at)) + '</small></div>' +
+        '<b class="apr-t">' + esc(aprDuesLabel(e)) + '</b>' +
+        '<div class="apr-who"><b>' + esc(e.name) + '</b>' + (e.depositor ? ' · 입금자명 ' + esc(e.depositor) : '') + '</div>' + (e.memo ? '<p class="apr-note">' + esc(e.memo) + '</p>' : '') +
+        (!r.dues && r.admin ? '<p class="apr-note">관리자로 대신 처리하게 돼요</p>' : '') +
+        '<div class="apr-btns"><button class="ok" onclick="aprDues(\'' + e.id + '\',true)">확인</button><button class="no" onclick="aprDues(\'' + e.id + '\',false)">반려</button></div></div>';
+    }).join('') + '</div>' : '<p class="rec-none">모두 처리했어요 👍</p>';
+  }
+  var done = d.place_done.map(function (b) { return { at: b.decided_at, ok: b.status === '승인', t: b.place + ' · ' + aprWhen(b.starts_at, b.ends_at), who: b.name, by: b.by, why: b.reason }; })
+    .concat(d.dues_done.map(function (e) { return { at: e.reviewed_at, ok: e.status === '확인', t: aprDuesLabel(e), who: e.name, by: e.by, why: e.reject_reason }; }))
+    .sort(function (a, b) { return a.at < b.at ? 1 : -1; });
+  if (done.length) h += '<details class="rm-past"><summary>최근 7일 처리 ' + done.length + '건</summary><div class="card apr-done">' + done.map(function (x) {
+    return '<div><span class="st ' + (x.ok ? 'st-참석' : 'st-불참') + '">' + (x.ok ? '승인' : '반려') + '</span> ' + esc(x.t) + ' <small>' + esc(x.who) + ' · ' + esc(x.by) + ' 처리' + (x.why ? ' · ' + esc(x.why) : '') + '</small></div>';
+  }).join('') + '</div></details>';
+  var w = d.who;
+  h += '<div class="card apr-whobox"><b>누가 승인하나요</b>' +
+    '<div><span>회비 확인</span>' + (w.treasurers.length ? esc(w.treasurers.join(', ')) : '아직 없음') + '</div>' +
+    '<div><span>녹음실</span>' + (w.recording.length ? esc(w.recording.join(', ')) : '아직 없음') + '</div>' +
+    '<div><span>총회·성전</span>' + (w.external.length ? esc(w.external.join(', ')) : '아직 없음') + '</div>' +
+    (r.admin ? '<button class="ghost-btn" onclick="goTab(\'admin\')">관리자 페이지에서 바꾸기 ›</button>' : '') + '</div>';
+  $('aprArea').innerHTML = h;
+}
+function fromNow(iso) { var m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 60 ? Math.max(1, m) + '분 전' : m < 1440 ? Math.round(m / 60) + '시간 전' : Math.round(m / 1440) + '일 전'; }
+function aprPlace(id, ok) {
+  var reason = ok ? '' : prompt('반려 사유를 적어주세요 (신청자에게 같이 가요)'); if (!ok && !reason) return;
+  api('place.decide', { id: id, ok: ok, reason: reason }).then(function () { haptic('success'); loadApprove(); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); });
+}
+function aprDues(id, ok) {
+  var reason = ok ? '' : prompt('반려 사유를 적어주세요 (올린 사람에게 같이 가요)'); if (!ok && !reason) return;
+  api('dues.review', { id: id, ok: ok, reason: reason }).then(function () { haptic('success'); loadApprove(); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); });
 }

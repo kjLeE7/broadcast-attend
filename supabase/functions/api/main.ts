@@ -1633,6 +1633,25 @@ async function placeApprovers(ctx: Ctx, kind: string, sectionId: string) {
 }
 const PLACE_KIND: Record<string, string> = { recording: "녹음실 (엔지니어팀장 승인)", external: "다른 부서도 쓰는 곳 (과장·부과장 승인)", none: "먼저 신청한 사람이 써요" };
 
+// ----- 승인함 (2026-10-07): 장소 승인자·회계·관리자만. 내가 승인할 수 있는 것만 모아 봄 -----
+async function approveRoles(ctx: Ctx, teamId: string) {
+  const sec = (await sectionUnits(ctx, teamId))[0];
+  const [admin, st, rec, ext] = await Promise.all([isAdmin(ctx), duesSettings(ctx), placeApprovers(ctx, "recording", sec), placeApprovers(ctx, "external", sec)]);
+  const me = ctx.me.id;
+  return { sec, admin, dues: st.treasurers.includes(me), recording: rec.includes(me), external: ext.includes(me), lists: { treasurers: st.treasurers, recording: rec, external: ext } };
+}
+async function approvePending(ctx: Ctx, r: any) {
+  const kinds = ["recording", "external"].filter((k) => r.admin || r[k]);
+  let place = 0, dues = 0;
+  if (kinds.length) {
+    const codes: any[] = must(await ctx.db.from("places").select("code").in("approval", kinds)) ?? [];
+    if (codes.length) place = (await ctx.db.from("place_bookings").select("id", { count: "exact", head: true }).eq("status", "대기").in("place_code", codes.map((c) => c.code))
+      .gte("ends_at", new Date().toISOString())).count ?? 0;
+  }
+  if (r.admin || r.dues) dues = (await ctx.db.from("dues_entries").select("id", { count: "exact", head: true }).eq("section_id", r.sec).eq("status", "대기")).count ?? 0;
+  return { place, dues };
+}
+
 // ----- 인원 특이사항 -----
 const NOTE_CAT = ["건강", "직장·학업", "일정 충돌", "가정", "기타"], NOTE_AFFECT = ["수업", "스터디", "녹음", "업무"];
 async function noteStaff(ctx: Ctx, teamId: string) {
@@ -1805,6 +1824,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       })),
       teams,
       is_admin: await isAdmin(ctx),
+      // 승인함 탭: 관리자·회계·장소 승인자만
+      can_approve: await (async () => { try { if (!teams.length) return false; const r = await approveRoles(ctx, teams[0].id); return r.admin || r.dues || r.recording || r.external; } catch { return false; } })(),
     };
   },
 
@@ -2207,7 +2228,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const e = must(await ctx.db.from("dues_entries").insert(row).select("id").single());
     if (st.treasurers.length) await sendToMembers(await withTelegram(ctx, st.treasurers),
       `💰 <b>확인 요청</b>\n${escHtml(ctx.me.name)} · ${escHtml(label)}${row.depositor ? `\n입금자명 ${escHtml(row.depositor)}` : ""}${row.memo ? `\n${escHtml(row.memo)}` : ""}`,
-      appButton("회계 화면 열기", "?go=dues"));
+      appButton("승인함 열기", "?go=approve"));
     return { id: e.id, treasurers: st.treasurers.length };
   },
   // 내가 올린 것 취소 { id } (확인 전만)
@@ -2244,7 +2265,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // 확인·반려 { id, ok, reason? } (회계 명단만) → 올린 사람에게 알림
   async "dues.review"(ctx) {
     const st = await duesSettings(ctx);
-    if (!st.treasurers.includes(ctx.me.id)) throw new HttpError(403, "회계담당자만 할 수 있어요");
+    if (!st.treasurers.includes(ctx.me.id) && !st.admins.includes(ctx.me.id)) throw new HttpError(403, "회계담당자만 할 수 있어요");
     const p = ctx.payload ?? {};
     const e = must(await ctx.db.from("dues_entries").select("id, person_id, kind, months, amount, item, qty, status").eq("id", p.id).maybeSingle());
     if (!e) throw new HttpError(404, "없는 요청이에요");
@@ -2478,7 +2499,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       const sec = (await sectionUnits(ctx, p.team_id))[0];
       const ids = (await placeApprovers(ctx, pl.approval, sec)).filter((x) => x !== ctx.me.id);
       notify = await sendToMembers(await withTelegram(ctx, ids), `🏢 <b>장소 사용 신청</b>\n${escHtml(pl.name)} · ${msLabel(st)}~${kstHm(en)}\n${escHtml(ctx.me.name)} · ${escHtml(purpose)}`,
-        appButton("승인하러 가기", "?go=place"));
+        appButton("승인하러 가기", "?go=approve"));
     }
     return { id: row.id, status: row.status, notify };
   },
@@ -2487,7 +2508,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const b = must(await ctx.db.from("place_bookings").select("id, place_code, starts_at, ends_at, person_id, status, team_id, places(name, approval)").eq("id", ctx.payload?.id).maybeSingle());
     if (!b || b.status !== "대기") throw new HttpError(400, "이미 처리됐거나 없는 신청이에요");
     const sec = (await sectionUnits(ctx, b.team_id))[0];
-    if (!(await placeApprovers(ctx, b.places.approval, sec)).includes(ctx.me.id)) throw new HttpError(403, "이 장소 승인자만 할 수 있어요");
+    if (!(await placeApprovers(ctx, b.places.approval, sec)).includes(ctx.me.id) && !(await isAdmin(ctx))) throw new HttpError(403, "이 장소 승인자만 할 수 있어요");
     const ok = ctx.payload?.ok === true, reason = String(ctx.payload?.reason ?? "").trim().slice(0, 200);
     if (!ok && !reason) throw new HttpError(400, "반려 사유를 적어주세요");
     must(await ctx.db.from("place_bookings").update({ status: ok ? "승인" : "반려", decided_by: ctx.me.id, decided_at: new Date().toISOString(), reason: ok ? null : reason }).eq("id", b.id));
@@ -2502,6 +2523,34 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (!["대기", "승인"].includes(b.status)) throw new HttpError(400, "이미 끝난 신청이에요");
     must(await ctx.db.from("place_bookings").update({ status: "취소" }).eq("id", b.id));
     return { ok: true };
+  },
+
+  // 승인함 { team_id }: 역할(관리자·회계·녹음실·외부 장소) + 승인 대기 + 최근 7일 처리 + 누가 승인자인지
+  async "approve.get"(ctx) {
+    await requireRank(ctx, ctx.payload?.team_id, RANK.MEMBER);
+    const r = await approveRoles(ctx, ctx.payload.team_id);
+    const role = { admin: r.admin, dues: r.dues, recording: r.recording, external: r.external };
+    if (!r.admin && !r.dues && !r.recording && !r.external) return { role, can: false };
+    const kinds = ["recording", "external"].filter((k) => r.admin || (r as any)[k]);
+    const plc: any[] = must(await ctx.db.from("places").select("code, name, approval")) ?? [];
+    const codes = plc.filter((x) => kinds.includes(x.approval)).map((x) => x.code), pname = new Map(plc.map((x) => [x.code, x.name])), pkind = new Map(plc.map((x) => [x.code, x.approval]));
+    const week = new Date(Date.now() - 7 * 86400000).toISOString();
+    const [pp, pd, dp, dd] = await Promise.all([
+      codes.length ? ctx.db.from("place_bookings").select("id, place_code, starts_at, ends_at, purpose, person_id, status, created_at").eq("status", "대기").in("place_code", codes).gte("ends_at", new Date().toISOString()).order("starts_at") : { data: [], error: null },
+      codes.length ? ctx.db.from("place_bookings").select("id, place_code, starts_at, ends_at, purpose, person_id, status, reason, decided_by, decided_at").in("status", ["승인", "반려"]).in("place_code", codes).not("decided_by", "is", null).gte("decided_at", week).order("decided_at", { ascending: false }).limit(30) : { data: [], error: null },
+      r.admin || r.dues ? ctx.db.from("dues_entries").select("id, person_id, kind, months, amount, depositor, item, qty, memo, created_at").eq("section_id", r.sec).eq("status", "대기").order("created_at") : { data: [], error: null },
+      r.admin || r.dues ? ctx.db.from("dues_entries").select("id, person_id, kind, months, amount, item, qty, status, reject_reason, reviewed_by, reviewed_at").eq("section_id", r.sec).in("status", ["확인", "반려"]).gte("reviewed_at", week).order("reviewed_at", { ascending: false }).limit(30) : { data: [], error: null },
+    ]);
+    const P = must(pp as any) ?? [], PD = must(pd as any) ?? [], D = must(dp as any) ?? [], DD = must(dd as any) ?? [];
+    const names = await nameMap(ctx, [...P, ...PD, ...D, ...DD].flatMap((x: any) => [x.person_id, x.decided_by, x.reviewed_by]).concat(r.lists.treasurers, r.lists.recording, r.lists.external).filter(Boolean));
+    const nm = (id: string) => names.get(id) ?? "";
+    const pl = (b: any) => ({ ...b, place: pname.get(b.place_code) ?? b.place_code, kind: pkind.get(b.place_code), name: nm(b.person_id), by: nm(b.decided_by), mine: !!(r as any)[pkind.get(b.place_code) as string] });
+    const du = (e: any) => ({ ...e, name: nm(e.person_id), by: nm(e.reviewed_by) });
+    return {
+      role, can: true,
+      place: P.map(pl), place_done: PD.map(pl), dues: D.map(du), dues_done: DD.map(du),
+      who: { treasurers: r.lists.treasurers.map(nm), recording: r.lists.recording.map(nm), external: r.lists.external.map(nm) },
+    };
   },
 
   // ----- 관리자 페이지 (관리자 명단 admins만) -----
@@ -3332,6 +3381,16 @@ ${text}`;
       if (!recArriveOpen(rs)) continue;
       if (a.role === "엔지니어") items.push({ kind: "recrun", id: a.id, name, step: rs.started_at ? "end" : "start", start: st, place: rs.location ?? "", urgent: true });
       else if (!a.arrived_at) items.push({ kind: "recarrive", id: a.id, name, start: st, place: rs.location ?? "", urgent: true });
+    }
+    // 승인함: 내가 승인할 것 (장소·회비)
+    if (teams.length) {
+      try {
+        const ar = await approveRoles(ctx, teams[0].id);
+        if (ar.admin || ar.dues || ar.recording || ar.external) {
+          const c = await approvePending(ctx, ar);
+          if (c.place + c.dues) items.push({ kind: "approve", id: "approve", name: [c.place ? "장소 " + c.place + "건" : "", c.dues ? "회비 " + c.dues + "건" : ""].filter(Boolean).join(" · "), n: c.place + c.dues, urgent: true });
+        }
+      } catch (e) { console.error("todo approve", e); }
     }
     // 내 할 일: 마감이 사흘 안이거나 지난 것
     const mine: any[] = must(await ctx.db.from("personal_todos").select("id, title, due_on").eq("person_id", me).is("done_at", null).not("due_on", "is", null).lte("due_on", addDaysStr(kstToday(), 3)).order("due_on")) ?? [];

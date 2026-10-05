@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -434,6 +434,12 @@
 - 알림: `cronMyTodos` — 마감 **전날·당일 아침 9시 이후** 한 번씩 봇. '지금 할 일' kind `mytodo`(마감 사흘 안·지난 것).
 - 기능: `mytodo.list/save/done/delete`. 이강준 앞으로 'Anthropic AI 키 새로 만들기'(12/24 마감, 키 만료 12/31) 넣어 둠.
 
+### 승인함 (2026-10-07, 함수 버전 65)
+- 탭 **'승인함'**(`approveView`, `#approveTab`, 딥링크 `?go=approve`): **관리자·회계(treasurers)·장소 승인자(녹음실 recording / 총회·성전 external)만** 보임(`me.can_approve`). 탭에 빨간 숫자 `#aprBadge`(지금 할 일 kind `approve`의 건수).
+- `approve.get { team_id }` → role(admin·dues·recording·external), 대기 장소 신청(내가 승인하는 종류, 관리자는 전부), 대기 회비·물품(회계·관리자), 최근 7일 처리 기록, 누가 승인자인지. 서버 helper `approveRoles`·`approvePending`.
+- 카드마다 [승인/확인] [반려(사유 prompt)] → 기존 `place.decide` / `dues.review`. **관리자도 대신 처리 가능**(두 기능에 isAdmin 허용, 2026-10-07).
+- 장소 신청·회비 확인 요청 봇 알림 버튼은 이제 `?go=approve`로 감. 장소 화면의 '승인할 신청'·회비 화면의 회계 보기는 그대로 둠.
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -573,6 +579,7 @@
 - 회의 모드: 그 모임 대상자 + 그 팀 교관 이상. 진행자(모임 만든 사람)·서기 권한은 위 '회의 모드' 참고.
 - 인원 특이사항(🟡~🔴 성격): 다른 사람 것은 그 팀 교관 이상만 봄(열람 기록). 팀원은 자기가 알린 것만 쓰고 봄, 운영진 기록·메모는 못 봄. 지우기 = 쓴 사람·교관 이상.
 - 장소 신청: 신청·취소는 과원 누구나(취소는 본인). 승인·반려는 그 장소 승인자만(관리자 페이지 지정, 기본 녹음실=엔지니어팀장, 총회·성전=부과장 이상).
+- 승인함: 관리자·회계·장소 승인자만 탭이 보임. 각자 자기 승인 종류만, 관리자는 전부 보고 대신 처리 가능.
 - 관리자 페이지: 관리자 명단(`admins`)만. 관리자·회계·장소 승인자 지정, 결산 켜기·공개일.
 - 첨부 대본: 올리기·지우기 = 그 글 쓴 사람·관리자(공지 팀 교관/과 팀장, 과제 교관 이상). 열기 = 쓴 사람·관리자·받는 사람, 5분 주소, 열람 기록. 14일 뒤 자동 삭제. 우리 교회 대본은 올리지 않음(NAS).
 - 하늘방송국 방명록: 쓴 사람과 사무실 주인만 봄. 지우기도 이 둘만.

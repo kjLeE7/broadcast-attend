@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261007b">
+  <link rel="stylesheet" href="beta.css?v=20261007c">
 </head>
 <body>
   <div class="app">
@@ -450,6 +450,13 @@
       <div id="placeArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
 
+    <!-- ===== 승인함 (관리자·회계·장소 승인자만): 장소 신청 승인 · 회비 확인 ===== -->
+    <section id="approveView" style="display:none;">
+      <h1 class="page-title">승인함</h1>
+      <p class="page-desc" id="aprDesc">내가 승인해야 할 신청만 모아 봐요</p>
+      <div id="aprArea"><div class="b-wait">불러오는 중...</div></div>
+    </section>
+
     <!-- ===== 개인 › 내 할 일 (본인만, 마감 전날·당일 아침 봇 알림) ===== -->
     <section id="mytodoView" style="display:none;">
       <h1 class="page-title">내 할 일</h1>
@@ -623,6 +630,10 @@
     <button class="tab" data-tab="people" title="인원" id="peopleTab" onclick="goTab('people')" style="display:none;">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.6c2.6.2 4.4 2 5 4.9"/></svg>
       <span>인원</span>
+    </button>
+    <button class="tab" data-tab="approve" title="승인함" id="approveTab" onclick="goTab('approve')" style="display:none;">
+      <i class="tab-ic"><svg viewBox="0 0 24 24"><path d="M9 4h6l1 3H8z"/><path d="M8 7h8v3.5a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2z"/><path d="M12 12.5V15"/><path d="M5 15h14v3H5z"/><path d="M5 21h14"/></svg><b class="tab-badge" id="aprBadge" hidden></b></i>
+      <span>승인함</span>
     </button>
     <button class="tab" data-tab="admin" title="관리자" id="adminTab" onclick="goTab('admin')" style="display:none;">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -1014,6 +1025,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006c"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007b"></script>
+  <script src="beta.js?v=20261007c"></script>
 </body>
 </html>
