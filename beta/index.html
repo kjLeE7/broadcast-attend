@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261007i">
+  <link rel="stylesheet" href="beta.css?v=20261007j">
 </head>
 <body>
   <div class="app">
@@ -181,10 +181,10 @@
       <button class="back" onclick="showList()">‹ 모임 목록</button>
       <button class="b-close" type="button" onclick="showList()" aria-label="닫기" title="닫기 (Esc)">✕</button>
       <div id="dHead"></div>
+      <!-- 모임 후기 = 이 모임 글의 댓글 (모두 봄, 대상자가 시작 ~ 후기 마감에 씀) -->
+      <div id="reviewBox"></div>
 
       <div class="card" id="myCard"></div>
-      <!-- 모임 후기: 대상자는 쓰기(시작 ~ 후기 마감), 조장 이상은 모아 보기 -->
-      <div id="reviewBox"></div>
 
       <div class="section-head b-gap"><h2>출결 현황</h2><span class="section-count" id="boardCount"></span></div>
       <div class="b-chips b-board-chips" id="boardChips"></div>
@@ -612,8 +612,8 @@
     </button>
     <!-- '업무' 하위 메뉴: 프로젝트(작업 흐름) · 실무(녹음) -->
     <div class="b-pfsub" id="recSub">
-      <button type="button" data-t="flow" onclick="pfGo('flow')">프로젝트</button>
       <button type="button" data-t="rec" onclick="pfGo('rec')">실무</button>
+      <button type="button" data-t="flow" onclick="pfGo('flow')">프로젝트</button>
     </div>
     <button class="tab" data-tab="profile" id="pfTab" title="개인" onclick="togglePfSub()">
       <i class="tab-ic"><svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M16 3v3h3"/><path d="M9 10h7M9 14h7M9 18h4"/></svg></i>
@@ -1031,6 +1031,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007i"></script>
+  <script src="beta.js?v=20261007j"></script>
 </body>
 </html>

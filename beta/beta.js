@@ -2431,17 +2431,22 @@ function loadNotices() {
   api('notices.list', { team_id: S.team.id }).then(function (l) { N.list = l; renderNotices(); loadFiles('notice', l, renderNotices); })
     .catch(function (err) { $('annList').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
+// 공지: 처음엔 제목만 → 누르면 펼쳐 읽기 → '다 읽었어요'를 눌러야 확인으로 남음 (한 번 확인하면 계속 확인)
 function toggleNotice(id) {
   N.open = N.open === id ? null : id;
-  if (N.open) { var n = byId(N.list, id); if (n) markRead('notice', n); }
   renderNotices();
+}
+function confirmNotice(id) {
+  var n = byId(N.list, id); if (!n || n.seen) return;
+  var btn = document.querySelector('.ann-ok[data-id="' + id + '"]'); if (btn) btn.disabled = true;
+  api('reads.mark', { kind: 'notice', id: id }).then(function () { n.seen = true; haptic('success'); renderNotices(); refreshTodos(true); })
+    .catch(function (err) { if (btn) btn.disabled = false; alertMsg('확인을 저장하지 못했어요: ' + err.message); });
 }
 
 // ----- 확인 기록: 공지를 펼치거나 과제를 열면 '확인'으로 남음. 쓴 사람·관리자는 '확인 N명'을 눌러 명단을 봄 -----
 function markRead(kind, item) {
   if (!item || item.seen) return;
-  item.seen = true;   // 화면은 바로 '확인함'으로
-  api('reads.mark', { kind: kind, id: item.id }).then(function () { refreshTodos(true); }).catch(function () { item.seen = false; });
+  api('reads.mark', { kind: kind, id: item.id }).then(function () { item.seen = true; refreshTodos(true); }).catch(function () {});   // 실패해도 화면을 '안 읽음'으로 되돌리지 않음
 }
 function readChip(kind, item) {
   if (item.read_count == null) return '';
@@ -2476,17 +2481,16 @@ function renderNotices() {
   $('annList').innerHTML = N.list.map(function (n) {
     var open = N.open === n.id;
     var canDel = n.mine || (n.scope === 'team' && S.team.rank >= RANK.INSTRUCTOR);
-    var long = n.body && (n.body.length > 90 || n.body.split('\n').length > 3);
-    return '<div class="ann' + (n.is_pinned ? ' pinned' : '') + (n.seen ? '' : ' unseen') + '" onclick="toggleNotice(\'' + esc(n.id) + '\')">' +
-      '<div class="ann-top">' + (n.seen ? '' : '<span class="chip b-new">새 글 · 눌러서 확인</span>') + (n.is_pinned ? '<span class="chip dark">📌 고정</span>' : '') +
+    return '<div class="ann' + (n.is_pinned ? ' pinned' : '') + (n.seen ? '' : ' unseen') + (open ? ' open' : ' shut') + '" onclick="toggleNotice(\'' + esc(n.id) + '\')">' +
+      '<div class="ann-top">' + (n.seen ? '<span class="chip ann-read">✓ 읽음</span>' : '<span class="chip b-new">안 읽음</span>') + (n.is_pinned ? '<span class="chip dark">📌 고정</span>' : '') +
         '<span class="chip">' + (n.target_label ? esc(n.target_label) : n.scope === 'section' ? '방송예술과 전체' : esc(S.team.name)) + '</span>' +
         (n.target_names && n.target_names.length ? '<span class="chip">' + esc(n.target_names.join('·')) + '만</span>' : '') +
         (n.target_unit_id ? '<span class="chip">' + esc(groupName(n.target_unit_id)) + '만</span>' : '') +
         '<span class="ann-date">' + mdOf(n.published_at) + '</span></div>' +
-      '<div class="ann-title">' + esc(n.title) + '</div>' +
-      (n.body ? '<div class="ann-body' + (open ? '' : ' clamp') + '">' + esc(n.body) + '</div>' : '') + fileChips('notice', n.id) +
+      '<div class="ann-title">' + esc(n.title) + '<i class="ann-chev">' + (open ? '▴' : '▾') + '</i></div>' +
+      (open ? (n.body ? '<div class="ann-body">' + esc(n.body) + '</div>' : '') + fileChips('notice', n.id) +
+        (n.seen || n.mine ? '' : '<button type="button" class="ann-ok" data-id="' + esc(n.id) + '" onclick="event.stopPropagation();confirmNotice(\'' + esc(n.id) + '\')">✓ 다 읽었어요</button>') : '') +
       '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' + (MG.ann ? readChip('notice', n) : '') +
-        (long && !open ? '<span class="ann-more">더보기</span>' : '') +
         (canDel && MG.ann ? '<button class="ann-hide" onclick="event.stopPropagation();editNotice(\'' + esc(n.id) + '\')">고치기</button>' +
           '<button class="ann-hide" onclick="event.stopPropagation();deleteNotice(\'' + esc(n.id) + '\')">삭제</button>' : '') +
       '</div></div>';
@@ -3006,6 +3010,40 @@ function loadAvail(force) {
 function avTeam(t) { AV.team = t; AV.sel = ''; renderAvail(); }
 function avView(v) { AV.view = v; AV.sel = ''; renderAvail(); }
 function avPick(k) { AV.sel = AV.sel === k ? '' : k; renderAvail(); }
+// 이름 찾기: 쉼표·띄어쓰기로 여러 명 → 명단에서 이름에 그 글자가 들어간 사람 (성 빼고 이름만 적어도 됨)
+function avFind(v) { AV.q = v; AV.sel = ''; AV.qFocus = true; renderAvail(); AV.qFocus = false; }
+function avTerms() { return String(AV.q || '').split(/[,，\s]+/).map(function (x) { return x.trim(); }).filter(Boolean); }
+function avQ(d) {
+  var out = [];
+  avTerms().forEach(function (t) { var m = d.people.filter(function (p) { return p.name.indexOf(t) !== -1; }); if (m.length === 1 && out.indexOf(m[0]) === -1) out.push(m[0]); });
+  return out;
+}
+function avFindChips(d) {
+  var t = avTerms(); if (!t.length) return '';
+  return '<div class="av-fchips">' + t.map(function (x) {
+    var m = d.people.filter(function (p) { return p.name.indexOf(x) !== -1; });
+    return m.length === 1 ? '<span class="av-fc ok">' + esc(m[0].name) + '</span>' : m.length ? '<span class="av-fc many" title="' + esc(m.map(function (p) { return p.name; }).join(', ')) + '">' + esc(x) + ' · ' + m.length + '명 겹침</span>' : '<span class="av-fc bad">' + esc(x) + ' · 없음</span>';
+  }).join('') + '</div>';
+}
+function avChips(label, names, cls) {
+  if (!names.length) return '';
+  return '<div class="av-row">' + (label ? '<span class="av-lab">' + label + '</span>' : '') + '<div class="av-names">' + names.map(function (n) { return '<span class="av-nm ' + cls + '"><i>' + esc(n.slice(-2)) + '</i>' + esc(n) + '</span>'; }).join('') + '</div></div>';
+}
+// 찾은 사람들이 모두 되는 시간을 날짜별로 묶어 글로도 보여 줌
+function avCommon(d, who, q) {
+  var rows = [];
+  d.dates.forEach(function (date, di) {
+    var runs = [], st = null;
+    for (var s = d.hours.from * 2; s <= d.hours.to * 2; s++) {
+      var ok = s < d.hours.to * 2 && q.every(function (p) { return (who[di + '-' + s] || []).indexOf(p.name) !== -1; });
+      if (ok && st === null) st = s; if (!ok && st !== null) { runs.push(slotHm(st) + '~' + slotHm(s)); st = null; }
+    }
+    if (runs.length) rows.push('<div class="av-crow"><b>' + shortD(date) + '</b>' + runs.map(function (r) { return '<span>' + r + '</span>'; }).join('') + '</div>');
+  });
+  var names = q.map(function (p) { return p.name; }).join(' · ');
+  return '<div class="av-info"><div class="av-info-h">' + esc(names) + ' 모두 되는 시간<small>' + (rows.length ? rows.length + '일' : '없음') + '</small></div>' +
+    (rows.length ? rows.join('') : '<p class="rec-none">2주 안에 모두 되는 시간이 없어요. 칸을 눌러 누가 되는지 확인해 보세요</p>') + '</div>';
+}
 // 같은 주에 업무가능을 냈는지 (날짜 → 그 주 월요일)
 function avWeekOf(d) { var x = parseDate(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return ymd(x); }
 // [19,20,21,…] → '9:30~11, 19~22'
@@ -3024,9 +3062,11 @@ function renderAvail() {
   var h = '<div class="av-bar"><div class="wk-chips">' + chips + '</div>' +
     '<div class="rcr-seg">' + [['time', '시간대별'], ['person', '사람별']].map(function (v) {
       return '<button type="button" class="' + (AV.view === v[0] ? 'on' : '') + '" onclick="avView(\'' + v[0] + '\')">' + v[1] + '</button>';
-    }).join('') + '</div></div>';
+    }).join('') + '</div></div>' +
+    '<div class="av-find"><input type="search" id="avQ" class="b-input" value="' + esc(AV.q || '') + '" placeholder="이름으로 같이 되는 시간 찾기 · 예) 박현희, 정동훈" oninput="avFind(this.value)">' + avFindChips(d) + '</div>';
   if (!ppl.length) { $('avBody').innerHTML = h + '<div class="empty"><b>이 팀에는 사람이 없어요</b></div>'; return; }
   var n = d.dates.length, total = ppl.length;
+  var q = avQ(d);
   if (AV.view === 'time') {
     var who = {};
     ppl.forEach(function (p) { Object.keys(p.slots).forEach(function (di) { p.slots[di].forEach(function (s) { (who[di + '-' + s] = who[di + '-' + s] || []).push(p.name); }); }); });
@@ -3038,6 +3078,13 @@ function renderAvail() {
         // 같은 인원이 이어지면 한 막대로: 숫자는 막대가 시작하는 칸에만, 위아래 이어진 칸은 모서리를 붙임
         var key = di + '-' + s, c = (who[key] || []).length, a = c ? 0.22 + 0.78 * c / total : 0;
         var up = s > d.hours.from * 2 ? (who[di + '-' + (s - 1)] || []).length : 0, dn = (who[di + '-' + (s + 1)] || []).length;
+        if (q.length) {   // 이름으로 찾는 중: 모두 되는 칸 = 진한 초록 ✓, 일부만 = 연하게 'n/전체'
+          var hit = function (k) { return q.filter(function (p) { return (who[k] || []).indexOf(p.name) !== -1; }).length; };
+          var m = hit(key), mu = s > d.hours.from * 2 ? hit(di + '-' + (s - 1)) === q.length : false, md = s + 1 < d.hours.to * 2 && hit(di + '-' + (s + 1)) === q.length, all = m === q.length;
+          h += '<div class="gc' + (top ? ' hr' : '') + (all ? ' fd-all' + (mu ? ' jt' : '') + (md ? ' jb' : '') : m ? ' fd-some' : '') + (AV.sel === key ? ' sel' : '') + '" onclick="avPick(\'' + key + '\')">' +
+            (all ? (mu ? '' : '✓') : m && q.length > 1 ? m + '/' + q.length : '') + '</div>';
+          continue;
+        }
         h += '<div class="gc' + (top ? ' hr' : '') + (c ? ' on2' : '') + (c && up ? ' jt' : '') + (c && dn && s + 1 < d.hours.to * 2 ? ' jb' : '') + (c === total ? ' full' : '') + (AV.sel === key ? ' sel' : '') + '"' +
           (c ? ' style="--a:' + a.toFixed(2) + ';' + (a > 0.55 ? 'color:#fff;' : '') + '"' : '') +
           ' onclick="avPick(\'' + key + '\')">' + (c && c !== up ? c : '') + '</div>';
@@ -3048,9 +3095,9 @@ function renderAvail() {
       var k = AV.sel.split('-'), date = d.dates[+k[0]], yes = who[AV.sel] || [], wk = avWeekOf(date);
       var no = ppl.filter(function (p) { return p.weeks[wk] && yes.indexOf(p.name) === -1; }).map(function (p) { return p.name; });
       var none = ppl.filter(function (p) { return !p.weeks[wk]; }).map(function (p) { return p.name; });
-      h += '<div class="pd-cell-info"><b>' + shortD(date) + ' ' + slotHm(+k[1]) + '~' + slotHm(+k[1] + 1) + '</b><br>가능 ' + yes.length + '명: ' + (yes.length ? esc(yes.join(', ')) : '없음') +
-        (no.length ? '<br>안 됨: ' + esc(no.join(', ')) : '') + (none.length ? '<br>아직 안 냄: ' + esc(none.join(', ')) : '') + '</div>';
-    } else h += '<div class="pd-cell-info">칸을 누르면 그 시간에 누가 되는지 보여요</div>';
+      h += '<div class="av-info"><div class="av-info-h">' + shortD(date) + ' ' + slotHm(+k[1]) + '~' + slotHm(+k[1] + 1) + '<small>가능 ' + yes.length + ' / ' + total + '명</small></div>' +
+        avChips('가능', yes, 'ok') + avChips('안 됨', no, 'no') + avChips('아직 안 냄', none, 'none') + '</div>';
+    } else h += q.length ? avCommon(d, who, q) : '<div class="av-info av-hint">칸을 누르면 그 시간에 누가 되는지 보여요 · 위 칸에 이름을 쉼표로 적으면 같이 되는 시간만 표시해요</div>';
   } else {
     h += '<div class="table-scroll av-table"><table class="sched"><thead><tr><th class="av-name">이름</th>' + d.dates.map(function (x) {
       var w = parseDate(x).getDay();
@@ -3067,9 +3114,10 @@ function renderAvail() {
   var miss = d.weeks.map(function (w) {
     var names = ppl.filter(function (p) { return !p.weeks[w]; }).map(function (p) { return p.name; });
     var e = parseDate(w); e.setDate(e.getDate() + 6);
-    return names.length ? '<div class="who-row">' + shortD(w) + '~' + shortD(ymd(e)) + ' 아직 안 냄 <b>' + names.length + '명</b>: ' + esc(names.join(', ')) + '</div>' : '';
+    return names.length ? '<div class="av-miss"><div class="av-info-h">' + shortD(w) + '~' + shortD(ymd(e)) + ' 아직 안 냄<small>' + names.length + '명</small></div>' + avChips('', names, 'none') + '</div>' : '';
   }).join('');
-  $('avBody').innerHTML = h + (miss || '<div class="who-row"><b>2주 모두 냈어요 🎉</b></div>');
+  $('avBody').innerHTML = h + (miss || '<div class="av-miss av-done">2주 모두 냈어요 🎉</div>');
+  var qi = $('avQ'); if (qi && AV.qFocus) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
 }
 
 function openRec(id) {
@@ -5797,30 +5845,33 @@ document.addEventListener('keydown', function (e) { if ((e.key === 'Enter' || e.
 function isoLocal(iso) { var d = new Date(iso); return ymd(d) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
 var RV = { d: null, sid: null, open: false };
 function loadReviews(sid) {
-  RV.sid = sid; RV.d = null;
+  RV.sid = sid; RV.d = null; RV.all = false; RV.editing = false;
   api('reviews.get', { session_id: sid }).then(function (d) { if (RV.sid !== sid) return; RV.d = d; renderReviews(); })
     .catch(function () { $('reviewBox').innerHTML = ''; });
 }
+function rvAgo(iso) { var m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? '방금' : m < 60 ? m + '분 전' : m < 1440 ? Math.round(m / 60) + '시간 전' : mdw(Date.parse(iso)); }
 function renderReviews() {
-  var d = RV.d; if (!d || (!d.member && !d.staff)) { $('reviewBox').innerHTML = ''; return; }
-  var due = mdw(d.due) + ' ' + hmMs(d.due), h = '<div class="section-head b-gap"><h2>모임 후기</h2><span class="section-count">' + (d.open ? due + '까지' : d.started ? '마감됨 · ' + due : '모임이 시작하면 쓸 수 있어요 · ' + due + '까지') + '</span></div>';
-  if (d.member) {
-    if (d.open) h += '<div class="card rv-mine"><textarea id="rvBody" rows="4" maxlength="3000" placeholder="이번 모임을 통해 무엇을 느꼈나요? 배운 점, 다짐, 아쉬운 점을 한두 줄이라도 좋아요">' + esc(d.mine ? d.mine.body : '') + '</textarea>' +
-      '<div class="rv-acts">' + (d.mine ? '<small>' + mdw(Date.parse(d.mine.updated_at)) + ' ' + hmMs(Date.parse(d.mine.updated_at)) + ' 저장됨 · 마감 전까지 고칠 수 있어요</small>' : '<small>조장 이상 운영진만 볼 수 있어요</small>') +
-      '<button class="btn-primary" id="rvBtn" onclick="saveReview()">' + (d.mine ? '고치기' : '후기 남기기') + '</button></div><div class="msg" id="rvMsg"></div></div>';
-    else if (d.mine) h += '<div class="card rv-mine done"><p>' + esc(d.mine.body) + '</p><small>내가 남긴 후기</small></div>';
-    else if (d.started) h += '<p class="rec-none">후기를 남기지 못했어요 (마감 ' + due + ')</p>';
-  }
-  if (d.staff) {
-    var l = d.list || [];
-    h += '<div class="card rv-all"><div class="rv-top"><b>받은 후기 ' + l.length + '개</b>' + (d.missing && d.missing.length ? '<small>아직 안 쓴 사람 ' + d.missing.length + '명</small>' : '') + '</div>' +
-      (l.length ? l.map(function (x) { return '<div class="rv-it"><b>' + esc(x.name) + '</b><p>' + esc(x.body) + '</p></div>'; }).join('') : '<p class="rec-none">아직 후기가 없어요</p>') +
-      (d.missing && d.missing.length ? '<div class="rv-miss">안 쓴 사람: ' + d.missing.map(esc).join(', ') + '</div>' : '') + '</div>';
-  }
-  $('reviewBox').innerHTML = h;
+  var d = RV.d; if (!d) { $('reviewBox').innerHTML = ''; return; }
+  var l = d.list || [], due = mdw(d.due) + ' ' + hmMs(d.due);
+  var show = RV.all || l.length <= 4 ? l : l.slice(-3);
+  var h = '<div class="cm"><div class="cm-head"><b>💬 후기 ' + l.length + '</b><small>' + (d.open ? due + '까지 남길 수 있어요' : d.started ? '후기 마감됨 · ' + due : '모임이 시작하면 남길 수 있어요') + '</small>' +
+    (d.staff && d.missing && d.missing.length && d.started ? '<em title="' + esc(d.missing.join(', ')) + '">안 쓴 사람 ' + d.missing.length + '</em>' : '') + '</div>';
+  if (l.length > show.length) h += '<button type="button" class="cm-more" onclick="RV.all=true;renderReviews()">이전 후기 ' + (l.length - show.length) + '개 더 보기</button>';
+  h += show.map(function (x) {
+    return '<div class="cm-it' + (x.mine ? ' mine' : '') + '"><span class="cm-av">' + esc((x.name || '?').slice(-2)) + '</span><div class="cm-b"><div class="cm-meta"><b>' + esc(x.name) + '</b><small>' + rvAgo(x.at) + (x.edited ? ' · 수정됨' : '') + '</small>' +
+      (x.mine && d.open ? '<button type="button" onclick="editReview()">고치기</button>' : '') + '</div><p>' + esc(x.body) + '</p></div></div>';
+  }).join('');
+  if (!l.length) h += '<p class="cm-empty">' + (d.started ? '아직 후기가 없어요. 첫 후기를 남겨 주세요' : '모임이 끝나면 여기에 후기가 모여요') + '</p>';
+  if (d.member && d.open && (!d.mine || RV.editing)) {
+    h += '<div class="cm-write"><span class="cm-av me">' + esc((S.me.profile.name || '나').slice(-2)) + '</span><textarea id="rvBody" rows="' + (RV.editing ? 3 : 1) + '" maxlength="3000" placeholder="이번 모임을 통해 느낀 점을 남겨요" oninput="this.rows=Math.min(6,Math.max(1,this.value.split(\'\\n\').length+(this.value.length>40?1:0)))">' + esc(RV.editing && d.mine ? d.mine.body : '') + '</textarea>' +
+      '<button type="button" id="rvBtn" onclick="saveReview()">' + (RV.editing ? '저장' : '등록') + '</button></div><div class="msg" id="rvMsg"></div>';
+  } else if (d.member && d.started && !d.open && !d.mine) h += '<p class="cm-empty">후기를 남기지 못했어요</p>';
+  if (d.staff && d.missing && d.missing.length && d.started) h += '<details class="cm-miss"><summary>아직 안 쓴 사람 ' + d.missing.length + '명 (조장 이상에게만 보여요)</summary><div>' + d.missing.map(function (n) { return '<span>' + esc(n) + '</span>'; }).join('') + '</div></details>';
+  $('reviewBox').innerHTML = h + '</div>';
 }
+function editReview() { RV.editing = true; renderReviews(); var t = $('rvBody'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }
 function saveReview() {
   var btn = $('rvBtn'); btn.disabled = true;
-  api('reviews.save', { session_id: RV.sid, body: $('rvBody').value }).then(function () { haptic('success'); setMsg('rvMsg', '저장했어요'); loadReviews(RV.sid); refreshTodos(true); })
+  api('reviews.save', { session_id: RV.sid, body: $('rvBody').value }).then(function () { haptic('success'); RV.editing = false; loadReviews(RV.sid); refreshTodos(true); })
     .catch(function (err) { btn.disabled = false; setMsg('rvMsg', err.message, true); });
 }

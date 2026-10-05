@@ -681,8 +681,10 @@ async function readTarget(ctx: Ctx, kind: string, id: string) {
     const unit = must(await ctx.db.from("org_units").select("unit_type").eq("id", n.team_id).single());
     const rank = await rankIn(ctx, n.team_id);
     const canSee = n.created_by === ctx.me.id || rank >= (unit.unit_type === "팀" ? RANK.INSTRUCTOR : RANK.TEAM_LEADER);
+    // 과 공지: 과의 팀 사람이면 받는 사람 (과 직책이 없어 rank가 0이어도) — 예전엔 확인이 저장 안 돼 '안 읽음'으로 돌아갔음 (2026-10-07)
+    const inSection = unit.unit_type !== "팀" && rank < RANK.MEMBER && (await unitAudience(ctx, n.team_id)).some((m: any) => m.id === ctx.me.id);
     return {
-      team_id: n.team_id, rank, canSee, by: n.created_by, inTarget: !!n.target_people?.includes(ctx.me.id),
+      team_id: n.team_id, rank, canSee, by: n.created_by, inTarget: !!n.target_people?.includes(ctx.me.id) || inSection,
       audience: async () => n.target_people?.length
         ? (await targetPeopleMembers(ctx, { target_people: n.target_people, session_date: kstToday() }, false)).filter((m: any) => m.id !== n.created_by)
         : (await unitAudience(ctx, n.team_id)).filter((m) =>
@@ -3532,18 +3534,18 @@ ${text}`;
     const rank = await rankIn(ctx, s.team_id);
     const members = await sessionMembers(ctx, s);
     const isMember = members.some((m: any) => m.id === ctx.me.id);
-    if (!isMember && rank < RANK.GROUP_LEADER) throw new HttpError(403, "이 모임 대상자만 볼 수 있어요");
+    if (!isMember && rank < RANK.MEMBER) throw new HttpError(403, "이 모임을 볼 수 있는 사람만 후기를 볼 수 있어요");
     const due = reviewDue(s), start = sessionStart(s) ?? kstMs(s.session_date, "00:00:00");
     const mine = must(await ctx.db.from("session_reviews").select("body, updated_at").eq("session_id", s.id).eq("author_id", ctx.me.id).maybeSingle());
-    const out: any = { due, open: Date.now() >= start && Date.now() < due, started: Date.now() >= start, member: isMember, mine: mine ?? null, staff: rank >= RANK.GROUP_LEADER };
+    const out: any = { due, open: Date.now() >= start && Date.now() < due, started: Date.now() >= start, member: isMember, mine: mine ?? null, staff: rank >= RANK.GROUP_LEADER, total: members.length };
+    // 후기는 댓글처럼 모두에게 (2026-10-07). 안 쓴 사람 명단은 조장 이상만
+    const all: any[] = must(await ctx.db.from("session_reviews").select("author_id, body, created_at, updated_at").eq("session_id", s.id).order("created_at")) ?? [];
+    const nm = new Map(members.map((m: any) => [m.id, m.name]));
+    const extra = await nameMap(ctx, all.map((x) => x.author_id).filter((id) => !nm.has(id)));
+    out.list = all.filter((x) => x.body).map((x) => ({ name: nm.get(x.author_id) ?? extra.get(x.author_id) ?? "", body: x.body, at: x.created_at, edited: Date.parse(x.updated_at) - Date.parse(x.created_at) > 60000, mine: x.author_id === ctx.me.id }));
     if (out.staff) {
-      const all: any[] = must(await ctx.db.from("session_reviews").select("author_id, body, updated_at").eq("session_id", s.id).order("updated_at")) ?? [];
-      const nm = new Map(members.map((m: any) => [m.id, m.name]));
-      const extra = await nameMap(ctx, all.map((x) => x.author_id).filter((id) => !nm.has(id)));
-      out.list = all.filter((x) => x.body).map((x) => ({ name: nm.get(x.author_id) ?? extra.get(x.author_id) ?? "", body: x.body, at: x.updated_at }));
       const done = new Set(all.filter((x) => x.body).map((x) => x.author_id));
       out.missing = members.filter((m: any) => !done.has(m.id)).map((m: any) => m.name);
-      await logAccess(ctx, "reviews.get", "session_reviews", s.id);
     }
     return out;
   },
