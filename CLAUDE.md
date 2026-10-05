@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), `practice.list/save/delete`(연습 기록), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -472,6 +472,16 @@
 - **읽기 권한 설정**: 설정값 `read_perms {키: 최소 서열 10|20|30|40|50|60}`, 서버 `PERMS`(키·이름·설명·기본) + `readPerms`/`permMin`/`permAnyTeam`, `me.perms`로 앱에도 내려감(앱 `perm(k)`, `PERM_DEF`). 화면은 항목 × [팀원·조장·교관·팀장·부과장·과장] 체크박스(켜면 그 위 직책 모두 켜짐 = '여기부터'), 기본과 다르면 '기본은 ○○부터'.
   항목(기본): reviews_view 모임 후기 보기(팀원) · review_missing 후기 안 쓴 사람(조장) · attend_reason 다른 사람 출결 사유(조장) · notice_reads 공지 확인 명단(조장) · assign_reads 과제 확인 명단(조장) · rec_detail 녹음·사회 자세한 내용(교관; 홈·달력·동네지도·dashboard.item·rec.list) · avail_overview 업무가능 2주 모아보기(교관) · people_notes 인원 탭(교관).
   **관리(만들기·승인·배치) 권한은 이 설정과 별개**로 그대로. 본인 것(내 사유·내 후기)은 늘 보임. 부과장 이상은 서열이 높아 언제나 봄.
+
+### 쉬운 모드 · 설정 · 연습 기록 · 폰 메뉴 (2026-10-08)
+- **쉬운 모드**(집사님들용, 사용자 결정: 각자 고름): 머리 '방송예술과' 옆 'BETA' 자리의 스위치(`#ezSw`, `toggleEasy`) 또는 개인 › 설정. 이 기기 localStorage `ui_easy`, `html.easy`(index.html 머리 짧은 스크립트가 그리기 전에 붙임).
+  켜면: 홈 = 인사 + **오늘 할 일**(4개 + 더 보기) + **큰 버튼 6개**(`renderEasyHome`: 특이사항 알리기·모임 후기 `ezReview`·연습 기록·과제 내기·도착 예정 `ezEta`·공지 보기), 대시보드는 안 불러옴.
+  아래 탭 = 홈·모임·공지·과제·내 기록(`data-ez`로 이름 바꿈, `applyEasyText`), 업무·동네지도·하늘방송국 숨김, 월간 리포트 숨김, 글씨 크게, + 버튼에 글자(`#actTx`), 특이사항 창은 영향·자세히 숨김.
+- **특이사항 기간 칩**(모두): 오늘만·이번 주·이번 달·당분간 계속(`ntSpan`). **도착 예정 큰 버튼**(모두): 출발 → 10분·20분·30분·1시간 뒤(`etaAfter`) 또는 직접.
+- **설정**(개인 › 설정, `settingsView`, `renderSettings`): 쉬운 모드 · 밝기(밝게/어둡게/휴대폰 따라, `ui_mode`, `html.dark`) · 앱 색 6개(`ui_theme`, `html[data-theme]`: 카키·베이지 기본, 네이비·실버, 로즈·레드, 세이지·포레스트, 라벤더·플럼, 모카·크림). 모두 이 기기에만.
+  색은 beta.css 끝 토큰(--bg·--accent 등)만 바꿈, 상태색(참석·지각·불참)은 그대로. 어둡게는 공통 먹색 바탕 + 테마 포인트를 밝힘. **공용 style.css는 안 고치고** beta.css에서 `html.dark …`로 덮음. 새 화면에 밝은 색을 박으면 어둡게에서 튐 → `var(--card)` 등 토큰 쓰기.
+- **연습 기록**(개인 › 연습 기록, `practiceView`, 본인만): 날짜 칩(오늘·어제·그저께·다른 날)·무엇(여러 개)·몇 분 칩·한 줄 메모, 이번 주·이번 달·연속 일수, 날짜별 목록(고치기·지우기). 표 `practice_logs`(마이그레이션 `20261008_practice_logs.sql`), `practice.list/save/delete`(하루 30개). 팀 교관 보기는 아직.
+- **폰 아래 탭 5개까지**: 폰(1000px 미만)이나 쉬운 모드면 인원·승인함·관리자 탭을 '개인' 메뉴 아래(`.pf-more`, 탭 `dataset.ok`로 허락 여부, `setupTownTab`에서 한 번에 판단)로. 관리자 칸 고르기는 화면 위 칩(`#admSeg`). 개발용 꼬리말 지움.
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)

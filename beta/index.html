@@ -7,6 +7,10 @@
   <!-- 보안: 이 화면이 불러오고 연결할 수 있는 곳을 정해 둠 (다른 곳으로 정보를 보내거나 낯선 스크립트를 불러오지 못하게) -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://telegram.org; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net; img-src 'self' data: blob:; connect-src 'self' https://bundxpidywrcrwhhgclv.supabase.co; frame-src https://oauth.telegram.org; object-src 'none'; base-uri 'self'; form-action 'none'">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- 이 기기 화면 설정(쉬운 모드·밝기·색)을 그리기 전에 먼저 붙임 -->
+  <script>(function () { var h = document.documentElement, g = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+    if (g('ui_easy') === '1') h.classList.add('easy'); h.setAttribute('data-theme', g('ui_theme') || 'khaki'); var m = g('ui_mode') || 'light'; h.setAttribute('data-mode', m);
+    if (m === 'dark' || (m === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches)) h.classList.add('dark'); })();</script>
   <link rel="preconnect" href="https://bundxpidywrcrwhhgclv.supabase.co">
   <!-- 글꼴: 본문 프리텐다드(쓰는 글자만 조금씩 내려받음) + 제목 고운바탕(beta/fonts) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
@@ -15,7 +19,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261007s">
+  <link rel="stylesheet" href="beta.css?v=20261008a">
 </head>
 <body>
   <div class="app">
@@ -23,7 +27,7 @@
       <div class="brand">
         <div class="logo">방</div>
         <div>
-          <div class="brand-title">방송예술과 <span class="beta-badge">BETA</span></div>
+          <div class="brand-title">방송예술과 <button type="button" class="ez-sw" id="ezSw" role="switch" aria-checked="false" onclick="toggleEasy()" title="쉬운 모드 켜기·끄기"><i></i><span>쉬운 모드</span></button></div>
         </div>
       </div>
       <!-- 오른쪽 위 동그라미: 누르면 내 이름·직책 + 지금 할 일 (숫자 = 할 일 개수) -->
@@ -70,6 +74,9 @@
           <span class="pill"><i class="dot"></i>프로젝트 <b id="dStatProj">–</b></span>
         </div>
       </div>
+
+      <!-- 쉬운 모드 홈: 오늘 할 일 + 큰 버튼 -->
+      <div id="easyHome" class="ez-home"></div>
 
       <!-- 오늘 생일 · 다가오는 생일 -->
       <div id="bdayBanner"></div>
@@ -137,7 +144,7 @@
 
     <!-- ===== 출결: 모임 목록 ===== -->
     <section id="listView" style="display:none;">
-      <h1 class="page-title">함께한 자리</h1>
+      <h1 class="page-title" data-ez="모임·출결">함께한 자리</h1>
       <p class="page-desc">모임을 눌러 오늘의 자리를 남겨주세요</p>
       <div class="b-attseg"><button class="wkchip active" onclick="showList()">모임</button><button class="wkchip" onclick="goTab('poll')">시간취합</button><button class="wkchip" onclick="goTab('place')">장소 신청</button></div>
 
@@ -212,7 +219,7 @@
 
     <!-- ===== 공지 ===== -->
     <section id="noticeView" style="display:none;">
-      <h1 class="page-title">전하는 말</h1>
+      <h1 class="page-title" data-ez="공지·과제">전하는 말</h1>
       <p class="page-desc">우리 팀 공지와 방송예술과 전체 공지예요</p>
       <div class="b-attseg"><button class="wkchip active" onclick="goTab('notice')">공지</button><button class="wkchip" onclick="goTask('notice')">과제</button></div>
       <div id="annList"></div>
@@ -227,7 +234,7 @@
     <!-- ===== 과제 ===== -->
     <section id="taskView" style="display:none;">
       <div id="taskList">
-        <h1 class="page-title">갈고닦는 시간</h1>
+        <h1 class="page-title" data-ez="과제">갈고닦는 시간</h1>
         <p class="page-desc" id="taskDesc">과제를 눌러 제출해주세요</p>
         <!-- 공지에서 오면 [공지|과제], 개인에서 오면 없음 (renderTaskSeg) -->
         <div class="b-attseg" id="taskSeg"></div>
@@ -477,6 +484,23 @@
       <div id="mytodoArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
 
+    <!-- ===== 개인 › 연습 기록 (본인만) ===== -->
+    <section id="practiceView" style="display:none;">
+      <h1 class="page-title">연습 기록</h1>
+      <p class="page-desc">오늘 한 개인연습을 남겨요. 날짜·무엇·몇 분만 누르면 돼요</p>
+      <div id="prSum"></div>
+      <div class="card pr-form" id="prForm"></div>
+      <div class="section-head b-gap"><h2>지난 기록</h2><span class="section-count" id="prCount"></span></div>
+      <div id="prList"><div class="b-wait">불러오는 중...</div></div>
+    </section>
+
+    <!-- ===== 개인 › 설정 (이 기기에만 저장) ===== -->
+    <section id="settingsView" style="display:none;">
+      <h1 class="page-title">설정</h1>
+      <p class="page-desc">이 휴대폰(이 PC)에서 보이는 모양을 바꿔요. 다른 사람 화면은 그대로예요</p>
+      <div id="setArea"></div>
+    </section>
+
     <!-- ===== 업무 › 프로젝트: 작업 흐름 (누구나 봄, 교관 이상이 만듦) ===== -->
     <section id="flowView" style="display:none;">
       <h1 class="page-title">함께 만드는 일</h1>
@@ -524,6 +548,8 @@
     <section id="adminView" style="display:none;">
       <h1 class="page-title" id="admTitle">관리자</h1>
       <p class="page-desc" id="admDesc">앱 운영 설정이에요. 관리자 명단에 있는 사람만 볼 수 있어요</p>
+      <!-- 폰: 관리자 하위 메뉴 대신 칩 -->
+      <div class="b-attseg adm-seg" id="admSeg"><button class="wkchip" data-t="adm-people" onclick="admGo('people')">담당자 설정</button><button class="wkchip" data-t="adm-perms" onclick="admGo('perms')">읽기 권한</button><button class="wkchip" data-t="adm-recap" onclick="admGo('recap')">올해의 리포트</button></div>
       <div id="adminArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
 
@@ -579,14 +605,13 @@
       </div>
     </section>
 
-    <p class="b-foot" id="foot">베타 · 홈·출결·체크인·공지·과제·업무가능·시간취합</p>
   </div>
 
   <!-- 할 수 있는 일 FAB (2026-10-06): 모두가 보는 화면은 그대로, 권한에 따라 다른 것(만들기·관리)은 여기로. 메뉴는 화면·권한마다 actItems()가 만듦 -->
   <div class="b-fabdim" id="actDim" onclick="closeAct()"></div>
   <div class="b-fab act-fab" id="actFab" style="display:none;">
     <div class="fab-menu" id="actMenu"></div>
-    <button class="fab" type="button" onclick="actFabTap()" aria-label="할 수 있는 일" title="할 수 있는 일"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button class="fab" type="button" onclick="actFabTap()" aria-label="할 수 있는 일" title="할 수 있는 일"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="fab-tx" id="actTx"></span></button>
   </div>
 
   <!-- 하단 탭 -->
@@ -606,11 +631,11 @@
     </button>
     <button class="tab" data-tab="attend" title="일정" onclick="goTab('attend')">
       <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
-      <span>일정</span>
+      <span data-ez="모임">일정</span>
     </button>
     <button class="tab" data-tab="notice" title="소식" onclick="goTab('notice')">
       <svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg>
-      <span>소식</span>
+      <span data-ez="공지·과제">소식</span>
     </button>
     <button class="tab" data-tab="rec" title="업무" id="recTab" onclick="togglePfSub(undefined, 'recSub')" style="display:none;">
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
@@ -623,15 +648,21 @@
     </div>
     <button class="tab" data-tab="profile" id="pfTab" title="개인" onclick="togglePfSub()">
       <i class="tab-ic"><svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M16 3v3h3"/><path d="M9 10h7M9 14h7M9 18h4"/></svg></i>
-      <span>개인</span>
+      <span data-ez="내 기록">개인</span>
     </button>
     <!-- '개인'을 누르면 펼쳐지는 하위 메뉴 (PC 펼친 메뉴: 아래로 펼침 / 폰·접힌 메뉴: 떠 있는 상자) -->
     <div class="b-pfsub" id="pfSub">
       <button type="button" data-t="profile" onclick="pfGo('profile')">프로필</button>
       <button type="button" data-t="mytodo" onclick="pfGo('mytodo')">할 일</button>
+      <button type="button" data-t="practice" onclick="pfGo('practice')">연습 기록</button>
       <button type="button" data-t="pmonth" onclick="pfGo('pmonth')">월간 리포트</button>
       <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
       <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
+      <button type="button" data-t="settings" onclick="pfGo('settings')">설정</button>
+      <!-- 폰: 아래 탭이 넘치지 않게 운영진 메뉴는 여기로 (setupPhoneMenu) -->
+      <button type="button" class="pf-more" data-t="people" data-more="peopleTab" onclick="pfGo('people')">인원</button>
+      <button type="button" class="pf-more" data-t="approve" data-more="approveTab" onclick="pfGo('approve')">승인함</button>
+      <button type="button" class="pf-more" data-t="admin" data-more="adminTab" onclick="pfGo('admin')">관리자</button>
     </div>
     <button class="tab" data-tab="sky" title="하늘방송국" id="skyTab" onclick="goTab('sky')" style="display:none;">
       <svg viewBox="0 0 24 24"><path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-5h6v5"/><path d="M12 4V1.5M9.5 2.5l5 0"/><path d="M8 11h2M14 11h2"/></svg>
@@ -1043,6 +1074,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007t"></script>
+  <script src="beta.js?v=20261008a"></script>
 </body>
 </html>

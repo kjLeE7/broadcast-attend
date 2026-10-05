@@ -2836,6 +2836,35 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     return { ok: true };
   },
 
+  // 개인연습 기록: 본인만. 최근 60일 목록 + 이번 달·이번 주 합계
+  async "practice.list"(ctx) {
+    const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+    const rows: any[] = must(await ctx.db.from("practice_logs").select("id, practiced_on, kinds, minutes, memo")
+      .eq("person_id", ctx.me.id).gte("practiced_on", addDaysStr(today, -60)).order("practiced_on", { ascending: false }).order("created_at", { ascending: false })) ?? [];
+    return { today, list: rows };
+  },
+  async "practice.save"(ctx) {
+    const p = ctx.payload ?? {};
+    if (!isDate(p.practiced_on)) throw new HttpError(400, "날짜를 골라주세요");
+    const minutes = Math.round(Number(p.minutes));
+    if (!(minutes >= 1 && minutes <= 600)) throw new HttpError(400, "몇 분 했는지 골라주세요");
+    const kinds = (Array.isArray(p.kinds) ? p.kinds : []).map((x: any) => String(x).trim().slice(0, 20)).filter(Boolean).slice(0, 8);
+    const row: any = { practiced_on: p.practiced_on, minutes, kinds, memo: String(p.memo ?? "").trim().slice(0, 300) || null };
+    if (p.id) {
+      if (!UUID_RE.test(String(p.id))) throw new HttpError(400, "잘못된 요청이에요");
+      const r = must(await ctx.db.from("practice_logs").update(row).eq("id", p.id).eq("person_id", ctx.me.id).select().maybeSingle());
+      if (!r) throw new HttpError(404, "없는 기록이에요");
+      return r;
+    }
+    await rateLimit(ctx, "practice_new", 30, 24 * 60);
+    return must(await ctx.db.from("practice_logs").insert({ ...row, person_id: ctx.me.id }).select().single());
+  },
+  async "practice.delete"(ctx) {
+    if (!UUID_RE.test(String(ctx.payload?.id))) throw new HttpError(400, "잘못된 요청이에요");
+    must(await ctx.db.from("practice_logs").delete().eq("id", ctx.payload.id).eq("person_id", ctx.me.id));
+    return { ok: true };
+  },
+
   async "flow.list"(ctx) {
     await requireRank(ctx, ctx.payload.team_id, RANK.MEMBER);
     const sec = await sectionOf(ctx, ctx.payload.team_id);

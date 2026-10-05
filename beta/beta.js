@@ -138,10 +138,11 @@ function boot() {
     if (!me.teams.length) { showState('아직 소속 팀이 없어요', '팀장님께 팀 배정을 요청해주세요'); return; }
     $('tabbar').classList.remove('b-off');
     setupRecTab();
-    $('adminTab').style.display = me.is_admin ? '' : 'none';   // 관리자 탭은 관리자 명단만
-    $('approveTab').style.display = me.can_approve ? '' : 'none';   // 승인함은 관리자·회계·장소 승인자만
-    $('peopleTab').style.display = me.teams.some(function (t) { return t.rank >= perm('people_notes'); }) ? '' : 'none';   // 인원 탭: 읽기 권한 설정(기본 교관 이상)
+    $('adminTab').dataset.ok = me.is_admin ? '1' : '';   // 관리자 탭은 관리자 명단만
+    $('approveTab').dataset.ok = me.can_approve ? '1' : '';   // 승인함은 관리자·회계·장소 승인자만
+    $('peopleTab').dataset.ok = me.teams.some(function (t) { return t.rank >= perm('people_notes'); }) ? '1' : '';   // 인원 탭: 읽기 권한 설정(기본 교관 이상)
     setupTownTab();
+    applyEasyText();
     document.body.classList.add('b-nav');
     renderTeamTabs();
     if (DEEP_SESSION) openDeepSession(DEEP_SESSION);
@@ -1297,7 +1298,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView', approve: 'approveView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView', approve: 'approveView', practice: 'practiceView', settings: 'settingsView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1317,7 +1318,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { return t === 'flow' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'profile'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1372,13 +1373,13 @@ function setTabUI(t) {
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
   var sub = t === 'task' && taskFrom !== 'profile' ? '' : t;
   document.querySelectorAll('#pfSub button, #recSub button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === sub); });
-  document.querySelectorAll('#admSub button').forEach(function (b) { b.classList.toggle('on', t === 'admin' && b.getAttribute('data-t') === 'adm-' + ADMSEC); });
+  document.querySelectorAll('#admSub button, #admSeg button').forEach(function (b) { var on = t === 'admin' && b.getAttribute('data-t') === 'adm-' + ADMSEC; b.classList.toggle('on', on); b.classList.toggle('active', on); });
   togglePfSub(!pfFloating() && pt === 'profile');
   togglePfSub(!pfFloating() && pt === 'rec', 'recSub');
   togglePfSub(!pfFloating() && pt === 'admin', 'admSub');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'mytodo' && t !== 'approve' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'mytodo' && t !== 'approve' && t !== 'practice' && t !== 'settings' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
   setTimeout(renderAct, 0);
@@ -1403,6 +1404,8 @@ function refreshTab() {
   else if (curTab === 'flow') loadFlows();
   else if (curTab === 'mytodo') loadMyTodos();
   else if (curTab === 'approve') loadApprove();
+  else if (curTab === 'practice') loadPractice();
+  else if (curTab === 'settings') renderSettings();
   else if (curTab === 'pmonth') { if (!P.month) P.month = curMonth(); loadPfReport(); }
 }
 
@@ -2310,7 +2313,10 @@ function ciCard(c) {
         '<span class="ci-emoji">' + CI_EMOJI[it] + '</span><span class="ci-label">' + it + '</span>' +
         '<span class="ci-time">' + (m ? hmOf(m.at) + (m.fixed ? ' (고침)' : '') + (m.note ? ' → ' + esc(m.note) : '') : '누르면 기록') + '</span></button>';
     }).join('') + '</div>' +
-    '<div class="ci-eta" id="eta-' + esc(c.id) + '" style="display:none;"><label>도착 예정 시간 <small>(모르면 비워두세요)</small></label>' +
+    '<div class="ci-eta" id="eta-' + esc(c.id) + '" style="display:none;"><label>언제쯤 도착하세요?</label>' +
+      '<div class="ci-eta-q">' + [[10, '10분 뒤'], [20, '20분 뒤'], [30, '30분 뒤'], [60, '1시간 뒤']].map(function (x) {
+        return '<button type="button" onclick="etaAfter(\'' + esc(c.id) + '\',' + x[0] + ')">' + x[1] + '</button>'; }).join('') + '</div>' +
+      '<label class="ci-eta-or">직접 고르기 <small>(모르면 비우고 출발만)</small></label>' +
       '<div class="ci-eta-row"><input type="time" id="etaIn-' + esc(c.id) + '"><button onclick="sendCheckin(\'' + esc(c.id) + '\',\'출발\')">출발했어요</button></div></div>' +
     '<div class="msg" id="ciMsg-' + esc(c.id) + '"></div>' +
     '<div class="ci-tip">잘못 눌렀으면 기록된 칸을 한 번 더 눌러 시간을 고치거나 지울 수 있어요</div></div>';
@@ -2330,6 +2336,7 @@ function tapCheckin(id, item) {
   sendCheckin(id, item);
 }
 
+function etaAfter(id, min) { $('etaIn-' + id).value = hmD(new Date(Date.now() + min * 60000)); sendCheckin(id, '출발'); }
 function sendCheckin(id, item) {
   var note = '';
   if (item === '출발') { var inp = $('etaIn-' + id); note = inp && inp.value ? inp.value + ' 도착 예정' : ''; }
@@ -2768,7 +2775,7 @@ var PERM_DEF = { reviews_view: 10, review_missing: 20, attend_reason: 20, notice
 function perm(k) { return (S.me && S.me.perms && S.me.perms[k]) || PERM_DEF[k]; }
 function availAllowed() { return !!(S.me && S.me.teams.some(function (t) { return t.rank >= perm('avail_overview'); })); }
 function recAllowed() { return !!(S.me && S.me.teams.some(function (t) { return t.rank >= RANK.INSTRUCTOR; })); }
-function setupRecTab() { $('recTab').style.display = ''; }   // 업무 탭은 모두에게 (교관 이상은 녹음 요청 관리까지)
+function setupRecTab() { $('recTab').style.display = isEasy() ? 'none' : ''; }   // 업무 탭은 모두에게 (교관 이상은 녹음 요청 관리까지)
 function recIsOpen(r) { return ['접수', '캐스팅중', '일정확정', '보류'].indexOf(r.status) !== -1; }
 function durText(m) { return m === 10 ? '10분 내외' : m >= 120 ? '2시간 이상' : m % 60 ? (m >= 60 ? Math.floor(m / 60) + '시간 ' : '') + (m % 60) + '분' : (m / 60) + '시간'; }
 function ddText(ms) { var d = dayDiff(ms); return d < 0 ? '마감 지남' : d === 0 ? '오늘 마감' : 'D-' + d; }
@@ -3622,9 +3629,18 @@ var townTeam = null;
 // 동네지도 탭은 PC 배치(가로 1000px 이상)일 때만. 폰·좁은 창에선 숨김 (창 크기를 바꾸면 다시 판단)
 function townAllowed() { return !isPhone() && isWide(); }
 function setupTownTab() {
-  var ok = townAllowed();
+  var ok = townAllowed() && !isEasy();
   $('townTab').style.display = ok ? '' : 'none';
   $('skyTab').style.display = ok ? '' : 'none';   // 하늘방송국도 PC 전용
+  // 쉬운 모드: 업무 탭 숨김. 폰·쉬운 모드: 인원·승인함·관리자는 아래 탭 대신 '개인' 메뉴 안으로 (탭이 5개를 넘지 않게)
+  $('recTab').style.display = isEasy() ? 'none' : '';
+  var inMenu = !isWide() || isEasy();
+  document.querySelectorAll('#pfSub .pf-more').forEach(function (b) {
+    var tab = $(b.getAttribute('data-more')), can = tab.dataset.ok === '1';
+    tab.style.display = can && !inMenu ? '' : 'none';
+    b.style.display = can && inMenu ? '' : 'none';
+  });
+  document.body.classList.toggle('adm-inmenu', inMenu);
   var n = [].filter.call(document.querySelectorAll('#tabbar .tab'), function (b) { return b.style.display !== 'none'; }).length;
   $('tabbar').style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
   if (!ok && (curTab === 'town' || curTab === 'sky')) goTab('home');
@@ -3645,6 +3661,7 @@ function startTown() {
 
 function loadDashboard() {
   if (!S.team) return;
+  if (isEasy()) { renderEasyHome(); refreshTodos(true); return; }
   lastDashAt = Date.now();
   var d = new Date();
   $('todayText').textContent = d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + WD[d.getDay()] + '요일';
@@ -3981,6 +3998,7 @@ function renderTodos() {
   var ap = d && d.items.filter(function (x) { return x.kind === 'approve'; })[0], ab = $('aprBadge'); ab.hidden = !ap; ab.textContent = ap ? String(ap.n) : '';
   if (!d) return;
   var now = d.items.map(function (t, i) { return [t, i]; }).filter(function (x) { return !x[0].later; });
+  if (curTab === 'home' && isEasy()) renderEasyHome();
   if (!now.length) { setTodoHtml('<div class="todo-ok">✅ 지금 할 일을 다 했어요</div>'); if (curTab === 'mytodo' && MY.list) renderMyTodos(); return; }
   setTodoHtml('<div class="section-head"><h2>지금 할 일</h2><span class="section-count">' + now.length + '개</span></div><div class="todo-list">' +
     now.map(function (x) { return todoRow(x[0], x[1]); }).join('') + '</div>');
@@ -5111,7 +5129,7 @@ function loadAdmin() {
 }
 // 담당자 고르기: 지금 지정된 사람은 칩(× 빼기), 추가는 이름 검색 → 결과에서 누르기
 var ADMSEC = 'people';
-function admGo(sec) { ADMSEC = sec; pfGo('admin'); if (ADM && ADM.edit) renderAdmin(); }
+function admGo(sec) { ADMSEC = sec; if (curTab === 'admin') setTabUI('admin'); pfGo('admin'); if (ADM && ADM.edit) renderAdmin(); }
 function admPick(key, sub, title, desc) {
   var cur = sub ? ((ADM.edit[key] || {})[sub] || []) : (ADM.edit[key] || []), id = key + (sub ? '-' + sub : '');
   var byId2 = {}; ADM.people.forEach(function (p) { byId2[p.id] = p; });
@@ -5237,6 +5255,7 @@ function renderAct() {
   var items = S.me ? actItems() : [], fab = $('actFab');
   fab.style.display = items.length ? '' : 'none';
   fab.classList.toggle('one', items.length === 1 && !items[0].on);
+  $('actTx').textContent = items.length === 1 && !items[0].on ? items[0].label : '할 수 있는 일';
   $('actMenu').innerHTML = items.map(function (x, i) {
     return '<button class="fab-item' + (x.on ? ' on' : '') + '" type="button" onclick="actRun(' + i + ')"><span class="fab-label">' + esc(x.label) + '</span><span class="fab-mini"><svg viewBox="0 0 24 24">' + ACT_IC[x.ic] + '</svg></span></button>';
   }).join('');
@@ -5371,14 +5390,24 @@ function openNote(o) {
   var who = staff && !o.person_id && !cur ? '<label class="field-label" for="ntWho">누구</label><div class="select-wrap"><select id="ntWho">' + (PPL.board || []).map(function (m) { return '<option value="' + m.id + '">' + esc(m.name) + '</option>'; }).join('') + '</select></div>' : '';
   $('noteBody').innerHTML = who +
     '<label class="field-label">종류</label><div class="b-chips" id="ntCats">' + NOTE_CATS.map(function (c) { return '<button type="button" class="b-pick' + (NT.cat === c ? ' on' : '') + '" onclick="NT.cat=\'' + c + '\';ntChips()">' + CAT_IC[c] + ' ' + c + '</button>'; }).join('') + '</div>' +
-    '<label class="field-label" for="ntTitle">한 줄 요약</label><input type="text" id="ntTitle" class="b-input" maxlength="60" placeholder="예) 감기로 이번 주 수업 불참, 야근이 늘어 평일 저녁 어려움" value="' + esc(cur ? cur.title : '') + '">' +
-    '<label class="field-label">기간 <span class="hint">끝을 비우면 \'계속\'</span></label><div class="tp-row"><input type="date" id="ntFrom" value="' + esc(cur ? cur.starts_on : todayStr()) + '"><span>~</span><input type="date" id="ntTo" value="' + esc(cur && cur.ends_on ? cur.ends_on : '') + '"></div>' +
-    '<label class="field-label">어디에 영향</label><div class="b-chips" id="ntAff">' + NOTE_AFF.map(function (a) { return '<button type="button" class="b-pick' + (NT.aff.indexOf(a) !== -1 ? ' on' : '') + '" onclick="ntAff(\'' + a + '\')">' + a + '</button>'; }).join('') + '</div>' +
-    '<label class="field-label" for="ntBody">자세히 <span class="hint">선택</span></label><textarea id="ntBody" rows="3" maxlength="1000">' + esc(cur && cur.body ? cur.body : '') + '</textarea>' +
+    '<label class="field-label" for="ntTitle">' + (staff ? '한 줄 요약' : '무슨 일이세요? <span class="hint">짧게 한 줄</span>') + '</label><input type="text" id="ntTitle" class="b-input" maxlength="60" placeholder="예) 감기로 이번 주 수업 불참, 야근이 늘어 평일 저녁 어려움" value="' + esc(cur ? cur.title : '') + '">' +
+    '<label class="field-label">기간 <span class="hint">끝을 비우면 \'계속\'</span></label>' +
+    '<div class="b-chips nt-span">' + [['today', '오늘만'], ['week', '이번 주'], ['month', '이번 달'], ['on', '당분간 계속']].map(function (x) { return '<button type="button" class="b-pick" onclick="ntSpan(\'' + x[0] + '\')">' + x[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="tp-row"><input type="date" id="ntFrom" value="' + esc(cur ? cur.starts_on : todayStr()) + '"><span>~</span><input type="date" id="ntTo" value="' + esc(cur && cur.ends_on ? cur.ends_on : '') + '"></div>' +
+    '<div class="nt-more' + (staff ? '' : ' nt-easyhide') + '"><label class="field-label">어디에 영향</label><div class="b-chips" id="ntAff">' + NOTE_AFF.map(function (a) { return '<button type="button" class="b-pick' + (NT.aff.indexOf(a) !== -1 ? ' on' : '') + '" onclick="ntAff(\'' + a + '\')">' + a + '</button>'; }).join('') + '</div>' +
+    '<label class="field-label" for="ntBody">자세히 <span class="hint">선택</span></label><textarea id="ntBody" rows="3" maxlength="1000">' + esc(cur && cur.body ? cur.body : '') + '</textarea></div>' +
     (staff ? '<label class="field-label">후속 조치</label><div class="select-wrap"><select id="ntFu">' + ['없음', '보강', '대체학습'].map(function (f) { return '<option' + (cur && cur.followup === f ? ' selected' : '') + '>' + f + '</option>'; }).join('') + '</select></div>' : '') +
     '<button class="btn-primary" id="ntBtn" onclick="saveNote()">' + (cur ? '저장' : staff ? '기록하기' : '알리기') + '</button>' +
     (cur ? '<button class="ghost-btn b-danger" onclick="delNote()">이 기록 지우기</button>' : '') + '<div class="msg" id="ntMsg"></div>';
   openModal('noteModal');
+}
+// 기간 칩: 날짜 칸을 채워 줌 (어르신들은 날짜 고르는 창이 어려워서)
+function ntSpan(k) {
+  var t = parseDate(todayStr()), e = new Date(t);
+  if (k === 'week') e.setDate(t.getDate() + (7 - t.getDay()) % 7);
+  if (k === 'month') e = new Date(t.getFullYear(), t.getMonth() + 1, 0);
+  $('ntFrom').value = ymd(t); $('ntTo').value = k === 'on' ? '' : ymd(e);
+  document.querySelectorAll('.nt-span .b-pick').forEach(function (b, i) { b.classList.toggle('on', ['today', 'week', 'month', 'on'][i] === k); });
 }
 function ntChips() { document.querySelectorAll('#ntCats .b-pick').forEach(function (b, i) { b.classList.toggle('on', NOTE_CATS[i] === NT.cat); }); }
 function ntAff(a) { var i = NT.aff.indexOf(a); if (i === -1) NT.aff.push(a); else NT.aff.splice(i, 1); document.querySelectorAll('#ntAff .b-pick').forEach(function (b, j) { b.classList.toggle('on', NT.aff.indexOf(NOTE_AFF[j]) !== -1); }); }
@@ -6018,4 +6047,194 @@ function orgChart() {
     '<div class="org-line"></div><div class="org-teams">' + o.teams.map(teamBox).join('') + '</div>' +
     (pa.recording && pa.recording.length ? '' : '<p class="perm-note">🎙 녹음실 승인자를 따로 안 정해서 엔지니어팀 팀장 이상이 승인해요.</p>') +
     (pa.external && pa.external.length ? '' : '<p class="perm-note">🏛 외부 장소 승인자를 따로 안 정해서 부과장 이상이 승인해요.</p>') + '</div>';
+}
+
+
+// =====================================================================
+// 쉬운 모드 · 설정 (2026-10-08): 이 기기에만 저장 (localStorage). 그리기 전 적용은 index.html 머리의 짧은 스크립트
+// 쉬운 모드 = 홈은 '오늘 할 일 + 큰 버튼', 업무·운영 탭은 숨김(운영진 메뉴는 개인 안으로), 글씨 크게, 화면 이름 쉬운 말로
+// =====================================================================
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function isEasy() { return document.documentElement.classList.contains('easy'); }
+function applyEasyText() {
+  var on = isEasy();
+  document.querySelectorAll('[data-ez]').forEach(function (el) {
+    if (el.dataset.orig === undefined) el.dataset.orig = el.textContent;
+    el.textContent = on ? el.dataset.ez : el.dataset.orig;
+  });
+  $('ezSw').setAttribute('aria-checked', on ? 'true' : 'false');
+}
+function toggleEasy(on) {
+  if (on === undefined) on = !isEasy();
+  document.documentElement.classList.toggle('easy', on);
+  lsSet('ui_easy', on ? '1' : '0');
+  applyEasyText(); haptic('success');
+  if (!S.me) return;
+  setupTownTab();
+  if (on && ['town', 'sky', 'rec', 'flow'].indexOf(curTab) !== -1) { goTab('home'); return; }
+  if (curTab === 'home') loadDashboard();
+  if (curTab === 'settings') renderSettings();
+  setTabUI(curTab); renderAct();
+}
+
+// ----- 쉬운 홈 -----
+var EZ_ALL = false;
+function renderEasyHome() {
+  var el = $('easyHome'); if (!el || !S.me) return;
+  var d = TODO.data, now = d ? d.items.map(function (t, i) { return [t, i]; }).filter(function (x) { return !x[0].later; }) : null;
+  var t0 = new Date(), unread = d ? d.items.filter(function (t) { return t.kind === 'notice'; }).length : 0;
+  var big = [
+    ['🤒', '특이사항 알리기', '못 나오는 사정 알리기', 'openNote({})'],
+    ['💬', '모임 후기', '모임에서 느낀 점 쓰기', 'ezReview()'],
+    ['🎙', '연습 기록', '오늘 한 연습 남기기', "goTab('practice')"],
+    ['📚', '과제 내기', '공통·주간 과제', "goTask('notice')"],
+    ['🚗', '도착 예정 알리기', '출발·도착 누르기', 'ezEta()'],
+    ['📢', '공지 보기', unread ? '안 읽은 공지 ' + unread + '개' : '새 소식 확인', "goTab('notice')"]
+  ];
+  el.innerHTML = '<div class="ez-hi"><b>' + esc(S.me.profile.name) + '님, 안녕하세요</b><span>' + (t0.getMonth() + 1) + '월 ' + t0.getDate() + '일 ' + WD[t0.getDay()] + '요일</span></div>' +
+    '<div class="section-head"><h2>오늘 할 일</h2><span class="section-count">' + (now ? now.length + '개' : '') + '</span></div>' +
+    // 할 일이 많으면 4개만 (큰 버튼이 화면 밖으로 밀리지 않게)
+    (!now ? '<div class="b-wait">불러오는 중...</div>' : now.length ? '<div class="todo-list">' + (EZ_ALL ? now : now.slice(0, 4)).map(function (x) { return todoRow(x[0], x[1]); }).join('') + '</div>' +
+      (now.length > 4 ? '<button type="button" class="hl-more ez-more" onclick="EZ_ALL=!EZ_ALL;renderEasyHome()">' + (EZ_ALL ? '접기' : '할 일 ' + (now.length - 4) + '개 더 보기') + '</button>' : '')
+      : '<div class="ez-done">✅ 오늘 할 일을 다 했어요</div>') +
+    '<div class="section-head b-gap"><h2>자주 하는 일</h2></div>' +
+    '<div class="ez-grid">' + big.map(function (b) {
+      return '<button type="button" class="ez-btn" onclick="' + b[3] + '"><i>' + b[0] + '</i><b>' + b[1] + '</b><small>' + esc(b[2]) + '</small></button>';
+    }).join('') + '</div>' +
+    '<p class="ez-tip">화면이 낯설면 위의 <b>쉬운 모드</b> 스위치를 끄면 원래 화면이에요</p>';
+}
+// 모임 후기: 쓸 후기가 있으면 그 모임, 없으면 오늘·최근 모임
+function ezReview() {
+  var d = TODO.data, i = d ? d.items.map(function (t) { return t.kind; }).indexOf('review') : -1;
+  if (i !== -1) { openTodo(i); return; }
+  var today = todayStr(), s = S.sessions.filter(function (x) { return x.session_date <= today && x.status !== '취소' && x.is_target; }).pop();
+  goTab('attend');
+  if (s) openSession(s.id); else alertMsg('최근 모임이 없어요');
+}
+// 도착 예정: 오늘 체크인 중 출발을 아직 안 낸 것 → 출발 칸을 펼쳐 둠
+function ezEta() {
+  var today = todayStr(), c = C.list.filter(function (x) { return x.check_date === today && x.items.indexOf('출발') !== -1 && !x.mine['출발'] && !x.mine['도착']; })[0]
+    || C.list.filter(function (x) { return x.check_date === today && !ciDone(x); })[0];
+  if (!c) { alertMsg('오늘은 체크인할 모임이 없어요'); return; }
+  goTab('attend');
+  setTimeout(function () {
+    var b = $('eta-' + c.id);
+    if (b && !c.mine['출발']) b.style.display = 'block';
+    var card = b && b.closest('.ci-card'); if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 80);
+}
+
+// ----- 설정: 쉬운 모드 · 밝기 · 색 -----
+var THEMES = [
+  ['khaki', '카키 · 베이지', '기본 · 따뜻하고 차분해요', ['#F4F1EC', '#D9CFBF', '#4F4E30']],
+  ['navy', '네이비 · 실버', '단정하고 시원해요', ['#EEF1F5', '#C5CDD8', '#1F3A5F']],
+  ['rose', '로즈 · 레드', '분홍 바탕에 깊은 빨강', ['#FBF0F1', '#EBC6CC', '#A3263A']],
+  ['sage', '세이지 · 포레스트', '눈이 편한 초록', ['#EEF3EF', '#C6D6CC', '#2F5D50']],
+  ['plum', '라벤더 · 플럼', '은은한 보라', ['#F3F0F7', '#D3C8E2', '#5B3F7A']],
+  ['mocha', '모카 · 크림', '커피처럼 부드러워요', ['#F5EFE9', '#DCC9BC', '#6B4A3A']]
+];
+function applyLook() {
+  var h = document.documentElement, mode = lsGet('ui_mode') || 'light';
+  h.setAttribute('data-theme', lsGet('ui_theme') || 'khaki');
+  h.setAttribute('data-mode', mode);
+  var dark = mode === 'dark' || (mode === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+  h.classList.toggle('dark', dark);
+  try { var bg = getComputedStyle(document.body).getPropertyValue('--bg').trim(); if (tg && bg) { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); } } catch (e) {}
+}
+applyLook();
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyLook); } catch (e) {}
+function setLook(k, v) { lsSet(k, v); applyLook(); renderSettings(); haptic('success'); }
+function renderSettings() {
+  var mode = lsGet('ui_mode') || 'light', th = lsGet('ui_theme') || 'khaki';
+  $('setArea').innerHTML =
+    '<div class="card set-row"><div><b>쉬운 모드</b><small>오늘 할 일과 큰 버튼만 보여요. 글씨도 커져요</small></div>' +
+      '<button type="button" class="set-sw' + (isEasy() ? ' on' : '') + '" role="switch" aria-checked="' + isEasy() + '" onclick="toggleEasy()"><i></i></button></div>' +
+    '<div class="section-head b-gap"><h2>화면 밝기</h2></div>' +
+    '<div class="set-seg">' + [['light', '☀️', '밝게'], ['dark', '🌙', '어둡게'], ['auto', '📱', '휴대폰 설정 따라']].map(function (m) {
+      return '<button type="button" class="' + (mode === m[0] ? 'on' : '') + '" onclick="setLook(\'ui_mode\',\'' + m[0] + '\')"><i>' + m[1] + '</i>' + m[2] + '</button>';
+    }).join('') + '</div>' +
+    '<div class="section-head b-gap"><h2>앱 색</h2></div>' +
+    '<div class="set-themes">' + THEMES.map(function (t) {
+      return '<button type="button" class="set-th' + (th === t[0] ? ' on' : '') + '" onclick="setLook(\'ui_theme\',\'' + t[0] + '\')">' +
+        '<span class="set-sw3">' + t[3].map(function (c) { return '<i style="background:' + c + '"></i>'; }).join('') + '</span>' +
+        '<b>' + t[1] + '</b><small>' + t[2] + '</small>' + (th === t[0] ? '<em>✓ 쓰는 중</em>' : '') + '</button>';
+    }).join('') + '</div>' +
+    '<p class="set-note">설정은 이 기기에만 저장돼요. 다른 폰·PC에서는 따로 골라 주세요</p>';
+}
+
+// =====================================================================
+// 개인연습 기록 (2026-10-08): 본인만. 날짜 · 무엇(여러 개) · 몇 분 · 한 줄 메모
+// =====================================================================
+var PR = { list: null, f: null };
+var PR_KINDS = ['발성', '발음', '호흡', '대본 읽기', '연기', '녹음 연습', '기타'], PR_MIN = [10, 20, 30, 45, 60, 90, 120];
+function prNew() { return { id: null, date: todayStr(), kinds: [], min: 30, memo: '' }; }
+function minText(m) { return m >= 60 ? Math.floor(m / 60) + '시간' + (m % 60 ? ' ' + (m % 60) + '분' : '') : m + '분'; }
+function loadPractice() {
+  if (!PR.f) PR.f = prNew();
+  renderPrForm();
+  api('practice.list').then(function (d) { PR.list = d.list; renderPractice(); })
+    .catch(function (err) { $('prList').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function renderPrForm() {
+  var f = PR.f, days = [[0, '오늘'], [-1, '어제'], [-2, '그저께']];
+  var other = days.every(function (x) { return addDays(x[0]) !== f.date; });
+  $('prForm').innerHTML = (f.id ? '<div class="pr-edit">✏️ ' + shortD(f.date) + ' 기록 고치는 중</div>' : '') +
+    '<label class="pr-l">언제</label><div class="pr-chips">' + days.map(function (x) {
+      return '<button type="button" class="' + (addDays(x[0]) === f.date ? 'on' : '') + '" onclick="PR.f.date=addDays(' + x[0] + ');renderPrForm()">' + x[1] + '</button>';
+    }).join('') + '<input type="date" class="pr-date' + (other ? ' on' : '') + '" value="' + (other ? f.date : '') + '" max="' + todayStr() + '" onchange="if(this.value){PR.f.date=this.value;renderPrForm()}" aria-label="다른 날"></div>' +
+    '<label class="pr-l">무엇을 <small>여러 개 골라도 돼요</small></label><div class="pr-chips">' + PR_KINDS.map(function (k) {
+      return '<button type="button" class="' + (f.kinds.indexOf(k) !== -1 ? 'on' : '') + '" onclick="prKind(\'' + k + '\')">' + k + '</button>';
+    }).join('') + '</div>' +
+    '<label class="pr-l">몇 분</label><div class="pr-chips">' + PR_MIN.map(function (m) {
+      return '<button type="button" class="' + (f.min === m ? 'on' : '') + '" onclick="PR.f.min=' + m + ';renderPrForm()">' + minText(m) + '</button>';
+    }).join('') + '<input type="number" class="pr-min' + (PR_MIN.indexOf(f.min) === -1 ? ' on' : '') + '" min="1" max="600" placeholder="직접(분)" value="' + (PR_MIN.indexOf(f.min) === -1 ? f.min : '') + '" oninput="PR.f.min=+this.value||0"></div>' +
+    '<label class="pr-l">한 줄 메모 <small>선택</small></label>' +
+    '<input type="text" class="b-input" maxlength="300" placeholder="예) 끝음 처리 연습, 녹음해서 들어봄" value="' + esc(f.memo) + '" oninput="PR.f.memo=this.value">' +
+    '<button type="button" class="btn-primary pr-save" id="prBtn" onclick="savePractice()">' + (f.id ? '고친 내용 저장' : '기록하기') + '</button>' +
+    (f.id ? '<button type="button" class="ghost-btn pr-cancel" onclick="PR.f=prNew();renderPrForm()">고치기 그만</button>' : '') +
+    '<div class="msg" id="prMsg"></div>';
+}
+function prKind(k) { var a = PR.f.kinds, i = a.indexOf(k); if (i === -1) a.push(k); else a.splice(i, 1); renderPrForm(); }
+function savePractice() {
+  var f = PR.f;
+  if (!(f.min >= 1 && f.min <= 600)) { setMsg('prMsg', '몇 분 했는지 골라주세요', true); return; }
+  $('prBtn').disabled = true; setMsg('prMsg', '저장 중...');
+  api('practice.save', { id: f.id, practiced_on: f.date, kinds: f.kinds, minutes: f.min, memo: f.memo }).then(function () {
+    var edited = !!f.id; PR.f = prNew(); renderPrForm(); haptic('success');
+    setMsg('prMsg', edited ? '고쳤어요' : '기록했어요! 수고하셨어요 👏');
+    return api('practice.list').then(function (d) { PR.list = d.list; renderPractice(); });
+  }).catch(function (err) { setMsg('prMsg', err.message, true); var b = $('prBtn'); if (b) b.disabled = false; });
+}
+function editPractice(id) {
+  var r = byId(PR.list || [], id); if (!r) return;
+  PR.f = { id: r.id, date: r.practiced_on, kinds: (r.kinds || []).slice(), min: r.minutes, memo: r.memo || '' };
+  renderPrForm(); window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function deletePractice(id) {
+  if (!confirm('이 연습 기록을 지울까요?')) return;
+  api('practice.delete', { id: id }).then(function () { PR.list = PR.list.filter(function (x) { return x.id !== id; }); renderPractice(); })
+    .catch(function (err) { alertMsg(err.message); });
+}
+function renderPractice() {
+  var l = PR.list || [], today = todayStr();
+  var mon = parseDate(today); mon.setDate(mon.getDate() - (mon.getDay() + 6) % 7);
+  var wk = 0, mo = 0, days = {};
+  l.forEach(function (r) { days[r.practiced_on] = 1; if (r.practiced_on >= ymd(mon)) wk += r.minutes; if (r.practiced_on.slice(0, 7) === today.slice(0, 7)) mo += r.minutes; });
+  // 연속: 오늘(없으면 어제)부터 거꾸로
+  var streak = 0, d = parseDate(today); if (!days[today]) d.setDate(d.getDate() - 1);
+  while (days[ymd(d)]) { streak++; d.setDate(d.getDate() - 1); }
+  $('prSum').innerHTML = '<div class="pr-sum"><div><small>이번 주</small><b>' + (wk ? minText(wk) : '0분') + '</b></div><div><small>이번 달</small><b>' + (mo ? minText(mo) : '0분') + '</b></div>' +
+    '<div><small>연속</small><b>' + (streak ? streak + '일째' + (streak >= 3 ? ' 🔥' : '') : '–') + '</b></div></div>';
+  $('prCount').textContent = l.length ? '최근 60일 ' + l.length + '번' : '';
+  if (!l.length) { $('prList').innerHTML = '<div class="empty"><b>아직 기록이 없어요</b>위에서 오늘 한 연습을 남겨 보세요</div>'; return; }
+  var by = [], key = {};
+  l.forEach(function (r) { if (!key[r.practiced_on]) { key[r.practiced_on] = []; by.push([r.practiced_on, key[r.practiced_on]]); } key[r.practiced_on].push(r); });
+  $('prList').innerHTML = by.map(function (g) {
+    var sum = g[1].reduce(function (a, r) { return a + r.minutes; }, 0);
+    return '<div class="pr-day"><div class="pr-dh"><b>' + (g[0] === today ? '오늘' : shortD(g[0])) + '</b><span>' + minText(sum) + '</span></div>' + g[1].map(function (r) {
+      return '<div class="pr-it"><div><b>' + esc((r.kinds || []).join(' · ') || '연습') + ' <em>' + minText(r.minutes) + '</em></b>' + (r.memo ? '<small>' + esc(r.memo) + '</small>' : '') + '</div>' +
+        '<button type="button" onclick="editPractice(\'' + r.id + '\')">고치기</button><button type="button" class="b-danger" onclick="deletePractice(\'' + r.id + '\')">지우기</button></div>';
+    }).join('') + '</div>';
+  }).join('');
 }
