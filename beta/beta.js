@@ -108,7 +108,7 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -139,6 +139,7 @@ function boot() {
     $('tabbar').classList.remove('b-off');
     setupRecTab();
     $('adminTab').style.display = me.is_admin ? '' : 'none';   // 관리자 탭은 관리자 명단만
+    $('peopleTab').style.display = me.teams.some(function (t) { return t.rank >= RANK.INSTRUCTOR; }) ? '' : 'none';   // 인원 탭은 교관 이상
     setupTownTab();
     document.body.classList.add('b-nav');
     renderTeamTabs();
@@ -1236,7 +1237,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1326,6 +1327,7 @@ function refreshTab() {
   else if (curTab === 'sky') startSky();
   else if (curTab === 'place') loadPlace();
   else if (curTab === 'admin') loadAdmin();
+  else if (curTab === 'people') loadPeople();
 }
 
 // =====================================================================
@@ -3402,6 +3404,7 @@ document.addEventListener('keydown', function (e) {
   else if (curTab === 'profile' && $('profileView').classList.contains('split')) closePfEdit();
   else if (curTab === 'rec' && RC.current) closeRec();
   else if (curTab === 'poll' && $('pollView').classList.contains('split')) closePoll();
+  else if (curTab === 'people' && PPL.cur) closePerson();
 });
 
 // ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
@@ -3929,6 +3932,7 @@ if (tg && tg.BackButton) {
   tg.BackButton.onClick(function () {
     if (MODAL) closeModal();
     else if (RP.open) closeRecap();
+    else if (curTab === 'people' && PPL.cur) closePerson();
     else if (curTab === 'task' && A.current) closeTask();
     else if (curTab === 'rec' && RC.current) closeRec();
     else if (curTab === 'poll' && PL.cur) closePoll();
@@ -3985,6 +3989,7 @@ function loadProfile() {
   loadBadges();
   loadRecapStatus();
   loadLook();
+  loadMyNotes();
 }
 
 function pfAge(b) {
@@ -4927,6 +4932,8 @@ function actItems() {
       if (lead && C.list.length) add('eye', '체크인 현황', mgToggle('ci', renderCheckins), MG.ci);
     }
   }
+  if (t === 'attend' && !S.current) add('edit', '특이사항 알리기', function () { openNote({}); });
+  if (t === 'people') { if (PPL.cur) add('edit', PPL.cur.person.name + '님 특이사항 적기', function () { openNote({ person_id: PPL.cur.person.id }); }); add('plus', '특이사항 적기', function () { openNote({ staff: true }); }); }
   if (t === 'poll' && !PL.cur) add('plus', '시간취합 만들기', openTpModal);
   if (t === 'place' && PLC.d) add('plus', '장소 신청', function () { openPlaceModal(); });
   if (t === 'notice') {
@@ -4938,6 +4945,7 @@ function actItems() {
     else if (inst) add('plus', '과제 내기', openHwModal);
   }
   if (t === 'rec' && recAllowed() && !RC.current) { add('plus', '녹음 요청 올리기', openRecModal); add('list', '녹음 요청 관리·모아보기', mgToggle('rec', function () { RC.list = null; loadRec(); }), MG.rec); }
+  if (t === 'profile') add('edit', '특이사항 알리기', function () { openNote({}); });
   if (t === 'profile' && statCan()) add('star', '스탯 주기', function () { closeAct(); openStatGrant({}); });
   if (t === 'dues' && DU.d && DU.d.treasurer) add('won', '회계 (확인·현황)', mgToggle('dues', renderDues), MG.dues);
   return it;
@@ -4961,3 +4969,123 @@ function actFabTap() {
 function closeAct() { if (!$('actFab')) return; $('actFab').classList.remove('open'); $('actDim').classList.remove('show'); }
 // ponytail: 화면 상태(상세 열기·명단 도착 등)가 바뀔 때마다 부르는 대신 1초마다 다시 계산 (메뉴가 열려 있을 땐 안 함)
 setInterval(function () { if (S.me && !$('actFab').classList.contains('open')) renderAct(); }, 1000);
+
+// =====================================================================
+// 인원 특이사항 (교관 이상): 팀원 한눈에 → 사람별 타임라인(특이사항 + 운영진 메모 + 출결 기록)
+// 팀원은 '특이사항 알리기'로 자기 것만 (나의 기록 아래 '내가 알린 특이사항')
+// =====================================================================
+var PPL = { board: null, cur: null };
+var NOTE_CATS = ['건강', '직장·학업', '일정 충돌', '가정', '기타'], NOTE_AFF = ['수업', '스터디', '녹음', '업무'];
+var CAT_IC = { '건강': '🤒', '직장·학업': '💼', '일정 충돌': '📅', '가정': '🏠', '기타': '📝' };
+function loadPeople() {
+  if (S.team.rank < RANK.INSTRUCTOR) { $('pplBoard').innerHTML = '<div class="empty"><b>이 팀에서는 볼 수 없어요</b>위에서 내가 교관 이상인 팀을 골라주세요</div>'; return; }
+  api('people.board', { team_id: S.team.id }).then(function (d) { PPL.board = d.members; renderPeople(); if (PPL.cur) openPerson(PPL.cur.person.id); })
+    .catch(function (err) { $('pplBoard').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function renderPeople() {
+  var l = PPL.board || [];
+  $('pplBoard').innerHTML = '<div class="section-head"><h2>' + esc(S.team.name) + '</h2><span class="section-count">' + l.length + '명 · 신경 쓸 사람이 위로</span></div>' +
+    (l.length ? l.map(function (m) {
+      var tags = [];
+      if (m.fresh) tags.push(['bad', '이번 주 새 ' + m.fresh]);
+      if (m.followup) tags.push(['warn', '보강·대체 ' + m.followup]);
+      if (m.streak >= 2) tags.push(['bad', m.streak + '번 연속 불참']);
+      if (m.open) tags.push(['', '진행 중 ' + m.open]);
+      return '<button type="button" class="card ppl-row' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + '" onclick="openPerson(\'' + m.id + '\')">' +
+        '<span class="ppl-nm"><b>' + esc(m.name) + '</b><small>' + esc([m.position, m.group].filter(Boolean).join(' · ')) + '</small></span>' +
+        '<span class="ppl-mid">' + (m.latest ? esc(m.latest) : '<i>특이사항 없음</i>') + '<span class="tv-tags">' + tags.map(function (x) { return '<em class="' + x[0] + '">' + x[1] + '</em>'; }).join('') + '</span></span>' +
+        '<span class="ppl-rate ' + (m.rate == null ? '' : m.rate < 60 ? 'bad' : m.rate < 80 ? 'warn' : 'ok') + '">' + (m.rate == null ? '–' : m.rate + '%') + '<small>4주 출석</small></span></button>';
+    }).join('') : '<div class="empty"><b>팀원이 없어요</b></div>');
+}
+function openPerson(id) {
+  var wide = isWide();
+  $('pplList').style.display = wide ? 'block' : 'none'; $('peopleView').classList.toggle('split', wide);
+  $('pplDetail').style.display = 'block'; $('pplTimeline').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+  api('people.timeline', { team_id: S.team.id, person_id: id }).then(function (d) { PPL.cur = d; renderTimeline(); renderPeople(); if (!wide) window.scrollTo(0, 0); })
+    .catch(function (err) { $('pplTimeline').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function closePerson() {
+  PPL.cur = null; $('peopleView').classList.remove('split'); $('pplDetail').style.display = 'none'; $('pplList').style.display = 'block';
+  try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+  renderPeople();
+}
+function noteRange(n) { return shortD(n.starts_on) + (n.ends_on ? (n.ends_on !== n.starts_on ? '~' + shortD(n.ends_on) : '') : '~ 계속'); }
+function renderTimeline() {
+  var d = PPL.cur, p = d.person;
+  // 특이사항과 출결 기록을 날짜순 한 줄로
+  var items = d.notes.map(function (n) { return { date: n.starts_on, n: n }; }).concat(d.events.map(function (e) { return { date: e.date, e: e }; }))
+    .sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : a.n ? -1 : 1; });
+  var open = d.notes.filter(function (n) { return n.status === '진행 중'; }).length;
+  $('pplTimeline').innerHTML = '<div class="b-dhead"><h1>' + esc(p.name) + '</h1><p>' + esc([p.position, p.group].filter(Boolean).join(' · ')) + ' · 진행 중 특이사항 ' + open + '개 · 최근 6개월 출결 기록 ' + d.events.length + '건</p></div>' +
+    (items.length ? '<div class="tl">' + items.map(function (x) {
+      if (x.e) return '<div class="tl-i ev"><span class="tl-d">' + shortD(x.date) + '</span><div class="tl-c"><span class="st st-' + esc(x.e.status.replace('사전 ', '')) + '">' + esc(x.e.status) + '</span> ' + esc(x.e.name) + (x.e.reason ? '<small>사유: ' + esc(x.e.reason) + '</small>' : '') + '</div></div>';
+      var n = x.n, done = n.status === '해결됨', fu = n.followup !== '없음';
+      return '<div class="tl-i note' + (done ? ' done' : '') + '"><span class="tl-d">' + shortD(x.date) + '</span><div class="tl-c card">' +
+        '<div class="tl-top"><b>' + (CAT_IC[n.category] || '📝') + ' ' + esc(n.title) + '</b><span class="st ' + (done ? 'st-참석' : 'st-지각') + '">' + n.status + '</span></div>' +
+        '<small class="tl-meta">' + esc(n.category) + ' · ' + noteRange(n) + (n.affects.length ? ' · ' + esc(n.affects.join('·')) + ' 영향' : '') + ' · ' + (n.source === '본인' ? '본인이 알림' : esc(n.by) + ' 기록') + '</small>' +
+        (n.body ? '<p>' + esc(n.body) + '</p>' : '') +
+        (fu ? '<label class="tl-fu"><input type="checkbox" ' + (n.followup_done_at ? 'checked' : '') + ' onchange="noteStatus(\'' + n.id + '\',{followup_done:this.checked})"> ' + n.followup + ' 완료' + (n.followup_done_at ? ' <small>' + mdOf(n.followup_done_at) + '</small>' : '') + '</label>' : '') +
+        (n.comments.length ? '<div class="tl-cm">' + n.comments.map(function (c) { return '<div><b>' + esc(c.by) + '</b> ' + esc(c.body) + ' <small>' + mdOf(c.at) + '</small></div>'; }).join('') + '</div>' : '') +
+        '<div class="tl-acts"><input type="text" maxlength="500" placeholder="운영진 메모 남기기 (본인은 못 봐요)" id="nc-' + n.id + '" onkeydown="if(event.key===\'Enter\')noteComment(\'' + n.id + '\')">' +
+          '<button onclick="noteComment(\'' + n.id + '\')">남기기</button><button onclick="noteStatus(\'' + n.id + '\',{status:\'' + (done ? '진행 중' : '해결됨') + '\'})">' + (done ? '다시 진행 중' : '해결됨') + '</button>' +
+          '<button onclick="openNote({edit:\'' + n.id + '\'})">고치기</button></div></div></div>';
+    }).join('') + '</div>' : '<div class="empty"><b>기록이 없어요</b>오른쪽 아래 + 로 특이사항을 적어요</div>');
+}
+function noteStatus(id, up) { api('notes.status', Object.assign({ id: id }, up)).then(function () { haptic('success'); refreshPerson(); }).catch(function (err) { alertMsg(err.message); }); }
+function noteComment(id) {
+  var v = $('nc-' + id).value.trim(); if (!v) return;
+  api('notes.comment', { id: id, body: v }).then(function () { haptic('success'); refreshPerson(); }).catch(function (err) { alertMsg(err.message); });
+}
+function refreshPerson() { if (PPL.cur) openPerson(PPL.cur.person.id); api('people.board', { team_id: S.team.id }).then(function (d) { PPL.board = d.members; renderPeople(); }).catch(function () {}); }
+
+// ----- 쓰기 팝업 { staff?, person_id?, edit? } -----
+var NT = null;
+function openNote(o) {
+  var staff = !!(o.staff || o.person_id || o.edit) && S.team.rank >= RANK.INSTRUCTOR;
+  var cur = o.edit && PPL.cur ? PPL.cur.notes.filter(function (n) { return n.id === o.edit; })[0] : o.mineEdit ? MYN.list.filter(function (n) { return n.id === o.mineEdit; })[0] : null;
+  NT = { staff: staff, id: cur ? cur.id : null, person_id: o.person_id || (cur ? PPL.cur && PPL.cur.person.id : null) || '', cat: cur ? cur.category : '', aff: cur ? cur.affects.slice() : [] };
+  $('noteModalT').textContent = cur ? '특이사항 고치기' : staff ? '특이사항 적기' : '특이사항 알리기';
+  $('noteModalSub').textContent = staff ? '운영진(교관 이상)만 봐요. 건강은 "감기", "발목 다침"처럼 짧게만 적어주세요' : '수업·스터디·녹음에 나오기 어려운 사정을 알려주세요. 운영진(교관 이상)만 봐요';
+  var who = staff && !o.person_id && !cur ? '<label class="field-label" for="ntWho">누구</label><div class="select-wrap"><select id="ntWho">' + (PPL.board || []).map(function (m) { return '<option value="' + m.id + '">' + esc(m.name) + '</option>'; }).join('') + '</select></div>' : '';
+  $('noteBody').innerHTML = who +
+    '<label class="field-label">종류</label><div class="b-chips" id="ntCats">' + NOTE_CATS.map(function (c) { return '<button type="button" class="b-pick' + (NT.cat === c ? ' on' : '') + '" onclick="NT.cat=\'' + c + '\';ntChips()">' + CAT_IC[c] + ' ' + c + '</button>'; }).join('') + '</div>' +
+    '<label class="field-label" for="ntTitle">한 줄 요약</label><input type="text" id="ntTitle" class="b-input" maxlength="60" placeholder="예) 감기로 이번 주 수업 불참, 야근이 늘어 평일 저녁 어려움" value="' + esc(cur ? cur.title : '') + '">' +
+    '<label class="field-label">기간 <span class="hint">끝을 비우면 \'계속\'</span></label><div class="tp-row"><input type="date" id="ntFrom" value="' + esc(cur ? cur.starts_on : todayStr()) + '"><span>~</span><input type="date" id="ntTo" value="' + esc(cur && cur.ends_on ? cur.ends_on : '') + '"></div>' +
+    '<label class="field-label">어디에 영향</label><div class="b-chips" id="ntAff">' + NOTE_AFF.map(function (a) { return '<button type="button" class="b-pick' + (NT.aff.indexOf(a) !== -1 ? ' on' : '') + '" onclick="ntAff(\'' + a + '\')">' + a + '</button>'; }).join('') + '</div>' +
+    '<label class="field-label" for="ntBody">자세히 <span class="hint">선택</span></label><textarea id="ntBody" rows="3" maxlength="1000">' + esc(cur && cur.body ? cur.body : '') + '</textarea>' +
+    (staff ? '<label class="field-label">후속 조치</label><div class="select-wrap"><select id="ntFu">' + ['없음', '보강', '대체학습'].map(function (f) { return '<option' + (cur && cur.followup === f ? ' selected' : '') + '>' + f + '</option>'; }).join('') + '</select></div>' : '') +
+    '<button class="btn-primary" id="ntBtn" onclick="saveNote()">' + (cur ? '저장' : staff ? '기록하기' : '알리기') + '</button>' +
+    (cur ? '<button class="ghost-btn b-danger" onclick="delNote()">이 기록 지우기</button>' : '') + '<div class="msg" id="ntMsg"></div>';
+  openModal('noteModal');
+}
+function ntChips() { document.querySelectorAll('#ntCats .b-pick').forEach(function (b, i) { b.classList.toggle('on', NOTE_CATS[i] === NT.cat); }); }
+function ntAff(a) { var i = NT.aff.indexOf(a); if (i === -1) NT.aff.push(a); else NT.aff.splice(i, 1); document.querySelectorAll('#ntAff .b-pick').forEach(function (b, j) { b.classList.toggle('on', NT.aff.indexOf(NOTE_AFF[j]) !== -1); }); }
+function saveNote() {
+  var p = { team_id: S.team.id, id: NT.id, person_id: NT.person_id || ($('ntWho') && $('ntWho').value) || null, category: NT.cat, title: $('ntTitle').value.trim(),
+    body: $('ntBody').value.trim(), starts_on: $('ntFrom').value, ends_on: $('ntTo').value || null, affects: NT.aff };
+  if ($('ntFu')) p.followup = $('ntFu').value;
+  if (!p.category) { setMsg('ntMsg', '종류를 골라주세요', true); return; }
+  if (!p.title) { setMsg('ntMsg', '한 줄 요약을 적어주세요', true); return; }
+  var btn = $('ntBtn'); btn.disabled = true; setMsg('ntMsg', '저장 중...');
+  api('notes.save', p).then(function () {
+    haptic('success'); setMsg('ntMsg', NT.staff ? '기록했어요' : '알렸어요! 운영진에게 전달됐어요');
+    if (curTab === 'people') refreshPerson(); loadMyNotes();
+    setTimeout(function () { closeModal('noteModal'); }, 900);
+  }).catch(function (err) { btn.disabled = false; setMsg('ntMsg', err.message, true); });
+}
+function delNote() {
+  if (!NT.id || !confirm('이 기록을 지울까요?')) return;
+  api('notes.delete', { id: NT.id }).then(function () { closeModal('noteModal'); if (curTab === 'people') refreshPerson(); loadMyNotes(); }).catch(function (err) { setMsg('ntMsg', err.message, true); });
+}
+// 나의 기록: 내가 알린 특이사항
+var MYN = { list: [] };
+function loadMyNotes() {
+  if (!$('myNotes')) return;
+  api('notes.mine', { team_id: S.team.id }).then(function (l) {
+    MYN.list = l;
+    $('myNotes').innerHTML = l.length ? '<div class="section-head b-gap"><h2>내가 알린 특이사항</h2><span class="section-count">운영진만 봐요</span></div>' + l.slice(0, 6).map(function (n) {
+      return '<button type="button" class="card ppl-row" onclick="openNote({mineEdit:\'' + n.id + '\'})"><span class="ppl-mid"><b>' + (CAT_IC[n.category] || '📝') + ' ' + esc(n.title) + '</b><small>' + noteRange(n) + '</small></span><span class="st ' + (n.status === '해결됨' ? 'st-참석' : 'st-지각') + '">' + n.status + '</span></button>';
+    }).join('') : '';
+  }).catch(function () {});
+}

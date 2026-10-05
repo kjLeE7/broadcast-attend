@@ -161,7 +161,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -376,6 +376,13 @@
   관리 보기는 `MG` 깃발로 켜고 끔(탭 바꾸면 꺼짐): `MG.sess` 모임 출결 확인·마감·알림 상자 / `MG.ci` 체크인 현황 / `MG.rp` 팀 월간 리포트(기본은 내 기록만) / `MG.ann` 공지 확인 현황·고치기·삭제 / `MG.task` 과제 제출 현황 / `MG.rec` 녹음 요청 관리·한눈에·2주 모아보기(기본은 '내가 맡은 녹음') / `MG.dues` 회계.
   만들기 메뉴: 모임·체크인(일정), 시간취합, 장소 신청, 공지·과제, 녹음 요청, 스탯 주기(나의 기록), 모임 고치기·취소·지우기, 과제 고치기.
 
+### 인원 특이사항 (2026-10-06, 함수 버전 52)
+- 탭 '인원'(`peopleView`, `#peopleTab`, 어느 팀이든 교관 이상일 때만, 화면 제목 '한 사람 한 사람', 딥링크 `?go=people`). 지금 고른 팀(`S.team`) 기준, 그 팀 교관 이상이어야 봄.
+- 표(`supabase/migrations/20261006_person_notes.sql`): `person_notes`(team_id, person_id, category 건강·직장·학업·일정 충돌·가정·기타, title 60자, body, starts_on, ends_on(비면 계속), affects 수업·스터디·녹음·업무, status 진행 중·해결됨, followup 없음·보강·대체학습 + followup_done_at, source 운영진·본인, created_by) / `person_note_comments`(운영진 메모).
+- 왼쪽 팀원 한눈에(`people.board`): 진행 중 특이사항·최근 요약·보강 밀림·이번 주 새 것·연속 불참·최근 4주 출석률, 신경 쓸 사람(score)이 위로. 오른쪽 사람별 타임라인(`people.timeline`, 열람 기록 남김): 특이사항 카드(보강 완료 체크·해결됨·운영진 메모·고치기) + 출결 기록(불참·지각·조퇴·사전 불참과 사유, 180일)을 날짜순 한 줄로.
+- 팀원 쪽: '특이사항 알리기'(일정 탭·나의 기록 + 메뉴, `#noteModal`) → `notes.save`(본인 것만, 그 팀 교관 이상에게 봇 알림) / 나의 기록 아래 '내가 알린 특이사항'(`notes.mine`, 본인이 쓴 것만, 운영진 기록·메모는 안 보임).
+- 기능: `people.board/timeline`, `notes.save/status/comment/delete/mine`. **회의 모드는 아직**(사용자: 써 본 뒤 회의 얘기를 더 하고 붙이기).
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -512,6 +519,7 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
+- 인원 특이사항(🟡~🔴 성격): 다른 사람 것은 그 팀 교관 이상만 봄(열람 기록). 팀원은 자기가 알린 것만 쓰고 봄, 운영진 기록·메모는 못 봄. 지우기 = 쓴 사람·교관 이상.
 - 장소 신청: 신청·취소는 과원 누구나(취소는 본인). 승인·반려는 그 장소 승인자만(관리자 페이지 지정, 기본 녹음실=엔지니어팀장, 총회·성전=부과장 이상).
 - 관리자 페이지: 관리자 명단(`admins`)만. 관리자·회계·장소 승인자 지정, 결산 켜기·공개일.
 - 첨부 대본: 올리기·지우기 = 그 글 쓴 사람·관리자(공지 팀 교관/과 팀장, 과제 교관 이상). 열기 = 쓴 사람·관리자·받는 사람, 5분 주소, 열람 기록. 14일 뒤 자동 삭제. 우리 교회 대본은 올리지 않음(NAS).

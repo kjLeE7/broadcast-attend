@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006m">
+  <link rel="stylesheet" href="beta.css?v=20261006o">
 </head>
 <body>
   <div class="app">
@@ -324,6 +324,8 @@
           </div>
         </div>
 
+        <!-- 내가 알린 특이사항 (본인 것만) -->
+        <div id="myNotes"></div>
         <div class="section-head b-gap"><h2>한 달 활동</h2><span class="section-count" id="pfMonthNote"></span></div>
         <div class="b-month">
           <button type="button" onclick="pfMoveMonth(-1)">‹</button>
@@ -457,6 +459,20 @@
       <div id="placeArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
 
+    <!-- ===== 인원 특이사항 (그 팀 교관 이상) ===== -->
+    <section id="peopleView" style="display:none;">
+      <div id="pplList">
+        <h1 class="page-title">한 사람 한 사람</h1>
+        <p class="page-desc">팀원별 특이사항과 출결 기록을 한 줄로 모아봐요. 운영진(교관 이상)만 봐요</p>
+        <div id="pplBoard"><div class="b-wait">불러오는 중...</div></div>
+      </div>
+      <div id="pplDetail" style="display:none;">
+        <button class="back" onclick="closePerson()">‹ 팀원 목록</button>
+        <button class="b-close" type="button" onclick="closePerson()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+        <div id="pplTimeline"></div>
+      </div>
+    </section>
+
     <!-- ===== 관리자 페이지 (관리자 명단만) ===== -->
     <section id="adminView" style="display:none;">
       <h1 class="page-title">관리자</h1>
@@ -565,6 +581,10 @@
     <button class="tab" data-tab="sky" title="하늘방송국" id="skyTab" onclick="goTab('sky')" style="display:none;">
       <svg viewBox="0 0 24 24"><path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-5h6v5"/><path d="M12 4V1.5M9.5 2.5l5 0"/><path d="M8 11h2M14 11h2"/></svg>
       <span>하늘방송국</span>
+    </button>
+    <button class="tab" data-tab="people" title="인원" id="peopleTab" onclick="goTab('people')" style="display:none;">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.6c2.6.2 4.4 2 5 4.9"/></svg>
+      <span>인원</span>
     </button>
     <button class="tab" data-tab="admin" title="관리자" id="adminTab" onclick="goTab('admin')" style="display:none;">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -718,6 +738,16 @@
         <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
       </div>
       <div class="b-modal-body" id="bdayBody"></div>
+    </div>
+  </div>
+  <div class="b-modal" id="noteModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="noteModalT">
+      <div class="b-modal-head">
+        <div><h1 id="noteModalT">특이사항 알리기</h1><p id="noteModalSub">수업·스터디·녹음에 나오기 어려운 사정을 알려주세요. 운영진(교관 이상)만 봐요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body" id="noteBody"></div>
     </div>
   </div>
   <div class="b-modal" id="placeModal" aria-hidden="true">
@@ -907,6 +937,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006m"></script>
+  <script src="beta.js?v=20261006n"></script>
 </body>
 </html>

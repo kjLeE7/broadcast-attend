@@ -1627,6 +1627,32 @@ async function placeApprovers(ctx: Ctx, kind: string, sectionId: string) {
 }
 const PLACE_KIND: Record<string, string> = { recording: "녹음실 (엔지니어팀장 승인)", external: "다른 부서도 쓰는 곳 (과장·부과장 승인)", none: "먼저 신청한 사람이 써요" };
 
+// ----- 인원 특이사항 -----
+const NOTE_CAT = ["건강", "직장·학업", "일정 충돌", "가정", "기타"], NOTE_AFFECT = ["수업", "스터디", "녹음", "업무"];
+async function noteStaff(ctx: Ctx, teamId: string) {
+  if (!UUID_RE.test(String(teamId))) throw new HttpError(400, "팀을 다시 골라주세요");
+  if ((await rankIn(ctx, teamId)) < RANK.INSTRUCTOR) throw new HttpError(403, "인원 특이사항은 그 팀 교관 이상만 볼 수 있어요");
+}
+// 팀원 = 그 팀(과 상속 포함) 직책이 있는 활성 인원
+async function noteMembers(ctx: Ctx, teamId: string) { return await unitAudience(ctx, teamId); }
+function noteFields(p: any, staff: boolean) {
+  const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n);
+  const row: any = {};
+  if (!NOTE_CAT.includes(p.category)) throw new HttpError(400, "종류를 골라주세요");
+  row.category = p.category;
+  row.title = t(p.title, 60); if (!row.title) throw new HttpError(400, "한 줄 요약을 적어주세요");
+  row.body = t(p.body, 1000) || null;
+  if (!isDate(p.starts_on)) throw new HttpError(400, "언제부터인지 골라주세요");
+  row.starts_on = p.starts_on; row.ends_on = isDate(p.ends_on) ? p.ends_on : null;
+  if (row.ends_on && row.ends_on < row.starts_on) throw new HttpError(400, "끝나는 날이 시작보다 빨라요");
+  row.affects = (Array.isArray(p.affects) ? p.affects : []).filter((x: any) => NOTE_AFFECT.includes(x));
+  if (staff) {
+    if (p.status !== undefined) { if (!["진행 중", "해결됨"].includes(p.status)) throw new HttpError(400, "상태가 올바르지 않아요"); row.status = p.status; }
+    if (p.followup !== undefined) { if (!["없음", "보강", "대체학습"].includes(p.followup)) throw new HttpError(400, "후속 조치가 올바르지 않아요"); row.followup = p.followup; }
+  }
+  return row;
+}
+
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 내 정보 + 내가 접근할 수 있는 팀 목록(팀 선택 탭용)
@@ -2371,6 +2397,120 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     else throw new HttpError(400, "바꿀 수 없는 설정이에요");
     must(await ctx.db.from("app_settings").upsert({ key, value: val, updated_by: ctx.me.id, updated_at: new Date().toISOString() }));
     return { key, value: val };
+  },
+
+  // ----- 인원 특이사항 -----
+  // 팀원 한눈에 { team_id } (교관 이상): 진행 중 특이사항·보강 밀린 것·최근 4주 출석률·연속 불참, 신경 쓸 사람이 위로
+  async "people.board"(ctx) {
+    const { team_id } = ctx.payload ?? {};
+    await noteStaff(ctx, team_id);
+    const members = await noteMembers(ctx, team_id), ids = members.map((m: any) => m.id);
+    const since = addDaysStr(kstToday(), -28);
+    const [notes, sess] = await Promise.all([
+      ids.length ? ctx.db.from("person_notes").select("person_id, status, followup, followup_done_at, created_at, title, category").eq("team_id", team_id).in("person_id", ids).then(must) : [],
+      ctx.db.from("meeting_sessions").select("id, session_date").eq("team_id", team_id).not("closed_at", "is", null).gte("session_date", since).order("session_date").then(must),
+    ]);
+    const sids = (sess ?? []).map((x: any) => x.id), order = new Map((sess ?? []).map((x: any, i: number) => [x.id, i]));
+    const att: any[] = sids.length ? must(await ctx.db.from("attendance").select("session_id, person_id, status").in("session_id", sids)) ?? [] : [];
+    const week = Date.now() - 7 * 24 * HOUR;
+    const out = members.map((m: any) => {
+      const ns = (notes as any[]).filter((n) => n.person_id === m.id);
+      const open = ns.filter((n) => n.status === "진행 중"), due = ns.filter((n) => n.followup !== "없음" && !n.followup_done_at);
+      const a = att.filter((x) => x.person_id === m.id).sort((x, y) => (order.get(x.session_id) as number) - (order.get(y.session_id) as number));
+      const came = a.filter((x) => ["참석", "지각", "조퇴"].includes(x.status)).length;
+      let streak = 0; for (let i = a.length - 1; i >= 0 && a[i].status === "불참"; i--) streak++;
+      const fresh = ns.filter((n) => Date.parse(n.created_at) > week).length;
+      return { id: m.id, name: m.name, position: m.position, group: m.group, open: open.length, latest: open.sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0]?.title ?? null,
+        followup: due.length, fresh, rate: a.length ? Math.round(came / a.length * 100) : null, sessions: a.length, streak,
+        score: fresh * 3 + due.length * 2 + open.length + (streak >= 2 ? 3 : 0) + (a.length && came / a.length < .6 ? 2 : 0) };
+    }).sort((x: any, y: any) => y.score - x.score || x.name.localeCompare(y.name));
+    return { members: out };
+  },
+  // 한 사람 타임라인 { team_id, person_id } (교관 이상): 특이사항(+운영진 메모) + 출결(불참·지각·조퇴와 사유, 사전 불참), 최근 180일. 열람 기록 남김
+  async "people.timeline"(ctx) {
+    const { team_id, person_id } = ctx.payload ?? {};
+    await noteStaff(ctx, team_id);
+    const m = (await noteMembers(ctx, team_id)).find((x: any) => x.id === person_id);
+    if (!m) throw new HttpError(404, "이 팀 사람이 아니에요");
+    const since = addDaysStr(kstToday(), -180);
+    const [notes, sess] = await Promise.all([
+      ctx.db.from("person_notes").select("*, person_note_comments(id, author_id, body, created_at)").eq("team_id", team_id).eq("person_id", person_id).order("starts_on", { ascending: false }).then(must),
+      ctx.db.from("meeting_sessions").select("id, title, session_date, start_time, status, meeting_types(name)").eq("team_id", team_id).gte("session_date", since).neq("status", "취소").then(must),
+    ]);
+    const sById = new Map((sess ?? []).map((x: any) => [x.id, x]));
+    const att: any[] = sById.size ? must(await ctx.db.from("attendance").select("session_id, status, planned_status, planned_reason, reason").eq("person_id", person_id).in("session_id", [...sById.keys()])) ?? [] : [];
+    const names = await nameMap(ctx, [...(notes ?? []).flatMap((n: any) => [n.created_by, ...n.person_note_comments.map((c: any) => c.author_id)])]);
+    const events = att.filter((a) => ["불참", "지각", "조퇴"].includes(a.status) || (!a.status && a.planned_status && a.planned_status !== "참석")).map((a) => {
+      const se: any = sById.get(a.session_id);
+      return { date: se.session_date, name: se.title || se.meeting_types?.name || "모임", status: a.status || "사전 " + a.planned_status, reason: a.reason || a.planned_reason || "" };
+    }).sort((x, y) => (x.date < y.date ? 1 : -1));
+    await logAccess(ctx, "person_timeline", "people", person_id);
+    return {
+      person: { id: m.id, name: m.name, position: m.position, group: m.group },
+      notes: (notes ?? []).map((n: any) => ({ ...n, by: names.get(n.created_by) ?? "", person_note_comments: undefined,
+        comments: n.person_note_comments.sort((x: any, y: any) => (x.created_at < y.created_at ? -1 : 1)).map((c: any) => ({ id: c.id, by: names.get(c.author_id) ?? "", body: c.body, at: c.created_at })) })),
+      events,
+    };
+  },
+  // 특이사항 쓰기·고치기 { team_id, id?, person_id, category, title, body, starts_on, ends_on, affects, status?, followup? }
+  // 교관 이상 = 그 팀 누구든(운영진). 팀원 = 나 자신만(본인), 운영진 기록은 못 고침. 팀원이 새로 알리면 그 팀 교관 이상에게 봇 알림
+  async "notes.save"(ctx) {
+    const p = ctx.payload ?? {};
+    const staff = (await rankIn(ctx, p.team_id)) >= RANK.INSTRUCTOR;
+    const members = await noteMembers(ctx, p.team_id);
+    if (!members.some((m: any) => m.id === ctx.me.id)) throw new HttpError(403, "이 팀 사람만 쓸 수 있어요");
+    const pid = staff ? String(p.person_id ?? ctx.me.id) : ctx.me.id;
+    if (!members.some((m: any) => m.id === pid)) throw new HttpError(400, "이 팀 사람을 골라주세요");
+    const row = noteFields(p, staff);
+    if (p.id) {
+      const cur = must(await ctx.db.from("person_notes").select("id, team_id, created_by, source").eq("id", p.id).maybeSingle());
+      if (!cur || cur.team_id !== p.team_id) throw new HttpError(404, "없는 기록이에요");
+      if (!staff && cur.created_by !== ctx.me.id) throw new HttpError(403, "내가 쓴 것만 고칠 수 있어요");
+      return must(await ctx.db.from("person_notes").update(row).eq("id", cur.id).select("id").single());
+    }
+    await rateLimit(ctx, "note_new", 30, 60);
+    const n = must(await ctx.db.from("person_notes").insert({ ...row, team_id: p.team_id, person_id: pid, source: staff && pid !== ctx.me.id ? "운영진" : "본인", created_by: ctx.me.id }).select("id").single());
+    if (!staff) {
+      const leads = members.filter((m: any) => m.rank >= RANK.INSTRUCTOR && m.id !== ctx.me.id).map((m: any) => m.id);
+      await sendToMembers(await withTelegram(ctx, leads), `📝 <b>${escHtml(ctx.me.name)}</b>님이 특이사항을 알렸어요\n[${escHtml(row.category)}] ${escHtml(row.title)}`, appButton("인원 화면 열기", "?go=people"));
+    }
+    return n;
+  },
+  // 상태·후속 { id, status?, followup_done? } (교관 이상)
+  async "notes.status"(ctx) {
+    const p = ctx.payload ?? {};
+    const cur = must(await ctx.db.from("person_notes").select("id, team_id").eq("id", p.id).maybeSingle());
+    if (!cur) throw new HttpError(404, "없는 기록이에요");
+    await noteStaff(ctx, cur.team_id);
+    const up: any = {};
+    if (p.status !== undefined) { if (!["진행 중", "해결됨"].includes(p.status)) throw new HttpError(400, "상태가 올바르지 않아요"); up.status = p.status; }
+    if (p.followup_done !== undefined) up.followup_done_at = p.followup_done ? new Date().toISOString() : null;
+    must(await ctx.db.from("person_notes").update(up).eq("id", cur.id));
+    return { ok: true };
+  },
+  // 운영진 메모 { id, body } (교관 이상)
+  async "notes.comment"(ctx) {
+    const p = ctx.payload ?? {};
+    const cur = must(await ctx.db.from("person_notes").select("id, team_id").eq("id", p.id).maybeSingle());
+    if (!cur) throw new HttpError(404, "없는 기록이에요");
+    await noteStaff(ctx, cur.team_id);
+    const body = String(p.body ?? "").trim().slice(0, 500);
+    if (!body) throw new HttpError(400, "메모를 적어주세요");
+    return must(await ctx.db.from("person_note_comments").insert({ note_id: cur.id, author_id: ctx.me.id, body }).select("id").single());
+  },
+  // 지우기 { id }: 쓴 사람 또는 교관 이상
+  async "notes.delete"(ctx) {
+    const cur = must(await ctx.db.from("person_notes").select("id, team_id, created_by").eq("id", ctx.payload?.id).maybeSingle());
+    if (!cur) throw new HttpError(404, "없는 기록이에요");
+    if (cur.created_by !== ctx.me.id) await noteStaff(ctx, cur.team_id);
+    must(await ctx.db.from("person_notes").delete().eq("id", cur.id));
+    return { ok: true };
+  },
+  // 내가 알린 특이사항 { team_id } (누구나, 내가 쓴 본인 것만. 운영진 기록·메모는 안 보임)
+  async "notes.mine"(ctx) {
+    const rows: any[] = must(await ctx.db.from("person_notes").select("id, team_id, category, title, body, starts_on, ends_on, affects, status, created_at")
+      .eq("person_id", ctx.me.id).eq("created_by", ctx.me.id).eq("source", "본인").order("starts_on", { ascending: false }).limit(50)) ?? [];
+    return rows;
   },
 
   // 내 한 달 활동: { month: "YYYY-MM" }
