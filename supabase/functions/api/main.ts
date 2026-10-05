@@ -1693,6 +1693,39 @@ async function approvePending(ctx: Ctx, r: any) {
 
 // ----- 인원 특이사항 -----
 const NOTE_CAT = ["건강", "직장·학업", "일정 충돌", "가정", "기타"], NOTE_AFFECT = ["수업", "스터디", "녹음", "업무"];
+// 인원 탭: 사람마다 최근 녹음(확정·완료 회차의 selected)과 받은 스탯·피드백 (2026-10-07)
+async function pplWork(ctx: Ctx, ids: string[], teamId: string, perPerson: number) {
+  if (!ids.length) return { recs: new Map<string, any[]>(), grants: new Map<string, any[]>() };
+  const since = new Date(Date.now() - 180 * 86400000).toISOString();
+  const sec = await sectionOf(ctx, teamId), detail = await permAnyTeam(ctx, "rec_detail", sec.teamIds);
+  const [rp, gr] = await Promise.all([
+    ctx.db.from("recording_participants").select("person_id, role, role_id, recording_sessions!inner(id, title, status, scheduled_start, location, recording_requests(title, request_code))")
+      .in("person_id", ids).eq("selected", true).in("recording_sessions.status", ["예정", "완료"]).gte("recording_sessions.scheduled_start", since),
+    ctx.db.from("stat_grants").select("id, person_id, granted_by, source_type, source_id, comment, created_at, stat_grant_items(xp, stat_axes(name))")
+      .in("person_id", ids).is("revoked_at", null).gte("created_at", since).order("created_at", { ascending: false }),
+  ]);
+  const R: any[] = must(rp as any) ?? [], G: any[] = must(gr as any) ?? [];
+  const roleIds = [...new Set(R.map((x) => x.role_id).filter(Boolean))];
+  const roles: any[] = roleIds.length ? must(await ctx.db.from("recording_roles").select("id, name").in("id", roleIds)) ?? [] : [];
+  const roleName = new Map(roles.map((x) => [x.id, x.name]));
+  const names = await nameMap(ctx, G.map((g) => g.granted_by));
+  const recs = new Map<string, any[]>(), grants = new Map<string, any[]>();
+  for (const x of R.sort((a, b) => (a.recording_sessions.scheduled_start < b.recording_sessions.scheduled_start ? 1 : -1))) {
+    const rs = x.recording_sessions, l = recs.get(x.person_id) ?? []; if (l.length >= perPerson) continue;
+    l.push({ session_id: rs.id, at: Date.parse(rs.scheduled_start), done: rs.status === "완료",
+      title: detail ? [rs.recording_requests?.title, rs.title].filter(Boolean).join(" · ") : "녹음", code: detail ? rs.recording_requests?.request_code ?? "" : "",
+      role: x.role === "녹음자" ? (detail && roleName.get(x.role_id) ? "배역 " + roleName.get(x.role_id) : "성우") : x.role, place: detail ? rs.location ?? "" : "" });
+    recs.set(x.person_id, l);
+  }
+  for (const g of G) {
+    const l = grants.get(g.person_id) ?? []; if (l.length >= perPerson) continue;
+    l.push({ id: g.id, at: g.created_at, by: names.get(g.granted_by) ?? "", type: g.source_type, comment: g.comment,
+      xp: (g.stat_grant_items ?? []).map((i: any) => ({ axis: i.stat_axes?.name ?? "", xp: i.xp })), total: (g.stat_grant_items ?? []).reduce((n: number, i: any) => n + i.xp, 0) });
+    grants.set(g.person_id, l);
+  }
+  return { recs, grants };
+}
+
 async function noteStaff(ctx: Ctx, teamId: string) {
   if (!UUID_RE.test(String(teamId))) throw new HttpError(400, "팀을 다시 골라주세요");
   if ((await rankIn(ctx, teamId)) < await permMin(ctx, "people_notes")) throw new HttpError(403, "인원 특이사항을 볼 권한이 없어요");
@@ -2660,6 +2693,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const sids = (sess ?? []).map((x: any) => x.id), order = new Map((sess ?? []).map((x: any, i: number) => [x.id, i]));
     const att: any[] = sids.length ? must(await ctx.db.from("attendance").select("session_id, person_id, status").in("session_id", sids)) ?? [] : [];
     const week = Date.now() - 7 * 24 * HOUR;
+    const work = await pplWork(ctx, ids, team_id, 1).catch((e) => { console.error("ppl work", e); return { recs: new Map(), grants: new Map() }; });
     const out = members.map((m: any) => {
       const ns = (notes as any[]).filter((n) => n.person_id === m.id);
       const open = ns.filter((n) => n.status === "진행 중"), due = ns.filter((n) => n.followup !== "없음" && !n.followup_done_at);
@@ -2669,6 +2703,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       const fresh = ns.filter((n) => Date.parse(n.created_at) > week).length;
       return { id: m.id, name: m.name, position: m.position, rank: m.rank ?? 0, group: m.group, open: open.length, latest: open.sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0]?.title ?? null,
         followup: due.length, fresh, rate: a.length ? Math.round(came / a.length * 100) : null, sessions: a.length, streak,
+        last_rec: (work.recs.get(m.id) ?? [])[0] ?? null, last_grant: (work.grants.get(m.id) ?? [])[0] ?? null,
         score: fresh * 3 + due.length * 2 + open.length + (streak >= 2 ? 3 : 0) + (a.length && came / a.length < .6 ? 2 : 0) };
     }).sort((x: any, y: any) => y.score - x.score || x.name.localeCompare(y.name));
     return { members: out };
@@ -2692,7 +2727,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       return { date: se.session_date, name: se.title || se.meeting_types?.name || "모임", status: a.status || "사전 " + a.planned_status, reason: a.reason || a.planned_reason || "" };
     }).sort((x, y) => (x.date < y.date ? 1 : -1));
     await logAccess(ctx, "person_timeline", "people", person_id);
+    const work = await pplWork(ctx, [person_id], team_id, 12).catch((e) => { console.error("ppl work", e); return { recs: new Map(), grants: new Map() }; });
     return {
+      recs: work.recs.get(person_id) ?? [], grants: work.grants.get(person_id) ?? [],
       person: { id: m.id, name: m.name, position: m.position, group: m.group },
       notes: (notes ?? []).map((n: any) => ({ ...n, by: names.get(n.created_by) ?? "", person_note_comments: undefined,
         comments: n.person_note_comments.sort((x: any, y: any) => (x.created_at < y.created_at ? -1 : 1)).map((c: any) => ({ id: c.id, by: names.get(c.author_id) ?? "", body: c.body, at: c.created_at })) })),

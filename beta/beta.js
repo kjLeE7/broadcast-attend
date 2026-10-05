@@ -5263,7 +5263,9 @@ function pplRow(m) {
   if (m.open) tags.push(['', '진행 ' + m.open]);
   return '<button type="button" class="ppl-it' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + (tags.length ? ' flag' : '') + '" onclick="openPerson(\'' + m.id + '\')">' +
     '<span class="ppl-av">' + esc(m.name.slice(-2)) + '</span>' +
-    '<span class="ppl-nm"><b>' + esc(m.name) + '</b><small>' + (m.latest ? esc(m.latest) : esc(m.position || '')) + '</small></span>' +
+    '<span class="ppl-nm"><b>' + esc(m.name) + '<i class="ppl-pos">' + esc(m.position || '') + '</i></b><small>' + (m.latest ? '📝 ' + esc(m.latest) : '') + '</small>' +
+      (m.last_rec || m.last_grant ? '<span class="ppl-work">' + (m.last_rec ? '<span>🎙 ' + esc(m.last_rec.title) + ' <em>' + shortD(ymd(new Date(m.last_rec.at))) + '</em></span>' : '') +
+        (m.last_grant ? '<span>⭐ ' + (m.last_grant.total ? '+' + m.last_grant.total + ' ' : '') + '“' + esc(m.last_grant.comment) + '”</span>' : '') + '</span>' : '') + '</span>' +
     (tags.length ? '<span class="tv-tags">' + tags.map(function (x) { return '<em class="' + x[0] + '">' + x[1] + '</em>'; }).join('') + '</span>' : '') +
     '<span class="ppl-rate ' + (m.rate == null ? '' : m.rate < 60 ? 'bad' : m.rate < 80 ? 'warn' : 'ok') + '">' + (m.rate == null ? '–' : m.rate + '%') + '</span></button>';
 }
@@ -5316,7 +5318,17 @@ function renderTimeline() {
         '<div class="tl-acts"><input type="text" maxlength="500" placeholder="운영진 메모 남기기 (본인은 못 봐요)" id="nc-' + n.id + '" onkeydown="if(event.key===\'Enter\')noteComment(\'' + n.id + '\')">' +
           '<button onclick="noteComment(\'' + n.id + '\')">남기기</button><button onclick="noteStatus(\'' + n.id + '\',{status:\'' + (done ? '진행 중' : '해결됨') + '\'})">' + (done ? '다시 진행 중' : '해결됨') + '</button>' +
           '<button onclick="openNote({edit:\'' + n.id + '\'})">고치기</button></div></div></div>';
-    }).join('') + '</div>' : '<div class="empty"><b>기록이 없어요</b>오른쪽 아래 + 로 특이사항을 적어요</div>');
+    }).join('') + '</div>' : '<p class="rec-none">특이사항·출결 기록이 없어요</p>');
+  // 최근 녹음 · 받은 스탯·피드백 (위에 붙임)
+  var recs = d.recs || [], grants = d.grants || [];
+  var work = '<div class="ppl-wk"><div class="card ppl-wbox"><div class="ppl-wh">🎙 최근 녹음 <small>' + recs.length + '건 · 6개월</small></div>' +
+      (recs.length ? recs.map(function (r) { return '<div class="ppl-wr"><span class="tl-d">' + shortD(ymd(new Date(r.at))) + '</span><div><b>' + esc(r.title) + '</b><small>' + esc([r.role, r.place, r.code].filter(Boolean).join(' · ')) + (r.done ? '' : ' · 예정') + '</small></div></div>'; }).join('') : '<p class="rec-none">녹음 기록이 없어요</p>') + '</div>' +
+    '<div class="card ppl-wbox"><div class="ppl-wh">⭐ 받은 스탯·피드백 <small>' + grants.length + '건</small></div>' +
+      (grants.length ? grants.map(function (g) { return '<div class="ppl-wr"><span class="tl-d">' + shortD(ymd(new Date(Date.parse(g.at)))) + '</span><div><b>“' + esc(g.comment) + '”</b><small>' + esc(g.by + ' · ' + g.type) + '</small>' +
+        (g.xp.length ? '<span class="ppl-xp">' + g.xp.map(function (x) { return '<em>' + esc(x.axis) + ' +' + x.xp + '</em>'; }).join('') + '</span>' : '') + '</div></div>'; }).join('') : '<p class="rec-none">받은 스탯이 없어요</p>') + '</div></div>';
+  var tl = $('pplTimeline'), head = tl.querySelector('.b-dhead');
+  head.insertAdjacentHTML('beforeend', '<button type="button" class="ppl-addnote" onclick="openNote({person_id:\'' + p.id + '\'})">+ 특이사항 적기</button>');
+  head.insertAdjacentHTML('afterend', work + '<div class="section-head b-gap"><h2>특이사항·출결</h2></div>');
 }
 function noteStatus(id, up) { api('notes.status', Object.assign({ id: id }, up)).then(function () { haptic('success'); refreshPerson(); }).catch(function (err) { alertMsg(err.message); }); }
 function noteComment(id) {
