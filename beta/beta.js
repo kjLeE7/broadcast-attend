@@ -745,6 +745,7 @@ function createSession() {
     end_time: $('cEnd').value || null,
     location: getPlace() || null,
     description: $('cDesc').value.trim() || null,
+    review_due: $('cReviewDue').value || null,
     notify: $('cNotify').checked,
     checkin_items: cCiItems()
   };
@@ -774,7 +775,7 @@ function createSession() {
     });
     if (s.team_id === S.team.id) S.sessions.push(s);
     S.sessions.sort(function (a, b) { return a.session_date + (a.start_time || '') < b.session_date + (b.start_time || '') ? -1 : 1; });
-    ['cTitle', 'cStart', 'cEnd', 'cDesc'].forEach(function (id) { $(id).value = ''; }); setPlace('');
+    ['cTitle', 'cStart', 'cEnd', 'cDesc', 'cReviewDue'].forEach(function (id) { $(id).value = ''; }); setPlace('');
     $('cType').value = ''; pkReset('c'); setCCiItems([]); $('cAgenda').innerHTML = ''; cAgSync();
     btn.disabled = false;
     // 체크인이 같이 생겼으면 출결 위 체크인 카드도 새로
@@ -814,7 +815,8 @@ function openSession(id) {
   loadFiles('session', [s], function () { if (S.current && S.current.id === s.id) renderHead(); });
   $('myCard').style.display = 'block';
   $('myCard').innerHTML = '<div class="b-wait">불러오는 중...</div>';
-  ['board', 'boardChips', 'boardActs', 'remindBox'].forEach(function (k) { $(k).innerHTML = ''; });
+  ['board', 'boardChips', 'boardActs', 'remindBox', 'reviewBox'].forEach(function (k) { $(k).innerHTML = ''; });
+  loadReviews(s.id);
   $('boardCount').textContent = ''; setMsg('boardMsg', '');
   loadBoard(true);
   if (!wide) window.scrollTo(0, 0);
@@ -2075,6 +2077,7 @@ function editSession() {
   $('cTitle').value = s.title || ''; $('cDate').value = s.session_date;
   setTm('cStart', hm(s.start_time)); setTm('cEnd', hm(s.end_time));
   setPlace(s.location || ''); $('cDesc').value = s.description || '';
+  $('cReviewDue').value = s.review_due ? isoLocal(s.review_due) : '';
   setCCiItems(sessCiItems(s));
   $('cNotify').checked = false; $('cNotify').nextElementSibling.textContent = '바뀐 날짜·시간·장소를 대상자에게 알리기';
   if (s.closed_at) setMsg('cMsg', '출결이 마감된 모임이에요. 시작 시간을 바꾸면 도착 확인한 사람의 참석·지각을 새 시간으로 다시 매겨요');
@@ -2084,8 +2087,8 @@ function editSession() {
 function saveSessEdit() {
   var s = S.current; if (!s || s.id !== EDIT.id) return;
   var cand = { title: $('cTitle').value.trim() || null, session_date: $('cDate').value, start_time: $('cStart').value || null,
-    end_time: $('cEnd').value || null, location: getPlace() || null, description: $('cDesc').value.trim() || null };
-  var cur = { title: s.title || null, session_date: s.session_date, start_time: s.start_time ? hm(s.start_time) : null,
+    end_time: $('cEnd').value || null, location: getPlace() || null, description: $('cDesc').value.trim() || null, review_due: $('cReviewDue').value || null };
+  var cur = { review_due: s.review_due ? isoLocal(s.review_due) : null, title: s.title || null, session_date: s.session_date, start_time: s.start_time ? hm(s.start_time) : null,
     end_time: s.end_time ? hm(s.end_time) : null, location: s.location || null, description: s.description || null };
   if (!cand.session_date) { setMsg('cMsg', '날짜를 골라주세요!', true); return; }
   if (!cand.start_time) { setMsg('cMsg', '시작 시간을 넣어주세요!', true); return; }
@@ -3917,6 +3920,7 @@ function todoRow(t, i) {
       if (t.kind === 'task') return row(i, '📝', '과제 제출 · ' + t.name, t.due ? '마감 ' + dtLabel(t.due) : '마감 없음', t.urgent);
       if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
       if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
+      if (t.kind === 'review') return row(i, '📝', '모임 후기 · ' + t.name, shortD(t.date) + ' 모임 · ' + mdw(t.due) + ' ' + hmMs(t.due) + '까지', t.urgent);
       if (t.kind === 'approve') return row(i, '🗳', '승인할 신청 ' + t.n + '건', t.name + ' · 승인함에서 확인', true);
       if (t.kind === 'mytodo') return row(i, '✅', t.name, (t.due < todayStr() ? '마감 지남 · ' : t.due === todayStr() ? '오늘까지 · ' : t.due.slice(5).replace('-', '/') + '까지 · ') + '할 일', t.urgent);
       if (t.kind === 'flowstep') return row(i, '🧩', t.flow + ' · ' + t.name, (t.state === '막힘' ? '막힘 · ' : t.state === '시작' ? '하는 중 · ' : '내 차례 · ') + (t.due ? t.due.slice(5).replace('-', '/') + '까지 · ' : '') + '눌러서 보고', t.urgent);
@@ -3944,6 +3948,7 @@ function openTodo(i) {
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
   if (t.kind === 'recask' || t.kind === 'recarrive' || t.kind === 'recrun') { openAsk(t.id); return; }
   if (t.kind === 'approve') { goTab('approve'); return; }
+  if (t.kind === 'review') { inTeam(function () { goTab('attend'); return refreshSessions().then(function () { if (byId(S.sessions, t.id)) openSession(t.id); }); }); return; }
   if (t.kind === 'myrec') { openAsk(t.id); return; }
   if (t.kind === 'duty') { openDashItem('duty', t.id); return; }
   if (t.kind === 'project') { openDashItem('project', t.id); return; }
@@ -5458,8 +5463,11 @@ function fwAct(spId) {
   openModal('itemModal');
 }
 function fwMark(spId, state) {
-  api('flow.mark', { id: spId, state: state, note: $('fwANote').value }).then(function () { haptic('success'); closeModal('itemModal'); loadFlows(); refreshTodos(true); })
-    .catch(function (err) { setMsg('fwAMsg', err.message, true); });
+  if (FW.marking) return; FW.marking = true;   // 두 번 눌러도 한 번만
+  document.querySelectorAll('.fw-ab').forEach(function (b) { b.disabled = true; });
+  var unlock = function () { FW.marking = false; document.querySelectorAll('.fw-ab').forEach(function (b) { b.disabled = false; }); };
+  api('flow.mark', { id: spId, state: state, note: $('fwANote').value }).then(function () { unlock(); haptic('success'); closeModal('itemModal'); loadFlows(); refreshTodos(true); })
+    .catch(function (err) { unlock(); setMsg('fwAMsg', err.message, true); });
 }
 function fwCancel(id, remove) {
   if (!confirm('이 작업 흐름을 지울까요? 단계·진행 기록도 같이 지워지고, 더 이상 알림이 안 가요')) return;
@@ -5646,7 +5654,7 @@ function renderMyTodos() {
 // 앱이 알아서 모은 할 일을 종류별로 (지금 할 일 + 앞으로 2주 녹음·업무 + 내 담당 프로젝트)
 var MY_CATS = [
   ['⏰ 체크인', ['checkin']],
-  ['🙋 모임·출결', ['plan', 'reason', 'mtgprep', 'mtgaction']],
+  ['🙋 모임·출결·후기', ['plan', 'reason', 'review', 'mtgprep', 'mtgaction']],
   ['🎙 녹음', ['recask', 'recarrive', 'recrun', 'myrec']],
   ['🧩 프로젝트·업무', ['flowstep', 'duty', 'project', 'flowwait']],
   ['🕒 업무가능·시간취합', ['weekly', 'poll']],
@@ -5782,3 +5790,37 @@ function openDashItem(src, id) {
   }).catch(function (err) { clearTimeout(slow); $('itemModalT').textContent = '열 수 없어요'; $('itemModalS').textContent = ''; $('itemBody').innerHTML = '<p class="rec-none">' + esc(err.message) + '</p>'; if (!shown) openModal('itemModal'); });
 }
 document.addEventListener('keydown', function (e) { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('dash-tap')) { e.preventDefault(); e.target.click(); } });
+
+// =====================================================================
+// 모임 후기: 대상자는 모임 시작 ~ 후기 마감 동안 쓰고 고침, 조장 이상은 모아 보기 + 안 쓴 사람
+// =====================================================================
+function isoLocal(iso) { var d = new Date(iso); return ymd(d) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+var RV = { d: null, sid: null, open: false };
+function loadReviews(sid) {
+  RV.sid = sid; RV.d = null;
+  api('reviews.get', { session_id: sid }).then(function (d) { if (RV.sid !== sid) return; RV.d = d; renderReviews(); })
+    .catch(function () { $('reviewBox').innerHTML = ''; });
+}
+function renderReviews() {
+  var d = RV.d; if (!d || (!d.member && !d.staff)) { $('reviewBox').innerHTML = ''; return; }
+  var due = mdw(d.due) + ' ' + hmMs(d.due), h = '<div class="section-head b-gap"><h2>모임 후기</h2><span class="section-count">' + (d.open ? due + '까지' : d.started ? '마감됨 · ' + due : '모임이 시작하면 쓸 수 있어요 · ' + due + '까지') + '</span></div>';
+  if (d.member) {
+    if (d.open) h += '<div class="card rv-mine"><textarea id="rvBody" rows="4" maxlength="3000" placeholder="이번 모임을 통해 무엇을 느꼈나요? 배운 점, 다짐, 아쉬운 점을 한두 줄이라도 좋아요">' + esc(d.mine ? d.mine.body : '') + '</textarea>' +
+      '<div class="rv-acts">' + (d.mine ? '<small>' + mdw(Date.parse(d.mine.updated_at)) + ' ' + hmMs(Date.parse(d.mine.updated_at)) + ' 저장됨 · 마감 전까지 고칠 수 있어요</small>' : '<small>조장 이상 운영진만 볼 수 있어요</small>') +
+      '<button class="btn-primary" id="rvBtn" onclick="saveReview()">' + (d.mine ? '고치기' : '후기 남기기') + '</button></div><div class="msg" id="rvMsg"></div></div>';
+    else if (d.mine) h += '<div class="card rv-mine done"><p>' + esc(d.mine.body) + '</p><small>내가 남긴 후기</small></div>';
+    else if (d.started) h += '<p class="rec-none">후기를 남기지 못했어요 (마감 ' + due + ')</p>';
+  }
+  if (d.staff) {
+    var l = d.list || [];
+    h += '<div class="card rv-all"><div class="rv-top"><b>받은 후기 ' + l.length + '개</b>' + (d.missing && d.missing.length ? '<small>아직 안 쓴 사람 ' + d.missing.length + '명</small>' : '') + '</div>' +
+      (l.length ? l.map(function (x) { return '<div class="rv-it"><b>' + esc(x.name) + '</b><p>' + esc(x.body) + '</p></div>'; }).join('') : '<p class="rec-none">아직 후기가 없어요</p>') +
+      (d.missing && d.missing.length ? '<div class="rv-miss">안 쓴 사람: ' + d.missing.map(esc).join(', ') + '</div>' : '') + '</div>';
+  }
+  $('reviewBox').innerHTML = h;
+}
+function saveReview() {
+  var btn = $('rvBtn'); btn.disabled = true;
+  api('reviews.save', { session_id: RV.sid, body: $('rvBody').value }).then(function () { haptic('success'); setMsg('rvMsg', '저장했어요'); loadReviews(RV.sid); refreshTodos(true); })
+    .catch(function (err) { btn.disabled = false; setMsg('rvMsg', err.message, true); });
+}

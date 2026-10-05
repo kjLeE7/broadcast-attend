@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -450,6 +450,12 @@
 - 스탯 축(마이그레이션 `supabase/migrations/20261007_team_stats_badges.sql`): 아나운서팀 = 발성·발음·전달력·임기응변·진행력·자기관리, 엔지니어팀 = 장비 세팅·작업 속도·피드백·편집 디테일·사운드 감각·소통·협업.
 - 칭호: 조건 `duty_count`(사회·촬영 업무를 맡아 끝낸 수, 아나운서), `eng_count`(엔지니어로 녹음 완료 회차) 추가, `award_badges` 갱신. 아나운서 11개(첫 마이크 온·무대의 얼굴·믿고 맡기는 MC·또랑또랑·단단한 목소리·순발력 왕·분위기 메이커·균형·모임 2·피드백 수집가), 엔지니어 11개(첫 큐 사인·콘솔 지킴이·소리의 장인·먼저 와 있는 사람·번개 손·귀가 밝은 디렉터·숨소리 조각가·사운드 마법사·균형·모임·피드백 수집가). 녹음 마침 때 엔지니어도 배지 판정.
 
+### 모임 후기 · 작업 알림 중복 막기 (2026-10-07, 함수 버전 69)
+- **후기**: 모든 모임(정규수업·스터디·회의 등) 대상자가 **모임 시작 ~ 후기 마감**에 '이번 모임을 통해 느낀 점'을 씀(한 사람 하나, 마감 전까지 고침, 비우면 지움). 마감 = `meeting_sessions.review_due`, 비면 **모임 날 자정**(`reviewDue`). 모임 만들기·고치기 팝업 '후기 마감'(`#cReviewDue`, datetime-local, 한국 시간).
+  모임 상세 `#reviewBox`(`loadReviews`/`renderReviews`): 대상자 = 쓰기 칸, **조장 이상 = 받은 후기 전부 + 안 쓴 사람**(열람 기록). 기능 `reviews.get/save`. 표 `session_reviews`(한 사람 하나 unique), 마이그레이션 `supabase/migrations/20261007_session_review_due.sql`.
+  '지금 할 일' kind `review`(마감 6시간 안이면 급함), 할 일 화면 '🙋 모임·출결·후기'. 마감 3시간 전쯤 안 쓴 사람에게 한 번 봇 알림(`cronReviews`, `review_reminded_at`, 밤 0~8시 제외).
+- **작업 흐름 알림 중복(2026-10-07 신효지 사례)**: '완료'를 두 번·'시작'을 세 번 빠르게 눌러 지시자에게 알림 5개 → 고침: 서버는 **같은 상태를 또 누르면 아무것도 안 함**, 같은 사람이 **1분 안에 다시 바꾸면 알림은 처음 한 번만**, 화면은 누르는 동안 버튼 잠금(`FW.marking`).
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -600,7 +606,7 @@
 - 연말 결산: 본인 것만. 공개일(`recap_open`) 전엔 교관 이상·관리자만 미리보기, 팀 결산은 그 팀 교관 이상(합계만). 공개일은 관리자 명단(`admins`)만 바꿈.
 - 배지(🟡): 보유 목록은 본인 + 그 팀 교관(설정값) 이상. 대표 칭호는 본인이 고른 것만 모두에게. 배지 정의는 팀장 이상(관리자 페이지, 지금은 SQL).
 - 성우 스탯(🟡): 주기·고치기는 그 팀 교관(설정값 `stat_grant_min_level`) 이상, 본인에겐 못 줌. 보기는 본인 + 그 팀 교관 이상. 취소는 준 사람·팀장 이상. 녹음 관계자 예외 없음.
-- 모임: 만들기·고치기·취소·출결확인·마감은 조장 이상. 출결 상태는 팀원 모두, 사유는 본인·조장 이상.
+- 모임: 만들기·고치기·취소·출결확인·마감은 조장 이상. 출결 상태는 팀원 모두, 사유는 본인·조장 이상. 후기는 쓴 본인 + 그 팀 조장 이상만 봄.
 
 ## 6. 조직 계층
 

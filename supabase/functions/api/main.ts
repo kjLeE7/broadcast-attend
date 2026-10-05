@@ -340,6 +340,13 @@ const MINIAPP_URL = Deno.env.get("MINIAPP_URL") ?? "https://kjlee7.github.io/bro
 const HOUR = 3600000;
 // 모임에 붙은 체크인(기상·출발·도착)도 같이: checkins: [{ id, items }]
 const SESSION_COLS = "*, meeting_types(name), checkins(id, items)";
+// 후기 마감: 정한 값이 없으면 모임 날 자정(다음 날 0시, 한국 시간)
+function reviewDue(s: any) { return s.review_due ? Date.parse(s.review_due) : kstMs(addDaysStr(s.session_date, 1), "00:00:00"); }
+function parseReviewDue(v: any) {
+  if (v == null || v === "") return null;
+  const m = String(v).match(/^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)/); if (!m) throw new HttpError(400, "후기 마감 일시가 이상해요");
+  return new Date(kstMs(m[1], m[2] + ":00")).toISOString();
+}
 
 // 한국 시간 'YYYY-MM-DD' + 'HH:MM(:SS)' → 밀리초
 function kstMs(d: string, t = "00:00:00") {
@@ -1196,6 +1203,7 @@ async function cronReminders(db: any) {
   try { meetings = await cronMeetings(ctx); } catch (e) { console.error("meetings", e); }
   try { flows = await cronFlows(ctx); } catch (e) { console.error("flows", e); }
   try { await cronMyTodos(ctx); } catch (e) { console.error("my todos", e); }
+  try { await cronReviews(ctx); } catch (e) { console.error("reviews", e); }
   return { sessions: out, weekly, polls, dues, files, meetings, flows };
 }
 
@@ -1787,6 +1795,21 @@ async function cronFlows(ctx: Ctx) {
   return { d1, over };
 }
 
+// 모임 후기: 마감 3시간 전쯤 안 쓴 대상자에게 한 번 (밤 0~8시엔 안 보냄, 만든 지 1시간 안 된 모임은 건너뜀)
+async function cronReviews(ctx: Ctx) {
+  const h = new Date(Date.now() + 9 * HOUR).getUTCHours(); if (h < 8) return;
+  const now = Date.now(), today = kstToday();
+  const rows: any[] = must(await ctx.db.from("meeting_sessions").select(SESSION_COLS).neq("status", "취소").is("review_reminded_at", null)
+    .gte("session_date", addDaysStr(today, -14)).lte("session_date", today)) ?? [];
+  for (const s of rows) {
+    const st = sessionStart(s) ?? kstMs(s.session_date, "00:00:00"), due = reviewDue(s);
+    if (now < st || now >= due || due - now > 3 * HOUR) continue;
+    must(await ctx.db.from("meeting_sessions").update({ review_reminded_at: new Date().toISOString() }).eq("id", s.id));
+    const wrote: any[] = must(await ctx.db.from("session_reviews").select("author_id").eq("session_id", s.id)) ?? [];
+    const lazy = (await sessionMembers(ctx, s, true)).filter((m: any) => !wrote.some((w) => w.author_id === m.id));
+    if (lazy.length) await sendToMembers(lazy, `📝 <b>모임 후기를 남겨주세요</b>\n${escHtml(sessionName(s))} · ${msLabel(due)}까지\n무엇을 느꼈는지 한두 줄이면 돼요`, appButton("후기 쓰기", `?s=${s.id}`));
+  }
+}
 // 내 할 일: 마감 전날·당일 아침 9시 이후 한 번씩 본인에게 봇 알림
 async function cronMyTodos(ctx: Ctx) {
   if (new Date(Date.now() + 9 * HOUR).getUTCHours() < 9) return;
@@ -2930,8 +2953,12 @@ ${text}`;
     const note = String(p.note ?? "").trim().slice(0, 300) || null;
     if (p.state === "막힘" && !note) throw new HttpError(400, "어디서 막혔는지 한 줄 적어주세요");
     await rateLimit(ctx, "flow_mark", 120, 60);
+    // 같은 상태를 또 누르면(두 번 탭·느린 응답) 아무것도 안 함 — 지시자에게 같은 알림이 여러 번 가지 않게 (2026-10-07)
+    if (sp.state === p.state && (sp.note ?? null) === (p.state === "막힘" || p.state === "완료" ? note : null)) return { ok: true, same: true };
     must(await ctx.db.from("work_step_people").update({ state: p.state, note: p.state === "막힘" || p.state === "완료" ? note : null, changed_at: new Date().toISOString() }).eq("id", sp.id));
-    if (f.created_by !== ctx.me.id && p.state !== "대기") {
+    // 1분 안에 같은 사람이 상태를 이리저리 바꾸면(잘못 누름) 알림은 처음 한 번만
+    const quick = sp.changed_at && Date.now() - Date.parse(sp.changed_at) < 60000;
+    if (f.created_by !== ctx.me.id && p.state !== "대기" && !quick) {
       const boss = await withTelegram(ctx, [f.created_by]);
       const ic = { 시작: "▶️", 완료: "✅", 막힘: "🆘" }[p.state as "시작"];
       if (boss.length) await sendToMembers(boss, `${ic} <b>${escHtml(sp.name)}</b> · ${p.state}\n${escHtml(f.title)} › ${escHtml(sp.work_steps.title)}${note ? `\n💬 ${escHtml(note)}` : ""}`, appButton("작업 보기", "?go=flow"));
@@ -3295,6 +3322,7 @@ ${text}`;
       title: String(p.title ?? "").trim().slice(0, 60) || null,
       location: String(p.location ?? "").trim().slice(0, 40) || null,
       description: String(p.description ?? "").trim().slice(0, 2000) || null,
+      review_due: parseReviewDue(p.review_due),
       target_unit_id: p.target_unit_id || null,
       team_id: p.team_id,
       created_by: ctx.me.id,
@@ -3392,6 +3420,21 @@ ${text}`;
         }
       } catch (e) { console.error("todo approve", e); }
     }
+    // 모임 후기: 시작한 모임 중 마감 전인데 아직 안 쓴 것 (내가 대상인 것)
+    try {
+      const rv: any[] = must(await ctx.db.from("meeting_sessions").select(SESSION_COLS).in("team_id", teams.map((t: any) => t.id)).neq("status", "취소")
+        .gte("session_date", addDaysStr(today, -14)).lte("session_date", today)) ?? [];
+      const open = rv.filter((s) => { const st = sessionStart(s) ?? kstMs(s.session_date, "00:00:00"); return now >= st && now < reviewDue(s); });
+      if (open.length) {
+        const wrote: any[] = must(await ctx.db.from("session_reviews").select("session_id").eq("author_id", me).in("session_id", open.map((s) => s.id))) ?? [];
+        for (const s of open) {
+          if (wrote.some((w) => w.session_id === s.id)) continue;
+          if (!(await sessionMembers(ctx, s)).some((m: any) => m.id === me)) continue;
+          const due = reviewDue(s);
+          items.push({ kind: "review", id: s.id, team_id: s.team_id, name: sessionName(s), date: s.session_date, due, urgent: due - now < 6 * HOUR });
+        }
+      }
+    } catch (e) { console.error("todo review", e); }
     // 내 할 일: 마감이 사흘 안이거나 지난 것
     const mine: any[] = must(await ctx.db.from("personal_todos").select("id, title, due_on").eq("person_id", me).is("done_at", null).not("due_on", "is", null).lte("due_on", addDaysStr(kstToday(), 3)).order("due_on")) ?? [];
     for (const t of mine) items.push({ kind: "mytodo", id: t.id, name: t.title, due: t.due_on, urgent: t.due_on <= addDaysStr(kstToday(), 1) });
@@ -3483,12 +3526,48 @@ ${text}`;
     };
   },
 
+  // ----- 모임 후기 (2026-10-07): 대상자가 모임 시작부터 후기 마감까지 씀. 보기 = 본인 + 그 팀 조장 이상 -----
+  async "reviews.get"(ctx) {
+    const s = await getSession(ctx, ctx.payload?.session_id);
+    const rank = await rankIn(ctx, s.team_id);
+    const members = await sessionMembers(ctx, s);
+    const isMember = members.some((m: any) => m.id === ctx.me.id);
+    if (!isMember && rank < RANK.GROUP_LEADER) throw new HttpError(403, "이 모임 대상자만 볼 수 있어요");
+    const due = reviewDue(s), start = sessionStart(s) ?? kstMs(s.session_date, "00:00:00");
+    const mine = must(await ctx.db.from("session_reviews").select("body, updated_at").eq("session_id", s.id).eq("author_id", ctx.me.id).maybeSingle());
+    const out: any = { due, open: Date.now() >= start && Date.now() < due, started: Date.now() >= start, member: isMember, mine: mine ?? null, staff: rank >= RANK.GROUP_LEADER };
+    if (out.staff) {
+      const all: any[] = must(await ctx.db.from("session_reviews").select("author_id, body, updated_at").eq("session_id", s.id).order("updated_at")) ?? [];
+      const nm = new Map(members.map((m: any) => [m.id, m.name]));
+      const extra = await nameMap(ctx, all.map((x) => x.author_id).filter((id) => !nm.has(id)));
+      out.list = all.filter((x) => x.body).map((x) => ({ name: nm.get(x.author_id) ?? extra.get(x.author_id) ?? "", body: x.body, at: x.updated_at }));
+      const done = new Set(all.filter((x) => x.body).map((x) => x.author_id));
+      out.missing = members.filter((m: any) => !done.has(m.id)).map((m: any) => m.name);
+      await logAccess(ctx, "reviews.get", "session_reviews", s.id);
+    }
+    return out;
+  },
+  async "reviews.save"(ctx) {
+    const s = await getSession(ctx, ctx.payload?.session_id);
+    if (s.status === "취소") throw new HttpError(400, "취소된 모임이에요");
+    const members = await sessionMembers(ctx, s);
+    if (!members.some((m: any) => m.id === ctx.me.id)) throw new HttpError(403, "이 모임 대상자만 후기를 쓸 수 있어요");
+    const start = sessionStart(s) ?? kstMs(s.session_date, "00:00:00"), due = reviewDue(s);
+    if (Date.now() < start) throw new HttpError(400, "모임이 시작한 뒤에 쓸 수 있어요");
+    if (Date.now() >= due) throw new HttpError(400, "후기 마감이 지났어요");
+    const body = String(ctx.payload?.body ?? "").trim().slice(0, 3000);
+    if (!body) { must(await ctx.db.from("session_reviews").delete().eq("session_id", s.id).eq("author_id", ctx.me.id)); return { ok: true, deleted: true }; }
+    must(await ctx.db.from("session_reviews").upsert({ session_id: s.id, author_id: ctx.me.id, body, updated_at: new Date().toISOString() }, { onConflict: "session_id,author_id" }));
+    return { ok: true };
+  },
+
   // 모임 고치기·취소: { id, ...고칠 칸, notify? } → 조장 이상
   // 취소하면 대상자에게 알림. 날짜·시간·장소를 바꿨을 땐 notify: true일 때만 알림
   async "sessions.update"(ctx) {
     const before = await getSession(ctx, ctx.payload.id);
     await requireRank(ctx, before.team_id, RANK.GROUP_LEADER);
     const patch = pick(ctx.payload, ["title", "session_date", "start_time", "end_time", "location", "place_mode", "status", "description"]);
+    if ("review_due" in (ctx.payload ?? {})) { patch.review_due = parseReviewDue(ctx.payload.review_due); patch.review_reminded_at = null; }
     if ("status" in patch && !["예정", "취소"].includes(patch.status)) throw new HttpError(400, "상태가 올바르지 않습니다");
     if ("session_date" in patch && !isDate(patch.session_date)) throw new HttpError(400, "날짜가 올바르지 않습니다");
     if ("title" in patch) patch.title = String(patch.title ?? "").trim().slice(0, 60) || null;

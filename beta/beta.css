@@ -1711,3 +1711,11 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 #mytodoView .todo-list { margin-bottom: 4px; }
 #mytodoView .my-own { margin-top: 44px; padding-top: 18px; border-top: 1px dashed var(--line); }
 .my-allok { margin-top: 18px; }
+
+/* 모임 후기 */
+.rv-mine { padding: 12px 14px; } .rv-mine textarea { width: 100%; font: inherit; font-size: 14px; line-height: 1.6; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--card-soft); resize: vertical; }
+.rv-acts { display: flex; align-items: center; gap: 10px; margin-top: 8px; } .rv-acts small { flex: 1; color: var(--muted); font-size: 12px; } .rv-acts .btn-primary { width: auto; margin: 0; padding: 0 18px; height: 42px; }
+.rv-mine.done p { margin: 0 0 4px; white-space: pre-wrap; font-size: 14px; line-height: 1.6; } .rv-mine.done small { color: var(--muted); font-size: 12px; }
+.rv-all { padding: 12px 16px; margin-top: 10px; } .rv-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; } .rv-top small { color: var(--warn); font-weight: 700; font-size: 12px; }
+.rv-it { padding: 8px 0; border-top: 1px solid var(--line); } .rv-it b { font-size: 13px; } .rv-it p { margin: 2px 0 0; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; }
+.rv-miss { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
