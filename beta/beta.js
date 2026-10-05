@@ -1318,7 +1318,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'profile'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -2775,7 +2775,7 @@ var PERM_DEF = { reviews_view: 10, review_missing: 20, attend_reason: 20, notice
 function perm(k) { return (S.me && S.me.perms && S.me.perms[k]) || PERM_DEF[k]; }
 function availAllowed() { return !!(S.me && S.me.teams.some(function (t) { return t.rank >= perm('avail_overview'); })); }
 function recAllowed() { return !!(S.me && S.me.teams.some(function (t) { return t.rank >= RANK.INSTRUCTOR; })); }
-function setupRecTab() { $('recTab').style.display = isEasy() ? 'none' : ''; }   // 업무 탭은 모두에게 (교관 이상은 녹음 요청 관리까지)
+function setupRecTab() { $('recTab').style.display = ''; }   // 보이기는 setupTownTab에서 다시 정함   // 업무 탭은 모두에게 (교관 이상은 녹음 요청 관리까지)
 function recIsOpen(r) { return ['접수', '캐스팅중', '일정확정', '보류'].indexOf(r.status) !== -1; }
 function durText(m) { return m === 10 ? '10분 내외' : m >= 120 ? '2시간 이상' : m % 60 ? (m >= 60 ? Math.floor(m / 60) + '시간 ' : '') + (m % 60) + '분' : (m / 60) + '시간'; }
 function ddText(ms) { var d = dayDiff(ms); return d < 0 ? '마감 지남' : d === 0 ? '오늘 마감' : 'D-' + d; }
@@ -3633,9 +3633,10 @@ function setupTownTab() {
   $('townTab').style.display = ok ? '' : 'none';
   $('skyTab').style.display = ok ? '' : 'none';   // 하늘방송국도 PC 전용
   // 쉬운 모드: 업무 탭 숨김. 폰·쉬운 모드: 인원·승인함·관리자는 아래 탭 대신 '개인' 메뉴 안으로 (탭이 5개를 넘지 않게)
-  $('recTab').style.display = isEasy() ? 'none' : '';
-  var inMenu = !isWide() || isEasy();
-  document.querySelectorAll('#pfSub .pf-more').forEach(function (b) {
+  var inMenu = !isWide() || isEasy(), staff = ['peopleTab', 'approveTab', 'adminTab'].some(function (k) { return $(k).dataset.ok === '1'; });
+  $('recTab').style.display = isEasy() && !staff ? 'none' : '';   // 쉬운 모드: 업무 탭은 운영 메뉴가 있는 사람만
+  document.body.classList.toggle('ez-staff', isEasy() && staff);
+  document.querySelectorAll('#recSub .pf-more').forEach(function (b) {
     var tab = $(b.getAttribute('data-more')), can = tab.dataset.ok === '1';
     tab.style.display = can && !inMenu ? '' : 'none';
     b.style.display = can && inMenu ? '' : 'none';
@@ -3995,7 +3996,7 @@ function setTodoHtml(html) { document.querySelectorAll('.todo-area').forEach(fun
 function renderTodos() {
   var d = TODO.data, n = d ? d.count : 0, bd = $('todoBadge');
   bd.hidden = !n; bd.textContent = n > 99 ? '99+' : String(n);
-  var ap = d && d.items.filter(function (x) { return x.kind === 'approve'; })[0], ab = $('aprBadge'); ab.hidden = !ap; ab.textContent = ap ? String(ap.n) : '';
+  var ap = d && d.items.filter(function (x) { return x.kind === 'approve'; })[0], ab = $('aprBadge'); ab.hidden = !ap; ab.textContent = ap ? String(ap.n) : ''; $('aprBadge2').hidden = !ap; $('aprBadge2').textContent = ab.textContent;
   if (!d) return;
   var now = d.items.map(function (t, i) { return [t, i]; }).filter(function (x) { return !x[0].later; });
   if (curTab === 'home' && isEasy()) renderEasyHome();
@@ -6072,7 +6073,7 @@ function toggleEasy(on) {
   applyEasyText(); haptic('success');
   if (!S.me) return;
   setupTownTab();
-  if (on && ['town', 'sky', 'rec', 'flow'].indexOf(curTab) !== -1) { goTab('home'); return; }
+  if (on && ['town', 'sky', 'rec', 'flow'].indexOf(curTab) !== -1 && $('recTab').style.display === 'none') { goTab('home'); return; }
   if (curTab === 'home') loadDashboard();
   if (curTab === 'settings') renderSettings();
   setTabUI(curTab); renderAct();

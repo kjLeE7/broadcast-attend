@@ -1988,3 +1988,7 @@ html.dark .poll-banner.urgent { background: #A84A38; }
 .ci-eta-q button { background: rgba(255,255,255,.92); }
 html.dark .ci-eta-q button { background: rgba(0,0,0,.28); color: #fff; }
 .ez-more { display: block; width: 100%; margin-top: 8px; padding: 12px; border: none; border-radius: 14px; background: var(--card); color: var(--accent); font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; box-shadow: var(--shadow); }
+/* 쉬운 모드 운영진: 업무 메뉴엔 인원·승인함·관리자만 */
+body.ez-staff #recSub button:not(.pf-more) { display: none; }
+.sub-n { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 99px; background: var(--bad); color: #fff; font-size: 11px; line-height: 18px; text-align: center; vertical-align: 1px; }
+body.ez-staff #recSub .pf-more { border-top: none !important; }

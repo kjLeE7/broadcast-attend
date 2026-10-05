@@ -19,7 +19,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261008a">
+  <link rel="stylesheet" href="beta.css?v=20261008b">
 </head>
 <body>
   <div class="app">
@@ -638,16 +638,20 @@
       <span data-ez="공지·과제">소식</span>
     </button>
     <button class="tab" data-tab="rec" title="업무" id="recTab" onclick="togglePfSub(undefined, 'recSub')" style="display:none;">
-      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
+      <svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M16 3v3h3"/><path d="M9 10h7M9 14h7M9 18h4"/></svg>
       <span>업무</span>
     </button>
     <!-- '업무' 하위 메뉴: 프로젝트(작업 흐름) · 실무(녹음) -->
     <div class="b-pfsub" id="recSub">
       <button type="button" data-t="rec" onclick="pfGo('rec')">실무</button>
       <button type="button" data-t="flow" onclick="pfGo('flow')">프로젝트</button>
+      <!-- 폰·쉬운 모드: 아래 탭이 넘치지 않게 인원·승인함·관리자는 여기로 (setupTownTab) -->
+      <button type="button" class="pf-more" data-t="people" data-more="peopleTab" onclick="pfGo('people')">인원</button>
+      <button type="button" class="pf-more" data-t="approve" data-more="approveTab" onclick="pfGo('approve')">승인함 <b class="sub-n" id="aprBadge2" hidden></b></button>
+      <button type="button" class="pf-more" data-t="admin" data-more="adminTab" onclick="pfGo('admin')">관리자</button>
     </div>
     <button class="tab" data-tab="profile" id="pfTab" title="개인" onclick="togglePfSub()">
-      <i class="tab-ic"><svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M16 3v3h3"/><path d="M9 10h7M9 14h7M9 18h4"/></svg></i>
+      <i class="tab-ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c.8-4.2 4-7 8-7s7.2 2.8 8 7"/></svg></i>
       <span data-ez="내 기록">개인</span>
     </button>
     <!-- '개인'을 누르면 펼쳐지는 하위 메뉴 (PC 펼친 메뉴: 아래로 펼침 / 폰·접힌 메뉴: 떠 있는 상자) -->
@@ -659,17 +663,13 @@
       <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
       <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
       <button type="button" data-t="settings" onclick="pfGo('settings')">설정</button>
-      <!-- 폰: 아래 탭이 넘치지 않게 운영진 메뉴는 여기로 (setupPhoneMenu) -->
-      <button type="button" class="pf-more" data-t="people" data-more="peopleTab" onclick="pfGo('people')">인원</button>
-      <button type="button" class="pf-more" data-t="approve" data-more="approveTab" onclick="pfGo('approve')">승인함</button>
-      <button type="button" class="pf-more" data-t="admin" data-more="adminTab" onclick="pfGo('admin')">관리자</button>
     </div>
     <button class="tab" data-tab="sky" title="하늘방송국" id="skyTab" onclick="goTab('sky')" style="display:none;">
       <svg viewBox="0 0 24 24"><path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-5h6v5"/><path d="M12 4V1.5M9.5 2.5l5 0"/><path d="M8 11h2M14 11h2"/></svg>
       <span>하늘방송국</span>
     </button>
     <button class="tab" data-tab="people" title="인원" id="peopleTab" onclick="goTab('people')" style="display:none;">
-      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.6c2.6.2 4.4 2 5 4.9"/></svg>
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="3"/><path d="M7 19.5c.5-3.2 2.5-5.2 5-5.2s4.5 2 5 5.2"/><circle cx="5.5" cy="10" r="2.3"/><path d="M1.8 19c.3-2.4 1.6-4 3.7-4.2"/><circle cx="18.5" cy="10" r="2.3"/><path d="M22.2 19c-.3-2.4-1.6-4-3.7-4.2"/></svg>
       <span>인원</span>
     </button>
     <button class="tab" data-tab="approve" title="승인함" id="approveTab" onclick="goTab('approve')" style="display:none;">
@@ -1074,6 +1074,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261008a"></script>
+  <script src="beta.js?v=20261008b"></script>
 </body>
 </html>
