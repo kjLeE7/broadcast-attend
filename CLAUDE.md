@@ -30,7 +30,9 @@
   3. 정식 런칭 때 **테스트 데이터 초기화** + **서버 키 교체**. 초기화 SQL은 아직 안 만듦(만들면 저장소엔 파일만, 실행은 사용자 승인 뒤).
      - **가짜 인원 47명**(2026-10-06, UI 확인용, 사용자 요청): `supabase/seed/fake_people.sql`로 넣음(이미 실행함). 과장 1·부과장 2(1명은 아나운서팀장 겸)·성우팀 28(+실제 6 = 34)·아나운서팀 11(+겸직 팀장 = 12)·엔지니어팀 5.
        텔레그램 번호 없음(알림 안 감), `position_history.note = '가짜(UI 확인용)'`로 구분. 업무가능(지난주~다음 주)·지난 정규수업 4번(`target_label = '정규수업 (가짜 인원)'`)·출결도 랜덤으로.
-       지우기: `supabase/seed/fake_people_cleanup.sql` (사용자 승인 뒤 실행).
+     - **가짜 활동**(같은 날): `supabase/seed/fake_activity.sql`(이미 실행함) — 아나운서·엔지니어 모임 유형, 모임 9개(성우 정규수업 토요일 2번·조 스터디, 아나운서 정기모임·리허설, 엔지니어 장비 점검), 녹음 요청 6건(완료·오늘 19시 코드원·사흘 뒤 SMC 교대·조율 중·접수), 사회·촬영·음향편집 업무 8, 사명자 일정 3, 프로젝트 5, 공지 5, 과제 3+제출, 오늘 체크인, 시간취합, 장소 신청 5, 특이사항 5, 스탯 14, 작업 흐름 1.
+       넣은 행은 표 `fake_seed(tbl, id)`에 적혀 있음. 실제 시범 인원(이강준·정동훈·신효지·임지윤 등)도 일부 녹음에 들어가 있음. 알림은 안 보냈고 모임 자동 알림도 막아 둠(reminded_*).
+       지우기: `supabase/seed/fake_people_cleanup.sql` (사용자 승인 뒤 실행, 활동 → 인원 순서로 다 지우고 fake_seed도 지움).
 - **작업 환경 메모 (claude.ai 클라우드 작업 공간)**
   - 저장소 `.mcp.json`의 Supabase MCP는 여기선 프록시 오류로 안 붙음 → claude.ai의 Supabase 커넥터(`mcp__Supabase__*`, ToolSearch로 불러옴)로 SQL·배포·마이그레이션 함.
   - 쉘에서 Supabase 주소로 직접 요청은 막힘 → 배포 확인은 SQL `select net.http_post(url:='…/functions/v1/api', body:='{"action":"public.bot"}'::jsonb, headers:='{"Content-Type":"application/json"}'::jsonb);`
