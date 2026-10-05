@@ -1237,7 +1237,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1257,7 +1257,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { return t === 'weekly' ? 'rec' : t === 'poll' || t === 'place' ? 'attend' : t === 'dues' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { return t === 'weekly' ? 'rec' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1307,7 +1307,7 @@ function setTabUI(t) {
   togglePfSub(!pfFloating() && pt === 'profile');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
   setTimeout(renderAct, 0);
@@ -1328,6 +1328,7 @@ function refreshTab() {
   else if (curTab === 'place') loadPlace();
   else if (curTab === 'admin') loadAdmin();
   else if (curTab === 'people') loadPeople();
+  else if (curTab === 'mtg') loadMeeting();
 }
 
 // =====================================================================
@@ -3405,6 +3406,7 @@ document.addEventListener('keydown', function (e) {
   else if (curTab === 'rec' && RC.current) closeRec();
   else if (curTab === 'poll' && $('pollView').classList.contains('split')) closePoll();
   else if (curTab === 'people' && PPL.cur) closePerson();
+  else if (curTab === 'mtg') closeMeeting();
 });
 
 // ----- PC 왼쪽 메뉴 접기/펴기 (이 브라우저에 기억) -----
@@ -3806,6 +3808,8 @@ function renderTodos() {
       if (t.kind === 'task') return row(i, '📝', '과제 제출 · ' + t.name, t.due ? '마감 ' + dtLabel(t.due) : '마감 없음', t.urgent);
       if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
       if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
+      if (t.kind === 'mtgaction') return row(i, '📋', '회의에서 맡은 일 · ' + t.name, t.due ? t.due.slice(5).replace('-', '/') + '까지 · 눌러서 완료' : '눌러서 완료', t.urgent);
+      if (t.kind === 'mtgprep') return row(i, '🗂', '회의 안건 의견 · ' + t.name, shortD(t.date) + ' 회의 · 안건 ' + t.left + '개 남음', t.urgent);
       if (t.kind === 'poll') return row(i, '📅', '가능시간 입력 · ' + t.name, '마감 ' + mdw(Date.parse(t.due)) + ' ' + hmMs(Date.parse(t.due)), t.urgent);
       if (t.kind === 'recarrive') return row(i, '🎙', '녹음실 도착 · ' + t.name, hmMs(t.start) + ' 시작' + (t.place ? ' · ' + t.place : '') + ' · 도착하면 눌러주세요', true);
       if (t.kind === 'recrun') return row(i, t.step === 'start' ? '▶' : '✅', (t.step === 'start' ? '녹음 시작 보고 · ' : '녹음 종료 보고 · ') + t.name, hmMs(t.start) + ' 시작' + (t.place ? ' · ' + t.place : ''), true);
@@ -3823,6 +3827,8 @@ function openTodo(i) {
   };
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
   if (t.kind === 'recask' || t.kind === 'recarrive' || t.kind === 'recrun') { openAsk(t.id); return; }
+  if (t.kind === 'mtgaction') { if (confirm('「' + t.name + '」 끝냈나요?')) api('mtg.actionDone', { id: t.id }).then(function () { haptic('success'); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); return; }
+  if (t.kind === 'mtgprep') { inTeam(function () { openMeeting(t.id); }); return; }
   if (t.kind === 'poll') { PL.pending = t.id; if (curTab === 'poll') loadPolls(); else goTab('poll'); return; }
   if (t.kind === 'reason' || t.kind === 'plan') {
     inTeam(function () { goTab('attend'); return refreshSessions().then(function () { if (byId(S.sessions, t.id)) openSession(t.id); }); });
@@ -3933,6 +3939,7 @@ if (tg && tg.BackButton) {
     if (MODAL) closeModal();
     else if (RP.open) closeRecap();
     else if (curTab === 'people' && PPL.cur) closePerson();
+  else if (curTab === 'mtg') closeMeeting();
     else if (curTab === 'task' && A.current) closeTask();
     else if (curTab === 'rec' && RC.current) closeRec();
     else if (curTab === 'poll' && PL.cur) closePoll();
@@ -4921,6 +4928,7 @@ function actItems() {
   if (t === 'attend') {
     if (S.current) {
       var b = M.board;
+      add('list', '회의 열기 (안건·의견·회의록)', function () { openMeeting(S.current.id); });
       if (b && b.can_check) add('check', '출결 확인·마감·알림', mgToggle('sess', renderDetail), MG.sess);
       if (lead && phaseOf(S.current) !== 'cancel') add('edit', '모임 고치기', editSession);
       if (lead && phaseOf(S.current) !== 'closed' && phaseOf(S.current) !== 'cancel') { add('x', '모임 취소 (대상자 알림)', cancelSess); add('x', '잘못 만들었어요 · 지우기', deleteSess); }
@@ -4933,6 +4941,7 @@ function actItems() {
     }
   }
   if (t === 'attend' && !S.current) add('edit', '특이사항 알리기', function () { openNote({}); });
+  if (t === 'mtg' && MT.d && MT.d.meeting.status !== '끝') add('plus', '안건 올리기', function () { openItem(); });
   if (t === 'people') { if (PPL.cur) add('edit', PPL.cur.person.name + '님 특이사항 적기', function () { openNote({ person_id: PPL.cur.person.id }); }); add('plus', '특이사항 적기', function () { openNote({ staff: true }); }); }
   if (t === 'poll' && !PL.cur) add('plus', '시간취합 만들기', openTpModal);
   if (t === 'place' && PLC.d) add('plus', '장소 신청', function () { openPlaceModal(); });
@@ -5088,4 +5097,153 @@ function loadMyNotes() {
       return '<button type="button" class="card ppl-row" onclick="openNote({mineEdit:\'' + n.id + '\'})"><span class="ppl-mid"><b>' + (CAT_IC[n.category] || '📝') + ' ' + esc(n.title) + '</b><small>' + noteRange(n) + '</small></span><span class="st ' + (n.status === '해결됨' ? 'st-참석' : 'st-지각') + '">' + n.status + '</span></button>';
     }).join('') : '';
   }).catch(function () {});
+}
+
+// =====================================================================
+// 회의 모드: 준비(안건·미리 의견) → 진행(지금 안건 하나·남은 시간·주차장·서기 칸·할 일) → 끝(회의록)
+// 진행 중엔 3초, 아니면 15초마다 새로 불러와 모두 같은 화면을 봄 (진행자가 넘기면 따라감)
+// =====================================================================
+var MT = { sid: null, d: null, timer: null, open: null };
+function openMeeting(sid) { MT.sid = sid; MT.d = null; MT.open = null; if (curTab === 'mtg') loadMeeting(); else goTab('mtg'); }
+function closeMeeting() { clearTimeout(MT.timer); var sid = MT.sid; MT.sid = null; goTab('attend'); if (sid && S.sessions && byId(S.sessions, sid)) openSession(sid); }
+function loadMeeting() {
+  clearTimeout(MT.timer); if (!MT.sid || curTab !== 'mtg') return;
+  api('mtg.get', { session_id: MT.sid }).then(function (d) {
+    MT.skew = d.meeting.server_now - Date.now(); MT.d = d;
+    // 입력 중이면 화면을 다시 그리지 않음 (쓰던 글이 날아가지 않게)
+    var a = document.activeElement, typing = a && /^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName) && a.closest('#mtgArea');
+    if (!typing) renderMeeting();
+    MT.timer = setTimeout(loadMeeting, d.meeting.status === '진행' ? 3000 : 15000);
+  }).catch(function (err) { $('mtgArea').innerHTML = '<div class="empty"><b>회의를 열 수 없어요</b>' + esc(err.message) + '</div>'; });
+}
+setInterval(function () { if (curTab === 'mtg' && MT.d && MT.d.meeting.status === '진행') { var el = $('mtTimer'); if (el) el.outerHTML = mtTimer(); } }, 1000);
+var PRI = { 1: '높음', 2: '보통', 3: '낮음' };
+function mtLeft() {
+  var m = MT.d.meeting, it = MT.d.items.filter(function (i) { return i.id === m.current_item_id; })[0]; if (!it || !m.item_started_at) return null;
+  return (it.minutes_min + it.extended_min) * 60000 - (Date.now() + (MT.skew || 0) - Date.parse(m.item_started_at));
+}
+function mtTimer() {
+  var l = mtLeft(); if (l == null) return '<span id="mtTimer"></span>';
+  var over = l < 0, a = Math.abs(l), mm = Math.floor(a / 60000), ss = Math.floor(a % 60000 / 1000);
+  return '<span id="mtTimer" class="mt-timer' + (over ? ' over' : l < 60000 ? ' soon' : '') + '">' + (over ? '+' : '') + mm + ':' + ('0' + ss).slice(-2) + '<small>' + (over ? '시간 지남' : '남음') + '</small></span>';
+}
+function renderMeeting() {
+  var d = MT.d, m = d.meeting, s = d.session;
+  var head = '<div class="b-dhead"><h1>🗂 ' + esc(s.title) + '</h1><p>' + shortD(s.date) + (s.start ? ' ' + String(s.start).slice(0, 5) : '') + (s.location ? ' · ' + esc(s.location) : '') +
+    ' · 진행 ' + esc(m.chair) + ' · 서기 ' + (m.scribe ? esc(m.scribe) : '아직 없음') + ' · <span class="st ' + (m.status === '진행' ? 'st-지각' : m.status === '끝' ? 'st-참석' : 'st-none') + '">' + (m.status === '진행' ? '회의 중' : m.status === '끝' ? '끝남' : '준비 중') + '</span></p></div>';
+  $('mtgArea').innerHTML = head + (m.status === '준비' ? renderPrep() : m.status === '진행' ? renderLive() : renderMinutes());
+}
+function itemCard(it, live) {
+  var d = MT.d, mine = it.opinions.filter(function (o) { return o.person_id === d.me.id; })[0], open = MT.open === it.id || live;
+  var fields = [['background', '배경'], ['decide', '정해야 할 것'], ['options', '선택지']].map(function (f) { return it[f[0]] ? '<div class="mt-f"><small>' + f[1] + '</small>' + esc(it[f[0]]) + '</div>' : ''; }).join('');
+  return '<div class="card mt-item' + (open ? ' open' : '') + '">' +
+    '<div class="mt-ih" onclick="mtToggle(\'' + it.id + '\')"><b>' + (it.kind === '인원' ? '👤 ' : it.kind === '할 일 점검' ? '✅ ' : '') + esc(it.title) + '</b>' +
+      '<span class="mt-tags"><em>' + it.minutes_min + '분</em><em class="p' + it.priority + '">' + PRI[it.priority] + '</em>' + (it.kind !== '할 일 점검' ? '<em>의견 ' + it.opinions.length + '</em>' : '') + '</span></div>' +
+    (open ? (it.kind === '할 일 점검' ? mtPrevActions() : '') + fields +
+      (it.person_id ? '<button class="ghost-btn mt-person" onclick="mtPerson(\'' + it.person_id + '\')">👤 ' + esc(it.person || '') + '님 특이사항 타임라인 보기</button><div id="mtp-' + it.person_id + '"></div>' : '') +
+      (it.kind !== '할 일 점검' ? '<div class="mt-ops">' + (it.opinions.length ? it.opinions.map(function (o) { return '<div><b>' + esc(o.name) + '</b> ' + esc(o.body) + '</div>'; }).join('') : '<p class="rec-none">아직 의견이 없어요</p>') + '</div>' +
+        (d.meeting.status !== '끝' ? '<div class="mt-my"><textarea id="op-' + it.id + '" rows="2" maxlength="500" placeholder="내 의견 한두 줄 (회의 전에 미리)">' + esc(mine ? mine.body : '') + '</textarea><button onclick="saveOpinion(\'' + it.id + '\')">' + (mine ? '고치기' : '남기기') + '</button></div>' : '') : '') +
+      (!live && (it.created_by === d.me.id || d.me.chair) && d.meeting.status === '준비' && it.kind !== '할 일 점검' ? '<div class="mt-ia"><button onclick="openItem(\'' + it.id + '\')">고치기</button><button onclick="delItem(\'' + it.id + '\')">지우기</button></div>' : '') : '') + '</div>';
+}
+function mtToggle(id) { if (MT.d.meeting.status === '진행' && id === MT.d.meeting.current_item_id) return; MT.open = MT.open === id ? null : id; renderMeeting(); }
+function hmMin(t) { return t ? parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10) : null; }
+function renderPrep() {
+  var d = MT.d, its = d.items.slice().sort(function (a, b) { return a.priority - b.priority; }), total = its.reduce(function (n, i) { return n + i.minutes_min; }, 0);
+  var dur = d.session.start && d.session.end ? hmMin(d.session.end) - hmMin(d.session.start) : null;
+  var ready = d.members.filter(function (x) { return x.ready; }).length;
+  return '<div class="mt-bar"><span>안건 ' + its.length + '개 · 예상 <b>' + total + '분</b>' + (dur ? ' / 회의 ' + dur + '분' : '') + '</span>' + (dur && total > dur ? '<em class="bad">회의 시간보다 ' + (total - dur) + '분 넘쳐요. 중요도를 낮추거나 시간을 줄여주세요</em>' : '') + '</div>' +
+    (its.length ? its.map(function (i) { return itemCard(i); }).join('') : '<div class="empty"><b>아직 안건이 없어요</b>오른쪽 아래 + 로 안건을 올려요. 배경·정해야 할 것·선택지를 적으면 참석자가 미리 의견을 남겨요</div>') +
+    '<div class="section-head b-gap"><h2>미리 의견 남긴 사람</h2><span class="section-count">' + ready + ' / ' + d.members.length + '명 · 회의 전날 저녁에 안 남긴 사람에게 알림</span></div><div class="card du-people">' +
+    d.members.map(function (x) { return '<span class="du-p ' + (x.ready ? '' : 's-미납') + '">' + esc(x.name) + (x.ready ? ' ✓' : '') + '</span>'; }).join('') + '</div>' +
+    (d.me.chair ? '<div class="card adm-box mt-chair"><div class="adm-h"><b>진행자</b><small>서기를 정하고, 시간이 되면 회의를 시작해요. 시작하면 안건이 중요도 순으로 정렬되고, 지난 회의에서 안 끝난 할 일이 있으면 맨 앞에 점검 안건이 붙어요</small></div>' +
+      '<div class="tp-row"><span>서기</span><div class="select-wrap"><select id="mtScribe" onchange="setScribe(this.value)"><option value="">고르기</option>' + d.members.map(function (x) { return '<option value="' + x.id + '"' + (x.id === d.meeting.scribe_id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div></div>' +
+      '<button class="btn-primary" onclick="mtStart()">▶ 회의 시작</button></div>' : '');
+}
+function renderLive() {
+  var d = MT.d, m = d.meeting, me = d.me, cur = d.items.filter(function (i) { return i.id === m.current_item_id; })[0], w = me.chair || me.scribe;
+  var side = '<div class="mt-side"><div class="section-head"><h2>안건 순서</h2></div>' + d.items.map(function (i) {
+      return '<div class="mt-step s-' + i.status.replace(' ', '') + (i.id === m.current_item_id ? ' cur' : '') + '"' + (me.chair && i.id !== m.current_item_id ? ' onclick="mtGo(\'' + i.id + '\')" title="이 안건으로"' : '') + '><i>' + (i.status === '결론' ? '✓' : i.status === '넘김' ? '→' : i.id === m.current_item_id ? '▶' : '·') + '</i>' + esc(i.title) + '<small>' + i.minutes_min + '분</small></div>';
+    }).join('') +
+    '<div class="section-head b-gap"><h2>🅿️ 주차장</h2><span class="section-count">나중에 얘기할 것</span></div>' +
+    d.parked.map(function (x) { return '<div class="mt-park">' + esc(x.text) + ' <small>' + esc(x.by) + '</small><button onclick="unpark(\'' + x.id + '\')">✕</button></div>'; }).join('') +
+    '<div class="mt-my"><input type="text" id="mtParkIn" maxlength="200" placeholder="딴 얘기가 나오면 여기에" onkeydown="if(event.key===\'Enter\')park()"><button onclick="park()">나중에</button></div></div>';
+  if (!cur) return '<div class="mt-live"><div class="mt-main"><div class="empty"><b>안건을 다 다뤘어요</b>' + (d.parked.length ? '주차장에 남은 이야기를 다루거나, ' : '') + '회의를 끝내면 회의록이 만들어지고 할 일이 담당자에게 가요</div>' +
+    (me.chair ? '<button class="btn-primary" onclick="mtEnd()">■ 회의 끝내기</button>' : '') + '</div>' + side + '</div>';
+  var acts = d.actions.filter(function (a) { return a.item_id === cur.id; });
+  var main = '<div class="mt-main"><div class="mt-now"><span class="mt-lbl">지금 안건</span>' + mtTimer() + '</div>' + itemCard(cur, true) +
+    '<div class="card mt-note"><div class="mt-nh"><b>📝 회의록</b><small>' + (w ? '서기·진행자가 적어요 (칸을 벗어나면 저장)' : '서기가 적고 있어요') + '</small></div>' +
+      '<label>논의 요약</label>' + (w ? '<textarea rows="3" maxlength="2000" onblur="saveNoteField(\'' + cur.id + '\',\'summary\',this.value)">' + esc(cur.summary || '') + '</textarea>' : '<p>' + esc(cur.summary || '–') + '</p>') +
+      '<label>결정</label>' + (w ? '<textarea rows="2" maxlength="1000" onblur="saveNoteField(\'' + cur.id + '\',\'decision\',this.value)">' + esc(cur.decision || '') + '</textarea>' : '<p>' + esc(cur.decision || '–') + '</p>') +
+      '<label>할 일 <small>(담당자의 \'지금 할 일\'로 가요)</small></label>' + acts.map(function (a) { return '<div class="mt-act">☐ <b>' + esc(a.name) + '</b> ' + esc(a.task) + (a.due_on ? ' <small>' + a.due_on.slice(5).replace('-', '/') + '까지</small>' : '') + (w ? '<button onclick="delAction(\'' + a.id + '\')">✕</button>' : '') + '</div>'; }).join('') +
+      (w ? '<div class="mt-addact"><div class="select-wrap"><select id="maWho">' + d.members.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join('') + '</select></div><input type="text" id="maTask" maxlength="200" placeholder="무엇을"><input type="date" id="maDue"><button onclick="addAction(\'' + cur.id + '\')">추가</button></div>' : '') + '</div>' +
+    (me.chair ? '<div class="mt-ctrl"><button onclick="mtExtend()">⏱ 5분 연장</button><button class="ok" onclick="mtNext(\'결론\')">결론 내고 다음 ›</button><button onclick="mtNext(\'넘김\')">다음 회의로 넘김</button><button class="bad" onclick="mtEnd()">■ 회의 끝내기</button></div>' : '') + '</div>';
+  return '<div class="mt-live">' + main + side + '</div>';
+}
+function mtPrevActions() { return '<p class="b-note">지난 회의에서 맡은 일 중 안 끝난 것을 하나씩 확인해요. 담당자가 \'지금 할 일\'에서 완료를 누르면 끝나요.</p>'; }
+function minutesText() {
+  var d = MT.d, s = d.session, lines = ['[회의록] ' + s.title + ' · ' + s.date, '진행 ' + d.meeting.chair + ' · 서기 ' + (d.meeting.scribe || '-'), '참석 ' + d.members.map(function (x) { return x.name; }).join(', '), ''];
+  d.items.forEach(function (i, n) {
+    lines.push((n + 1) + '. ' + i.title + ' (' + i.status + ')');
+    if (i.summary) lines.push('  - 논의: ' + i.summary.replace(/\n/g, ' '));
+    if (i.decision) lines.push('  - 결정: ' + i.decision.replace(/\n/g, ' '));
+    d.actions.filter(function (a) { return a.item_id === i.id; }).forEach(function (a) { lines.push('  - 할 일: ' + a.name + ' · ' + a.task + (a.due_on ? ' (' + a.due_on + '까지)' : '')); });
+  });
+  if (d.parked.length) { lines.push('', '[주차장]'); d.parked.forEach(function (x) { lines.push('- ' + x.text); }); }
+  return lines.join('\n');
+}
+function renderMinutes() {
+  var d = MT.d;
+  return '<div class="card mt-doc">' + d.items.map(function (i, n) {
+      var acts = d.actions.filter(function (a) { return a.item_id === i.id; });
+      return '<div class="mt-di"><h3>' + (n + 1) + '. ' + esc(i.title) + ' <span class="st ' + (i.status === '결론' ? 'st-참석' : i.status === '넘김' ? 'st-지각' : 'st-none') + '">' + i.status + '</span></h3>' +
+        (i.summary ? '<p><small>논의</small>' + esc(i.summary) + '</p>' : '') + (i.decision ? '<p class="dec"><small>결정</small>' + esc(i.decision) + '</p>' : '') +
+        acts.map(function (a) { return '<div class="mt-act">' + (a.done_at ? '☑' : '☐') + ' <b>' + esc(a.name) + '</b> ' + esc(a.task) + (a.due_on ? ' <small>' + a.due_on.slice(5).replace('-', '/') + '까지</small>' : '') + '</div>'; }).join('') + '</div>';
+    }).join('') + (d.parked.length ? '<div class="mt-di"><h3>🅿️ 주차장 (다음에)</h3>' + d.parked.map(function (x) { return '<p>· ' + esc(x.text) + '</p>'; }).join('') + '</div>' : '') + '</div>' +
+    '<button class="btn-primary" onclick="copyMinutes()">📋 회의록 텍스트로 복사</button><div class="msg" id="mtMsg"></div>';
+}
+function copyMinutes() { var t = minutesText(); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { setMsg('mtMsg', '복사했어요. 텔레그램에 붙여넣으세요'); }).catch(function () { prompt('복사해서 쓰세요', t); }); }
+function mtDo(action, p) { return api(action, Object.assign({ meeting_id: MT.d.meeting.id }, p || {})).then(function (r) { haptic('success'); loadMeeting(); return r; }).catch(function (err) { alertMsg(err.message); }); }
+function mtStart() { if (!MT.d.meeting.scribe_id && !confirm('서기가 아직 없어요. 그래도 시작할까요? (진행자가 적어도 돼요)')) return; mtDo('mtg.start'); }
+function mtNext(outcome) { mtDo('mtg.next', { outcome: outcome }); }
+function mtGo(id) { if (confirm('이 안건으로 넘어갈까요? 지금 안건은 대기로 남아요')) mtDo('mtg.next', { to: id }); }
+function mtExtend() { mtDo('mtg.extend', { min: 5 }); }
+function mtEnd() { if (confirm('회의를 끝낼까요? 회의록이 만들어지고, 할 일이 담당자에게 알림으로 가요')) mtDo('mtg.end').then(function (r) { if (r) alertMsg('회의를 끝냈어요' + (r.sent ? ' · 할 일 알림 ' + r.sent + '명' : '')); }); }
+function setScribe(id) { document.activeElement.blur(); mtDo('mtg.scribe', { person_id: id || null }); }
+function park() { var v = $('mtParkIn').value.trim(); if (v) { $('mtParkIn').blur(); mtDo('mtg.park', { text: v }); } }
+function unpark(id) { mtDo('mtg.unpark', { id: id }); }
+function saveOpinion(id) { var v = $('op-' + id).value; document.activeElement.blur(); api('mtg.opinion', { item_id: id, body: v }).then(function () { haptic('success'); loadMeeting(); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); }
+function saveNoteField(id, k, v) { var p = { item_id: id }; p[k] = v; api('mtg.note', p).catch(function (err) { alertMsg(err.message); }); }
+function addAction(itemId) { var t = $('maTask').value.trim(); if (!t) { alertMsg('할 일을 적어주세요'); return; } var p = { item_id: itemId, assignee_id: $('maWho').value, task: t, due_on: $('maDue').value || null }; document.activeElement.blur(); mtDo('mtg.action', p); }
+function delAction(id) { mtDo('mtg.actionDelete', { id: id }); }
+function delItem(id) { if (confirm('이 안건을 지울까요?')) mtDo('mtg.itemDelete', { id: id }); }
+function mtPerson(pid) {
+  var box = $('mtp-' + pid); if (!box) return;
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  api('people.timeline', { team_id: MT.d.meeting.team_id, person_id: pid }).then(function (t) {
+    box.innerHTML = '<div class="mt-ptl">' + t.notes.filter(function (n) { return n.status === '진행 중'; }).map(function (n) { return '<div>' + (CAT_IC[n.category] || '📝') + ' <b>' + esc(n.title) + '</b> <small>' + noteRange(n) + (n.followup !== '없음' ? ' · ' + n.followup + (n.followup_done_at ? ' 완료' : ' 필요') : '') + '</small></div>'; }).join('') +
+      t.events.slice(0, 5).map(function (e) { return '<div class="ev">' + shortD(e.date) + ' ' + esc(e.status) + ' · ' + esc(e.name) + (e.reason ? ' <small>' + esc(e.reason) + '</small>' : '') + '</div>'; }).join('') + '</div>';
+  }).catch(function (err) { box.innerHTML = '<p class="rec-none">' + esc(err.message) + '</p>'; });
+}
+function openItem(id) {
+  var it = id ? MT.d.items.filter(function (i) { return i.id === id; })[0] : null, staff = S.team.rank >= RANK.INSTRUCTOR;
+  MT.ik = it ? it.kind : '일반';
+  $('itemModalT').textContent = it ? '안건 고치기' : '안건 올리기';
+  $('itemBody').innerHTML = (staff ? '<div class="b-chips" id="imKinds">' + [['일반', '일반'], ['인원', '👤 인원 (특이사항)']].map(function (k) { return '<button type="button" class="b-pick' + (MT.ik === k[0] ? ' on' : '') + '" data-k="' + k[0] + '" onclick="imKind(\'' + k[0] + '\')">' + k[1] + '</button>'; }).join('') + '</div>' : '') +
+    '<div id="imWho" style="display:' + (MT.ik === '인원' ? '' : 'none') + '"><label class="field-label">누구 얘기인가요</label><div class="select-wrap"><select id="imPerson">' + MT.d.members.map(function (x) { return '<option value="' + x.id + '"' + (it && it.person_id === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div></div>' +
+    '<label class="field-label" for="imTitle">안건</label><input type="text" id="imTitle" class="b-input" maxlength="80" value="' + esc(it ? it.title : '') + '" placeholder="예) 10월 정규수업 시간 조정">' +
+    '<label class="field-label" for="imBg">배경 <span class="hint">왜 이 얘기를 하나요</span></label><textarea id="imBg" rows="2" maxlength="1000">' + esc(it && it.background || '') + '</textarea>' +
+    '<label class="field-label" for="imDec">정해야 할 것</label><input type="text" id="imDec" class="b-input" maxlength="500" value="' + esc(it && it.decide || '') + '" placeholder="예) 토요일 오후로 옮길지">' +
+    '<label class="field-label" for="imOpt">선택지 <span class="hint">선택</span></label><input type="text" id="imOpt" class="b-input" maxlength="500" value="' + esc(it && it.options || '') + '" placeholder="예) A. 그대로 / B. 토 14시 / C. 토 19시">' +
+    '<label class="field-label">예상 시간 · 중요도</label><div class="tp-row"><div class="select-wrap"><select id="imMin">' + [5, 10, 15, 20, 30, 45, 60].map(function (n) { return '<option' + ((it ? it.minutes_min : 10) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div><span>분</span>' +
+      '<div class="select-wrap"><select id="imPri">' + [1, 2, 3].map(function (n) { return '<option value="' + n + '"' + ((it ? it.priority : 2) === n ? ' selected' : '') + '>중요도 ' + PRI[n] + '</option>'; }).join('') + '</select></div></div>' +
+    '<button class="btn-primary" id="imBtn" onclick="saveItem(\'' + (id || '') + '\')">' + (it ? '저장' : '올리기') + '</button><div class="msg" id="imMsg"></div>';
+  openModal('itemModal');
+}
+function imKind(k) { MT.ik = k; document.querySelectorAll('#imKinds .b-pick').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-k') === k); }); $('imWho').style.display = k === '인원' ? '' : 'none'; }
+function saveItem(id) {
+  var p = { meeting_id: MT.d.meeting.id, id: id || null, kind: MT.ik, person_id: MT.ik === '인원' ? $('imPerson').value : null, title: $('imTitle').value.trim(), background: $('imBg').value, decide: $('imDec').value, options: $('imOpt').value, minutes_min: +$('imMin').value, priority: +$('imPri').value };
+  if (!p.title) { setMsg('imMsg', '안건을 적어주세요', true); return; }
+  $('imBtn').disabled = true;
+  api('mtg.item', p).then(function () { haptic('success'); closeModal('itemModal'); loadMeeting(); }).catch(function (err) { $('imBtn').disabled = false; setMsg('imMsg', err.message, true); });
 }

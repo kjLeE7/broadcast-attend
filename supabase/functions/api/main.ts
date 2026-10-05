@@ -1190,7 +1190,9 @@ async function cronReminders(db: any) {
   let dues = null, files = null;
   try { dues = await cronDuesNag(ctx); } catch (e) { console.error("dues nag", e); }
   try { files = await cronFiles(ctx); } catch (e) { console.error("files", e); }
-  return { sessions: out, weekly, polls, dues, files };
+  let meetings = null;
+  try { meetings = await cronMeetings(ctx); } catch (e) { console.error("meetings", e); }
+  return { sessions: out, weekly, polls, dues, files, meetings };
 }
 
 // 출결 행에서 다른 사람에게 보여도 되는 칸 / 사유까지 (본인·조장 이상)
@@ -1651,6 +1653,53 @@ function noteFields(p: any, staff: boolean) {
     if (p.followup !== undefined) { if (!["없음", "보강", "대체학습"].includes(p.followup)) throw new HttpError(400, "후속 조치가 올바르지 않아요"); row.followup = p.followup; }
   }
   return row;
+}
+
+// ----- 회의 모드 -----
+// 볼 수 있는 사람 = 그 모임 대상자 + 그 팀 교관 이상. 진행자 = 모임 만든 사람(화면 넘기기·시간 늘리기·시작·끝), 서기 = 진행자가 지정(요약·결정·할 일 칸)
+async function mtgLoad(ctx: Ctx, meetingId: string) {
+  const m = must(await ctx.db.from("meetings").select("*").eq("id", meetingId).maybeSingle());
+  if (!m) throw new HttpError(404, "회의를 찾을 수 없어요");
+  return m;
+}
+async function mtgAccess(ctx: Ctx, m: any) {
+  const s = must(await ctx.db.from("meeting_sessions").select("*, meeting_types(name)").eq("id", m.session_id).single());
+  const members = await sessionMembers(ctx, s);
+  const staff = (await rankIn(ctx, m.team_id)) >= RANK.INSTRUCTOR;
+  if (!staff && !members.some((x: any) => x.id === ctx.me.id) && m.chair_id !== ctx.me.id) throw new HttpError(403, "이 회의 참석자만 볼 수 있어요");
+  return { s, members, chair: m.chair_id === ctx.me.id, scribe: m.scribe_id === ctx.me.id };
+}
+const mtgChair = (a: any) => { if (!a.chair) throw new HttpError(403, "진행자만 할 수 있어요"); };
+const mtgWriter = (a: any) => { if (!a.chair && !a.scribe) throw new HttpError(403, "진행자나 서기만 쓸 수 있어요"); };
+async function cronMeetings(ctx: Ctx) {
+  const now = new Date(Date.now() + 9 * HOUR), hour = now.getUTCHours(), tomorrow = addDaysStr(kstToday(), 1);
+  let prep = 0, d1 = 0, over = 0;
+  // 회의 전날 18시 뒤: 의견을 안 남긴 참석자에게 한 번
+  if (hour >= 18) {
+    const ms: any[] = must(await ctx.db.from("meetings").select("id, session_id, meeting_sessions!inner(session_date, title, meeting_types(name))").eq("status", "준비").is("prep_reminded_at", null).eq("meeting_sessions.session_date", tomorrow)) ?? [];
+    for (const m of ms) {
+      must(await ctx.db.from("meetings").update({ prep_reminded_at: new Date().toISOString() }).eq("id", m.id));
+      const items: any[] = must(await ctx.db.from("meeting_items").select("id").eq("meeting_id", m.id).neq("kind", "할 일 점검")) ?? [];
+      if (!items.length) continue;
+      const ops: any[] = must(await ctx.db.from("meeting_opinions").select("person_id, item_id").in("item_id", items.map((i) => i.id))) ?? [];
+      const s = must(await ctx.db.from("meeting_sessions").select("*").eq("id", m.session_id).single());
+      const lazy = (await sessionMembers(ctx, s, true)).filter((x: any) => ops.filter((o) => o.person_id === x.id).length < items.length);
+      const r = await sendToMembers(lazy, `🗂 <b>내일 회의 안건에 의견을 남겨주세요</b>\n${escHtml(m.meeting_sessions.title || m.meeting_sessions.meeting_types?.name || "회의")} · 안건 ${items.length}개\n한두 줄이면 돼요. 회의가 훨씬 빨라져요`, appButton("안건 보기", "?go=attend"));
+      prep += r.sent;
+    }
+  }
+  // 할 일: 마감 하루 전 · 마감 지남 (밤 0~8시 제외)
+  if (hour >= 8) {
+    const acts: any[] = must(await ctx.db.from("meeting_actions").select("id, assignee_id, task, due_on, reminded_d1_at, reminded_over_at").is("done_at", null).not("due_on", "is", null).lte("due_on", tomorrow)) ?? [];
+    for (const a of acts) {
+      const late = a.due_on < kstToday();
+      if (late ? a.reminded_over_at : a.reminded_d1_at) continue;
+      must(await ctx.db.from("meeting_actions").update(late ? { reminded_over_at: new Date().toISOString() } : { reminded_d1_at: new Date().toISOString() }).eq("id", a.id));
+      const r = await sendToMembers(await withTelegram(ctx, [a.assignee_id]), `${late ? "⏰ <b>회의에서 맡은 일 마감이 지났어요</b>" : "📌 <b>회의에서 맡은 일, 마감이 다가와요</b>"}\n${escHtml(a.task)} · ${a.due_on.slice(5).replace("-", "/")}까지`, appButton("할 일 보기", "?go=profile"));
+      if (late) over += r.sent; else d1 += r.sent;
+    }
+  }
+  return prep || d1 || over ? { prep, d1, over } : null;
 }
 
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
@@ -2513,6 +2562,189 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     return rows;
   },
 
+  // ----- 회의 모드 -----
+  // 열기 { session_id } → 없으면 만듦(진행자 = 모임 만든 사람). 안건·의견·주차장·할 일·참석자(의견 준비 여부)·내 역할
+  async "mtg.get"(ctx) {
+    const sid = String(ctx.payload?.session_id ?? "");
+    if (!UUID_RE.test(sid)) throw new HttpError(400, "모임을 다시 골라주세요");
+    let m = must(await ctx.db.from("meetings").select("*").eq("session_id", sid).maybeSingle());
+    if (!m) {
+      const s = must(await ctx.db.from("meeting_sessions").select("id, team_id, created_by").eq("id", sid).maybeSingle());
+      if (!s) throw new HttpError(404, "모임을 찾을 수 없어요");
+      await mtgAccess(ctx, { session_id: s.id, team_id: s.team_id, chair_id: s.created_by });
+      const ins = await ctx.db.from("meetings").insert({ session_id: s.id, team_id: s.team_id, chair_id: s.created_by }).select("*").single();
+      m = ins.error?.code === "23505" ? must(await ctx.db.from("meetings").select("*").eq("session_id", sid).single()) : must(ins);
+    }
+    const a = await mtgAccess(ctx, m);
+    const [items, parked, acts] = await Promise.all([
+      ctx.db.from("meeting_items").select("*, meeting_opinions(person_id, body, updated_at)").eq("meeting_id", m.id).order("sort").order("created_at").then(must),
+      ctx.db.from("meeting_parked").select("id, text, created_by, created_at").eq("meeting_id", m.id).order("created_at").then(must),
+      ctx.db.from("meeting_actions").select("id, item_id, assignee_id, task, due_on, done_at").eq("meeting_id", m.id).order("created_at").then(must),
+    ]);
+    const ids = [m.chair_id, m.scribe_id, ...a.members.map((x: any) => x.id), ...(items ?? []).flatMap((i: any) => [i.created_by, i.person_id, ...i.meeting_opinions.map((o: any) => o.person_id)]), ...(acts ?? []).map((x: any) => x.assignee_id)].filter(Boolean);
+    const names = await nameMap(ctx, ids);
+    const real = (items ?? []).filter((i: any) => i.kind !== "할 일 점검");
+    const s = a.s;
+    return {
+      meeting: { ...m, chair: names.get(m.chair_id) ?? "", scribe: m.scribe_id ? names.get(m.scribe_id) ?? "" : null, server_now: Date.now() },
+      session: { id: s.id, title: s.title || s.meeting_types?.name || "회의", date: s.session_date, start: s.start_time, end: s.end_time, location: s.location },
+      me: { id: ctx.me.id, chair: a.chair, scribe: a.scribe },
+      members: a.members.map((x: any) => ({ id: x.id, name: x.name, ready: real.length > 0 && real.every((i: any) => i.meeting_opinions.some((o: any) => o.person_id === x.id)) })),
+      items: (items ?? []).map((i: any) => ({ ...i, by: names.get(i.created_by) ?? "", person: i.person_id ? names.get(i.person_id) ?? "" : null, meeting_opinions: undefined,
+        opinions: i.meeting_opinions.map((o: any) => ({ person_id: o.person_id, name: names.get(o.person_id) ?? "", body: o.body })) })),
+      parked: (parked ?? []).map((x: any) => ({ id: x.id, text: x.text, by: names.get(x.created_by) ?? "" })),
+      actions: (acts ?? []).map((x: any) => ({ ...x, name: names.get(x.assignee_id) ?? "" })),
+    };
+  },
+  // 안건 올리기·고치기 { meeting_id, id?, kind, title, background, decide, options, minutes_min, priority, person_id? } — 참석자 누구나 올림, 고치기는 올린 사람·진행자
+  async "mtg.item"(ctx) {
+    const p = ctx.payload ?? {};
+    const m = await mtgLoad(ctx, p.meeting_id), a = await mtgAccess(ctx, m);
+    if (m.status === "끝") throw new HttpError(400, "끝난 회의예요");
+    const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n) || null;
+    const row: any = { kind: ["일반", "인원"].includes(p.kind) ? p.kind : "일반", title: t(p.title, 80), background: t(p.background, 1000), decide: t(p.decide, 500), options: t(p.options, 500),
+      minutes_min: Math.max(1, Math.min(120, Number(p.minutes_min) || 10)), priority: [1, 2, 3].includes(Number(p.priority)) ? Number(p.priority) : 2,
+      person_id: p.kind === "인원" && UUID_RE.test(String(p.person_id)) ? p.person_id : null };
+    if (!row.title) throw new HttpError(400, "안건 제목을 적어주세요");
+    if (p.id) {
+      const cur = must(await ctx.db.from("meeting_items").select("id, created_by, meeting_id").eq("id", p.id).maybeSingle());
+      if (!cur || cur.meeting_id !== m.id) throw new HttpError(404, "없는 안건이에요");
+      if (cur.created_by !== ctx.me.id && !a.chair) throw new HttpError(403, "올린 사람이나 진행자만 고칠 수 있어요");
+      return must(await ctx.db.from("meeting_items").update(row).eq("id", cur.id).select("id").single());
+    }
+    await rateLimit(ctx, "mtg_item", 30, 60);
+    return must(await ctx.db.from("meeting_items").insert({ ...row, meeting_id: m.id, created_by: ctx.me.id, sort: 100 }).select("id").single());
+  },
+  async "mtg.itemDelete"(ctx) {
+    const cur = must(await ctx.db.from("meeting_items").select("id, created_by, meeting_id").eq("id", ctx.payload?.id).maybeSingle());
+    if (!cur) throw new HttpError(404, "없는 안건이에요");
+    const m = await mtgLoad(ctx, cur.meeting_id), a = await mtgAccess(ctx, m);
+    if (cur.created_by !== ctx.me.id && !a.chair) throw new HttpError(403, "올린 사람이나 진행자만 지울 수 있어요");
+    must(await ctx.db.from("meeting_items").delete().eq("id", cur.id));
+    return { ok: true };
+  },
+  // 내 의견 { item_id, body } (참석자, 비우면 지움)
+  async "mtg.opinion"(ctx) {
+    const it = must(await ctx.db.from("meeting_items").select("id, meeting_id").eq("id", ctx.payload?.item_id).maybeSingle());
+    if (!it) throw new HttpError(404, "없는 안건이에요");
+    await mtgAccess(ctx, await mtgLoad(ctx, it.meeting_id));
+    const body = String(ctx.payload?.body ?? "").trim().slice(0, 500);
+    if (!body) { must(await ctx.db.from("meeting_opinions").delete().eq("item_id", it.id).eq("person_id", ctx.me.id)); return { ok: true }; }
+    must(await ctx.db.from("meeting_opinions").upsert({ item_id: it.id, person_id: ctx.me.id, body, updated_at: new Date().toISOString() }));
+    return { ok: true };
+  },
+  // 서기 지정 { meeting_id, person_id } (진행자)
+  async "mtg.scribe"(ctx) {
+    const m = await mtgLoad(ctx, ctx.payload?.meeting_id), a = await mtgAccess(ctx, m); mtgChair(a);
+    const pid = ctx.payload?.person_id || null;
+    if (pid && !a.members.some((x: any) => x.id === pid)) throw new HttpError(400, "참석자 중에서 골라주세요");
+    must(await ctx.db.from("meetings").update({ scribe_id: pid }).eq("id", m.id));
+    return { ok: true };
+  },
+  // 시작 { meeting_id } (진행자): 지난 회의(같은 팀)에서 안 끝난 할 일이 있으면 '지난 할 일 점검'을 맨 앞에. 안건은 중요도 순으로 정렬
+  async "mtg.start"(ctx) {
+    const m = await mtgLoad(ctx, ctx.payload?.meeting_id), a = await mtgAccess(ctx, m); mtgChair(a);
+    if (m.status !== "준비") throw new HttpError(400, "이미 시작한 회의예요");
+    const left: any[] = must(await ctx.db.from("meeting_actions").select("id").eq("team_id", m.team_id).is("done_at", null).neq("meeting_id", m.id).limit(1)) ?? [];
+    const has = must(await ctx.db.from("meeting_items").select("id").eq("meeting_id", m.id).eq("kind", "할 일 점검").maybeSingle());
+    if (left.length && !has) must(await ctx.db.from("meeting_items").insert({ meeting_id: m.id, kind: "할 일 점검", title: "지난 회의 할 일 점검", minutes_min: 5, priority: 1, created_by: ctx.me.id }));
+    const its: any[] = must(await ctx.db.from("meeting_items").select("id, kind, priority, created_at").eq("meeting_id", m.id)) ?? [];
+    its.sort((x, y) => (x.kind === "할 일 점검" ? -1 : 0) - (y.kind === "할 일 점검" ? -1 : 0) || x.priority - y.priority || (x.created_at < y.created_at ? -1 : 1));
+    for (let i = 0; i < its.length; i++) must(await ctx.db.from("meeting_items").update({ sort: i }).eq("id", its[i].id));
+    const first = its[0]?.id ?? null;
+    if (first) must(await ctx.db.from("meeting_items").update({ status: "논의 중" }).eq("id", first));
+    must(await ctx.db.from("meetings").update({ status: "진행", started_at: new Date().toISOString(), current_item_id: first, item_started_at: first ? new Date().toISOString() : null }).eq("id", m.id));
+    return { ok: true };
+  },
+  // 다음으로 { meeting_id, outcome: 결론|넘김, to?: item_id } (진행자): 지금 안건을 결론/넘김으로 닫고 다음(또는 고른) 안건으로
+  async "mtg.next"(ctx) {
+    const p = ctx.payload ?? {};
+    const m = await mtgLoad(ctx, p.meeting_id), a = await mtgAccess(ctx, m); mtgChair(a);
+    if (m.status !== "진행") throw new HttpError(400, "진행 중인 회의가 아니에요");
+    if (m.current_item_id && ["결론", "넘김"].includes(p.outcome)) must(await ctx.db.from("meeting_items").update({ status: p.outcome }).eq("id", m.current_item_id));
+    const its: any[] = must(await ctx.db.from("meeting_items").select("id, status, sort").eq("meeting_id", m.id).order("sort")) ?? [];
+    const nxt = p.to && its.some((i) => i.id === p.to) ? p.to : its.find((i) => i.status === "대기")?.id ?? null;
+    if (nxt) must(await ctx.db.from("meeting_items").update({ status: "논의 중" }).eq("id", nxt));
+    must(await ctx.db.from("meetings").update({ current_item_id: nxt, item_started_at: nxt ? new Date().toISOString() : null }).eq("id", m.id));
+    return { current: nxt };
+  },
+  // 시간 늘리기 { meeting_id, min } (진행자)
+  async "mtg.extend"(ctx) {
+    const m = await mtgLoad(ctx, ctx.payload?.meeting_id), a = await mtgAccess(ctx, m); mtgChair(a);
+    if (!m.current_item_id) throw new HttpError(400, "지금 다루는 안건이 없어요");
+    const it = must(await ctx.db.from("meeting_items").select("extended_min").eq("id", m.current_item_id).single());
+    must(await ctx.db.from("meeting_items").update({ extended_min: Math.min(120, it.extended_min + (Number(ctx.payload?.min) || 5)) }).eq("id", m.current_item_id));
+    return { ok: true };
+  },
+  // 서기 칸 { item_id, summary?, decision? } (진행자·서기)
+  async "mtg.note"(ctx) {
+    const p = ctx.payload ?? {};
+    const it = must(await ctx.db.from("meeting_items").select("id, meeting_id").eq("id", p.item_id).maybeSingle());
+    if (!it) throw new HttpError(404, "없는 안건이에요");
+    const a = await mtgAccess(ctx, await mtgLoad(ctx, it.meeting_id)); mtgWriter(a);
+    const up: any = {};
+    if (p.summary !== undefined) up.summary = String(p.summary ?? "").slice(0, 2000) || null;
+    if (p.decision !== undefined) up.decision = String(p.decision ?? "").slice(0, 1000) || null;
+    must(await ctx.db.from("meeting_items").update(up).eq("id", it.id));
+    return { ok: true };
+  },
+  // 주차장 '나중에' { meeting_id, text } (참석자 누구나) / 지우기 { id } (진행자·쓴 사람)
+  async "mtg.park"(ctx) {
+    const m = await mtgLoad(ctx, ctx.payload?.meeting_id); await mtgAccess(ctx, m);
+    const text = String(ctx.payload?.text ?? "").trim().slice(0, 200);
+    if (!text) throw new HttpError(400, "무엇을 나중에 얘기할지 적어주세요");
+    return must(await ctx.db.from("meeting_parked").insert({ meeting_id: m.id, text, created_by: ctx.me.id }).select("id").single());
+  },
+  async "mtg.unpark"(ctx) {
+    const x = must(await ctx.db.from("meeting_parked").select("id, meeting_id, created_by").eq("id", ctx.payload?.id).maybeSingle());
+    if (!x) throw new HttpError(404, "없어요");
+    const a = await mtgAccess(ctx, await mtgLoad(ctx, x.meeting_id));
+    if (!a.chair && x.created_by !== ctx.me.id) throw new HttpError(403, "진행자나 쓴 사람만 지울 수 있어요");
+    must(await ctx.db.from("meeting_parked").delete().eq("id", x.id));
+    return { ok: true };
+  },
+  // 할 일 { meeting_id, item_id?, id?, assignee_id, task, due_on? } (진행자·서기) / 지우기
+  async "mtg.action"(ctx) {
+    const p = ctx.payload ?? {};
+    const m = await mtgLoad(ctx, p.meeting_id), a = await mtgAccess(ctx, m); mtgWriter(a);
+    const task = String(p.task ?? "").trim().slice(0, 200);
+    if (!task) throw new HttpError(400, "할 일을 적어주세요");
+    if (!a.members.some((x: any) => x.id === p.assignee_id) && p.assignee_id !== m.chair_id) throw new HttpError(400, "담당자를 참석자 중에서 골라주세요");
+    const row = { task, assignee_id: p.assignee_id, due_on: isDate(p.due_on) ? p.due_on : null, item_id: UUID_RE.test(String(p.item_id)) ? p.item_id : null };
+    if (p.id) return must(await ctx.db.from("meeting_actions").update(row).eq("id", p.id).eq("meeting_id", m.id).select("id").single());
+    return must(await ctx.db.from("meeting_actions").insert({ ...row, meeting_id: m.id, team_id: m.team_id, created_by: ctx.me.id }).select("id").single());
+  },
+  async "mtg.actionDelete"(ctx) {
+    const x = must(await ctx.db.from("meeting_actions").select("id, meeting_id").eq("id", ctx.payload?.id).maybeSingle());
+    if (!x) throw new HttpError(404, "없어요");
+    mtgWriter(await mtgAccess(ctx, await mtgLoad(ctx, x.meeting_id)));
+    must(await ctx.db.from("meeting_actions").delete().eq("id", x.id));
+    return { ok: true };
+  },
+  // 할 일 끝 { id, done } (담당자·진행자)
+  async "mtg.actionDone"(ctx) {
+    const x = must(await ctx.db.from("meeting_actions").select("id, assignee_id, meeting_id").eq("id", ctx.payload?.id).maybeSingle());
+    if (!x) throw new HttpError(404, "없어요");
+    if (x.assignee_id !== ctx.me.id) mtgChair(await mtgAccess(ctx, await mtgLoad(ctx, x.meeting_id)));
+    must(await ctx.db.from("meeting_actions").update({ done_at: ctx.payload?.done === false ? null : new Date().toISOString() }).eq("id", x.id));
+    return { ok: true };
+  },
+  // 끝내기 { meeting_id } (진행자): 담당자마다 맡은 일 알림
+  async "mtg.end"(ctx) {
+    const m = await mtgLoad(ctx, ctx.payload?.meeting_id), a = await mtgAccess(ctx, m); mtgChair(a);
+    if (m.status === "끝") return { ok: true };
+    if (m.current_item_id) must(await ctx.db.from("meeting_items").update({ status: "결론" }).eq("id", m.current_item_id).eq("status", "논의 중"));
+    must(await ctx.db.from("meetings").update({ status: "끝", ended_at: new Date().toISOString(), current_item_id: null }).eq("id", m.id));
+    const acts: any[] = must(await ctx.db.from("meeting_actions").select("assignee_id, task, due_on").eq("meeting_id", m.id).is("done_at", null)) ?? [];
+    const by = new Map<string, any[]>(); for (const x of acts) by.set(x.assignee_id, [...(by.get(x.assignee_id) ?? []), x]);
+    let sent = 0;
+    for (const p of await withTelegram(ctx, [...by.keys()])) {
+      const r = await sendToMembers([p], `📋 <b>${escHtml(a.s.title || a.s.meeting_types?.name || "회의")}에서 맡은 일</b>\n` + by.get(p.id)!.map((x) => `• ${escHtml(x.task)}${x.due_on ? ` (${x.due_on.slice(5).replace("-", "/")}까지)` : ""}`).join("\n"), appButton("할 일 보기", "?go=profile"));
+      sent += r.sent;
+    }
+    return { ok: true, sent };
+  },
+
   // 내 한 달 활동: { month: "YYYY-MM" }
   // 모임(정규수업·스터디·회의…) 출결 / 실무 녹음 / 그 밖의 실무(사회·촬영…) / 과제 제출
   async "profile.report"(ctx) {
@@ -2766,6 +2998,20 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       if (!recArriveOpen(rs)) continue;
       if (a.role === "엔지니어") items.push({ kind: "recrun", id: a.id, name, step: rs.started_at ? "end" : "start", start: st, place: rs.location ?? "", urgent: true });
       else if (!a.arrived_at) items.push({ kind: "recarrive", id: a.id, name, start: st, place: rs.location ?? "", urgent: true });
+    }
+    // 회의에서 맡은 일 (안 끝난 것)
+    const macts: any[] = must(await ctx.db.from("meeting_actions").select("id, task, due_on").eq("assignee_id", me).is("done_at", null).order("due_on")) ?? [];
+    for (const a of macts) items.push({ kind: "mtgaction", id: a.id, name: a.task, due: a.due_on, urgent: !!a.due_on && a.due_on <= addDaysStr(kstToday(), 1) });
+    // 사흘 안 회의인데 안건에 의견을 다 안 남긴 것
+    const soon: any[] = must(await ctx.db.from("meetings").select("id, session_id, meeting_sessions!inner(session_date, title, team_id, target_unit_id, target_people, meeting_types(name))").eq("status", "준비")
+      .gte("meeting_sessions.session_date", kstToday()).lte("meeting_sessions.session_date", addDaysStr(kstToday(), 3))) ?? [];
+    for (const m of soon) {
+      const its: any[] = must(await ctx.db.from("meeting_items").select("id").eq("meeting_id", m.id).neq("kind", "할 일 점검")) ?? [];
+      if (!its.length) continue;
+      const mine: any[] = must(await ctx.db.from("meeting_opinions").select("item_id").eq("person_id", me).in("item_id", its.map((i) => i.id))) ?? [];
+      if (mine.length >= its.length) continue;
+      if (!(await sessionMembers(ctx, { ...m.meeting_sessions, id: m.session_id })).some((x: any) => x.id === me)) continue;
+      items.push({ kind: "mtgprep", id: m.session_id, team_id: m.meeting_sessions.team_id, name: m.meeting_sessions.title || m.meeting_sessions.meeting_types?.name || "회의", left: its.length - mine.length, date: m.meeting_sessions.session_date, urgent: m.meeting_sessions.session_date <= addDaysStr(kstToday(), 1) });
     }
     // 시간취합: 대상인데 아직 안 칠한 것 (내가 만든 건 빼고)
     const polls: any[] = must(await ctx.db.from("time_polls").select("id, title, deadline, created_by").contains("target_people", [me])

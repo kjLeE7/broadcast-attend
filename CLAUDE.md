@@ -161,7 +161,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -383,6 +383,17 @@
 - 팀원 쪽: '특이사항 알리기'(일정 탭·나의 기록 + 메뉴, `#noteModal`) → `notes.save`(본인 것만, 그 팀 교관 이상에게 봇 알림) / 나의 기록 아래 '내가 알린 특이사항'(`notes.mine`, 본인이 쓴 것만, 운영진 기록·메모는 안 보임).
 - 기능: `people.board/timeline`, `notes.save/status/comment/delete/mine`. **회의 모드는 아직**(사용자: 써 본 뒤 회의 얘기를 더 하고 붙이기).
 
+### 회의 모드 (2026-10-06, 함수 버전 53)
+- 모임 상세 + 메뉴 **'회의 열기 (안건·의견·회의록)'** → `mtgView`(부모 탭 일정). 모임 하나에 회의 하나(`meetings.session_id` unique, 처음 열 때 만듦). 마이그레이션 `supabase/migrations/20261006_meetings.sql`.
+- 표: `meetings`(chair_id = 모임 만든 사람, scribe_id, status 준비·진행·끝, current_item_id, item_started_at, prep_reminded_at) / `meeting_items`(kind 일반·인원·할 일 점검, title, background·decide·options, person_id, minutes_min, extended_min, priority 1~3, sort, status 대기·논의 중·결론·넘김, summary, decision) / `meeting_opinions`(안건×사람 미리 의견) / `meeting_parked`(주차장) / `meeting_actions`(담당자·할 일·마감, done_at, reminded_d1/over_at).
+- 볼 수 있는 사람 = 그 모임 대상자 + 그 팀 교관 이상(사용자 결정). 진행자만 시작·넘기기·5분 연장·끝내기·서기 지정, 서기·진행자만 요약·결정·할 일 칸, 참석자 누구나 안건 올리기·의견·주차장.
+- **준비**: 안건(배경·정해야 할 것·선택지·예상 시간·중요도), 시간 합이 회의 시간을 넘으면 경고, 안건마다 미리 의견, '미리 의견 남긴 사람' 칩. 회의 전날 18시 뒤 안 남긴 사람에게 봇 알림(`cronMeetings`), '지금 할 일' kind `mtgprep`(사흘 안).
+- **진행**(3초마다 새로 불러와 같은 화면): 지금 안건 하나 + 남은 시간(넘으면 빨갛게 깜빡임) + 회의록 칸 + 할 일 추가 + 진행자 버튼 [5분 연장][결론 내고 다음][다음 회의로 넘김][회의 끝내기], 오른쪽 안건 순서(진행자는 눌러서 이동)·🅿️ 주차장('나중에').
+  시작할 때 안건을 중요도 순으로 정렬, 같은 팀 지난 회의에 안 끝난 할 일이 있으면 맨 앞에 '지난 회의 할 일 점검'. 인원 안건은 특이사항 타임라인을 회의 화면에서 펼쳐 봄.
+- **끝**: 회의록 문서(안건별 상태·논의·결정·할 일, 주차장) + 텍스트 복사. 끝내면 담당자마다 맡은 일 봇 알림, '지금 할 일' kind `mtgaction`(눌러서 완료), 마감 하루 전·지남 알림.
+- 기능: `mtg.get/item/itemDelete/opinion/scribe/start/next/extend/note/park/unpark/action/actionDelete/actionDone/end`.
+- **월간 리포트는 일정 탭 칩에서 뺌**(인원 탭과 겹쳐서, 2026-10-06 사용자 결정). 화면 코드(`reportView`)는 남아 있음.
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -519,6 +530,7 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
+- 회의 모드: 그 모임 대상자 + 그 팀 교관 이상. 진행자(모임 만든 사람)·서기 권한은 위 '회의 모드' 참고.
 - 인원 특이사항(🟡~🔴 성격): 다른 사람 것은 그 팀 교관 이상만 봄(열람 기록). 팀원은 자기가 알린 것만 쓰고 봄, 운영진 기록·메모는 못 봄. 지우기 = 쓴 사람·교관 이상.
 - 장소 신청: 신청·취소는 과원 누구나(취소는 본인). 승인·반려는 그 장소 승인자만(관리자 페이지 지정, 기본 녹음실=엔지니어팀장, 총회·성전=부과장 이상).
 - 관리자 페이지: 관리자 명단(`admins`)만. 관리자·회계·장소 승인자 지정, 결산 켜기·공개일.
