@@ -3242,6 +3242,12 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       patch.reminded_72h_at = null; patch.reminded_24h_at = null;   // 시간이 바뀌면 자동 알림을 새 시간 기준으로 다시
     }
     let s = must(await ctx.db.from("meeting_sessions").update(patch).eq("id", before.id).select(SESSION_COLS).single());
+    // 마감된 모임 시간을 아직 안 끝난 때로 옮기면(실수로 이른 시간을 넣어 자동 마감된 경우) 마감을 풀고 자동 불참을 지움 (2026-10-06)
+    if (before.closed_at && ["session_date", "start_time", "end_time"].some((k) => k in patch) && sessionEnd(s) > Date.now()) {
+      must(await ctx.db.from("attendance").update({ status: null, reason: null, reason_at: null })
+        .eq("session_id", s.id).eq("status", "불참").is("arrived_at", null));
+      s = must(await ctx.db.from("meeting_sessions").update({ closed_at: null, status: "예정" }).eq("id", s.id).select(SESSION_COLS).single());
+    }
     // 마감 뒤 날짜·시작을 고치면 도착 확인한 사람의 참석/지각을 새 시작 시간으로 다시 매김 (2026-10-06)
     const st = sessionStart(s);
     if (before.closed_at && st !== null && ["session_date", "start_time"].some((k) => k in patch && t5(patch[k]) !== t5(before[k]))) {
