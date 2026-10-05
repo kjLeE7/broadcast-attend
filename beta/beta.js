@@ -108,7 +108,7 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'rec'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -1293,7 +1293,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1313,7 +1313,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { return t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { return t === 'flow' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1330,20 +1330,27 @@ function renderTaskSeg() {
 // 아래 탭 '개인': 누르면 하위 메뉴(나의 기록·내 과제·업무가능 시간·시간취합)
 // PC 펼친 메뉴에선 그 자리 아래로 펼침(개인 화면에 있으면 늘 펼침), 폰·접힌 메뉴에선 떠 있는 상자
 function pfFloating() { return !isWide() || document.body.classList.contains('nav-mini'); }
-function togglePfSub(open) {
-  var el = $('pfSub');
+// 하위 메뉴: 개인(pfSub) · 업무(recSub). 떠 있을 땐 하나만 열림
+var SUB_TAB = { pfSub: 'pfTab', recSub: 'recTab' };
+function togglePfSub(open, id) {
+  id = id || 'pfSub';
+  var el = $(id), tab = $(SUB_TAB[id]);
   if (open === undefined) open = !el.classList.contains('open');
-  if (open && pfFloating() && isWide()) el.style.top = $('pfTab').getBoundingClientRect().top + 'px';
+  if (open && pfFloating()) {
+    Object.keys(SUB_TAB).forEach(function (k) { if (k !== id) $(k).classList.remove('open'); });
+    if (isWide()) el.style.top = tab.getBoundingClientRect().top + 'px';
+    else { var bar = $('tabbar').getBoundingClientRect(), r = tab.getBoundingClientRect(); el.style.right = Math.max(6, bar.right - r.right) + 'px'; }
+  }
   el.classList.toggle('open', open);
 }
 function pfGo(t) {
   toggleMePop(false);
-  if (pfFloating()) togglePfSub(false);
+  if (pfFloating()) { togglePfSub(false); togglePfSub(false, 'recSub'); }
   goTab(t);
 }
 document.addEventListener('click', function (e) {
-  if (!pfFloating() || !$('pfSub').classList.contains('open')) return;
-  if (!e.target.closest('#pfSub, #pfTab')) togglePfSub(false);
+  if (!pfFloating()) return;
+  Object.keys(SUB_TAB).forEach(function (k) { if ($(k).classList.contains('open') && !e.target.closest('#' + k + ', #' + SUB_TAB[k])) togglePfSub(false, k); });
 });
 // 새로고침해도 보던 화면으로 돌아오게 지금 탭을 창(sessionStorage)에 기억
 function lsGetS(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
@@ -1359,11 +1366,12 @@ function setTabUI(t) {
   var pt = parentTab(t);
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
   var sub = t === 'task' && taskFrom !== 'profile' ? '' : t;
-  document.querySelectorAll('#pfSub button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === sub); });
+  document.querySelectorAll('#pfSub button, #recSub button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === sub); });
   togglePfSub(!pfFloating() && pt === 'profile');
+  togglePfSub(!pfFloating() && pt === 'rec', 'recSub');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
   setTimeout(renderAct, 0);
@@ -1385,6 +1393,7 @@ function refreshTab() {
   else if (curTab === 'admin') loadAdmin();
   else if (curTab === 'people') loadPeople();
   else if (curTab === 'mtg') loadMeeting();
+  else if (curTab === 'flow') loadFlows();
   else if (curTab === 'pmonth') { if (!P.month) P.month = curMonth(); loadPfReport(); }
 }
 
@@ -2735,19 +2744,19 @@ function freeRoles(r) {
 function loadRec() {
   if (!STF.data) loadStatForm().then(function () { if (RC.current && statCan()) renderRecBoard(); });
   if (!S.team) return Promise.resolve();
-  loadRecMine(); loadFlows();
+  loadRecMine();
   // 진행 상황은 과원 모두 봄 (2026-10-06). 올리기·배치·알림 같은 관리와 업무가능 2주 모아보기는 교관 이상만
   var mgr = recAllowed();
   $('recView').classList.toggle('rec-ro', !mgr); $('recAvail').style.display = mgr ? '' : 'none'; $('recFab').style.display = mgr ? '' : 'none';
-  if (!RC.list) $('recOpen').innerHTML = '<div class="skeleton row-skel"></div>';
+  if (!RC.list) $('recTable').innerHTML = '<div class="skeleton row-skel"></div>';
   if (mgr) loadAvail();
   return api('rec.list', { team_id: S.team.id }).then(function (d) {
-    RC.list = d.requests; RC.people = d.people || [];
+    RC.list = d.requests; RC.people = d.people || []; RC.staff = !!d.staff;
     renderRecList();
     if (RC.pending) { var id = RC.pending; RC.pending = null; if (byId(RC.list, id)) openRec(id); }
     else if (RC.current) { var c = byId(RC.list, RC.current.id); if (c) { RC.current = c; renderRecHead(); renderRecBoard(); } }
   }).catch(function (err) {
-    $('recOpen').innerHTML = '<div class="empty"><b>녹음 요청을 불러오지 못했어요</b>' + esc(err.message) + '</div>';
+    $('recTable').innerHTML = '<div class="empty"><b>녹음 요청을 불러오지 못했어요</b>' + esc(err.message) + '</div>';
   });
 }
 
@@ -2791,71 +2800,107 @@ function recCard(r) {
     '</div><div class="b-side"><span class="st ' + (REC_ST[r.status] || 'st-none') + '">' + esc(r.status) + '</span>' +
       (due && recIsOpen(r) ? '<small class="' + (dayDiff(due) <= 2 ? 'rc-soon' : '') + '">' + ddText(due) + '</small>' : '') + '</div></button>';
 }
-function renderRecList() {
-  var open = RC.list.filter(recIsOpen).sort(function (a, b) { return (a.due_at || '9') < (b.due_at || '9') ? -1 : 1; });
-  var past = RC.list.filter(function (r) { return !recIsOpen(r); });
-  $('recOpenCount').textContent = open.length ? open.length + '건' : '';
-  $('recOpen').innerHTML = open.length ? open.map(recCard).join('')
-    : '<div class="empty"><b>진행 중인 녹음 요청이 없어요</b>' + (recAllowed() ? '오른쪽 아래 + 버튼으로 요청을 올려요' : '새 요청이 올라오면 여기에 보여요') + '</div>';
-  $('recPast').innerHTML = past.length ? past.map(recCard).join('') : '<p class="rec-none">최근 60일 동안 끝난 요청이 없어요</p>';
-  renderRecOverview(open);
+function renderRecList() { renderRecCal(); renderRecTable(); }
+// ----- 녹음 표: 진행 중 + 최근 60일, 검색 (제목·코드·사람) -----
+var RT_ROLE = { '녹음자': 'v', '엔지니어': 'e', '감독자': 'd' };
+function recWho(r) {
+  var w = { v: [], e: [], d: [] };
+  activeSess(r).forEach(function (x) { x.people.forEach(function (p) { if (p.answer === '미선정') return; var k = RT_ROLE[p.role]; if (k && w[k].indexOf(p.name) === -1) w[k].push(p.name); }); });
+  return w;
 }
-
-// PC에서 요청을 고르기 전 오른쪽 칸: 다음 녹음 → 손이 필요한 요청 → 2주 녹음 달력
-function renderRecOverview(open) {
-  var show = isWide();   // PC: 상세는 팝업이라 '녹음 한눈에'는 뒤에 그대로
-  $('recView').classList.toggle('split', isWide());
-  $('recView').classList.toggle('ov', show && !RC.current);
-  $('recOverview').style.display = show ? 'block' : 'none';
-  if (!show) return;
-  var now = Date.now(), sess = [];
-  open.forEach(function (r) { activeSess(r).forEach(function (s) { sess.push({ r: r, s: s }); }); });
-  sess.sort(function (a, b) { return a.s.start - b.s.start; });
-  var html = '<div class="b-dhead"><h1>녹음 한눈에</h1><p>요청을 누르면 여기에 자세히 열려요</p></div><div class="card tv-panel">';
-
-  var next = sess.filter(function (x) { return x.s.status !== '완료' && (x.s.end || x.s.start) >= now; })[0];
-  if (next) {
-    var who = next.s.people.filter(function (p) { return p.selected && p.answer === '수락'; }).map(function (p) { return p.name; });
-    html += '<button class="tv-next" onclick="openRec(\'' + esc(next.r.id) + '\')">' +
-      '<span class="tv-label">다음 녹음' + (next.s.status === '조율중' ? ' · 조율 중' : '') + '</span>' +
-      '<span class="tv-dday">' + ddayText(new Date(next.s.start)) + ' ' + hmMs(next.s.start) + '</span>' +
-      '<b>' + esc(next.r.title || '녹음') + (next.s.title ? ' · ' + esc(next.s.title) : '') + '</b>' +
-      '<span class="tv-sub">' + mdw(next.s.start) + (next.s.location ? ', ' + esc(next.s.location) : '') + (who.length ? ' · ' + esc(who.join(', ')) : '') + '</span></button>';
-  } else if (open.length) {
-    html += '<div class="tv-next tv-done"><span class="tv-label">다음 녹음</span><b>아직 잡힌 녹음이 없어요</b><span class="tv-sub">요청을 눌러 가능한 시간을 찾아보세요</span></div>';
+function renderRecTable() {
+  if (!RC.list) return;
+  var q = ($('rtQ').value || '').trim().toLowerCase(), staff = RC.staff;
+  var rows = RC.list.slice().sort(function (a, b) { return (recIsOpen(b) - recIsOpen(a)) || ((recIsOpen(a) ? (a.due_at || '9') < (b.due_at || '9') : a.received_at > b.received_at) ? -1 : 1); });
+  rows = rows.map(function (r) { return { r: r, w: recWho(r), s: activeSess(r).filter(function (x) { return x.status !== '완료'; })[0] || activeSess(r)[0] }; });
+  if (q) rows = rows.filter(function (x) { return [x.r.title, x.r.request_code, x.r.status].concat(x.w.v, x.w.e, x.w.d).join(' ').toLowerCase().indexOf(q) !== -1; });
+  var open = RC.list.filter(recIsOpen).length;
+  $('recOpenCount').textContent = '진행 중 ' + open + ' · 전체 ' + RC.list.length + (q ? ' · 찾은 것 ' + rows.length : '');
+  if (!rows.length) { $('recTable').innerHTML = '<p class="rec-none">' + (q ? '「' + esc(q) + '」에 맞는 녹음이 없어요' : '최근 60일 동안 녹음 요청이 없어요' + (staff ? '. 오른쪽 아래 + 로 올려요' : '')) + '</p>'; return; }
+  var hl = function (t) { t = esc(t); if (!q) return t; var i = t.toLowerCase().indexOf(esc(q).toLowerCase()); return i < 0 ? t : t.slice(0, i) + '<mark>' + t.slice(i, i + esc(q).length) + '</mark>' + t.slice(i + esc(q).length); };
+  var ppl = function (a) { return a.length ? a.map(hl).join(', ') : '<span class="rt-none">–</span>'; };
+  $('recTable').innerHTML = '<div class="card rt-wrap"><table class="rt"><thead><tr><th>녹음</th><th>상태</th><th>녹음 일시</th><th>녹음자</th>' + (staff ? '<th>엔지니어</th><th>감독</th><th>마감</th>' : '') + '</tr></thead><tbody>' +
+    rows.map(function (x) {
+      var r = x.r, due = r.due_at ? Date.parse(r.due_at) : null;
+      return '<tr class="' + (recIsOpen(r) ? '' : 'past') + '" onclick="openRec(\'' + esc(r.id) + '\')"><td class="rt-t">' + (r.request_code ? '<small>' + hl(r.request_code) + '</small>' : '') + '<b>' + hl(r.title || '녹음') + '</b></td>' +
+        '<td><span class="st ' + (REC_ST[r.status] || 'st-none') + '">' + esc(r.status) + '</span></td>' +
+        '<td class="rt-d">' + (x.s ? mdw(x.s.start) + ' ' + hmMs(x.s.start) + (x.s.status === '조율중' ? '<small>조율 중</small>' : '') : '<span class="rt-none">–</span>') + '</td>' +
+        '<td>' + ppl(x.w.v) + '</td>' + (staff ? '<td>' + ppl(x.w.e) + '</td><td>' + ppl(x.w.d) + '</td><td class="rt-d">' + (due ? dtLabel(r.due_at) + (recIsOpen(r) ? '<small class="' + (dayDiff(due) <= 2 ? 'rc-soon' : '') + '">' + ddText(due) + '</small>' : '') : '–') + '</td>' : '') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+}
+// ----- 녹음 달력: 홈 '한 달 일정'과 같은 모양, 녹음 회차만 -----
+var RCAL = { ym: null, sel: null };
+function rcalMove(n) {
+  var now = new Date();
+  if (n === 0) { RCAL.ym = ymOf(now); RCAL.sel = now.toDateString(); }
+  else { var p = RCAL.ym.split('-'); RCAL.ym = ymOf(new Date(+p[0], +p[1] - 1 + n, 1)); RCAL.sel = null; }
+  renderRecCal();
+}
+function recCalItems() {
+  var out = [];
+  (RC.list || []).forEach(function (r) { activeSess(r).forEach(function (x) {
+    out.push({ r: r, s: x, start: x.start, end: x.end, title: (r.title || '녹음') + (x.title && activeSess(r).length > 1 ? ' · ' + x.title : ''), adj: x.status === '조율중' });
+  }); });
+  return out;
+}
+function renderRecCal() {
+  var now = new Date(); if (!RCAL.ym) RCAL.ym = ymOf(now);
+  var p = RCAL.ym.split('-'), y = +p[0], m = +p[1] - 1, first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
+  if (!RCAL.sel) RCAL.sel = (ymOf(now) === RCAL.ym ? now : first).toDateString();
+  var weeks = Math.ceil((first.getDay() + days) / 7), start = new Date(y, m, 1 - first.getDay()), byDay = {}, todayKey = now.toDateString();
+  recCalItems().forEach(function (t) { var k = new Date(t.start).toDateString(); (byDay[k] = byDay[k] || []).push(t); });
+  var cells = '';
+  for (var i = 0; i < weeks * 7; i++) {
+    var d = new Date(start); d.setDate(start.getDate() + i);
+    var k = d.toDateString(), evs = (byDay[k] || []).sort(function (a, b) { return a.start - b.start; });
+    var hol = SCHED_HOLIDAYS[pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())];
+    cells += '<button type="button" class="mc-d' + (d.getMonth() !== m ? ' out' : '') + (k === todayKey ? ' today' : '') + (k === RCAL.sel ? ' sel' : '') +
+      (hol || d.getDay() === 0 ? ' red' : d.getDay() === 6 ? ' blue' : '') + '" data-k="' + esc(k) + '">' +
+      '<span class="mc-n"><i>' + d.getDate() + '</i>' + (hol ? '<small>' + hol + '</small>' : '') + '</span>' +
+      '<span class="mc-evs">' + evs.slice(0, 3).map(function (t) { return '<span class="mc-ev k-rec' + (t.adj ? ' rc-adj' : '') + '"><em>' + hmMs(t.start) + '</em>' + esc(t.title) + '</span>'; }).join('') +
+      (evs.length > 3 ? '<span class="mc-more">+' + (evs.length - 3) + '</span>' : '') + '</span>' +
+      '<span class="mc-dots">' + evs.slice(0, 4).map(function (t) { return '<i class="k-rec' + (t.adj ? ' rc-adj' : '') + '"></i>'; }).join('') + '</span></button>';
   }
-
-  var needs = open.map(function (r) {
-    var c = recProgress(r), tags = [];
-    if (c.c.adj) tags.push(['bad', '조율 필요 ' + c.c.adj]);
-    if (c.c.pick) tags.push(['warn', '고르기 ' + c.c.pick]);
-    if (c.free) tags.push(['warn', '배치 전 ' + c.free]);
-    if (c.c.wait) tags.push(['', '답 대기 ' + c.c.wait]);
-    return { r: r, tags: tags };
-  }).filter(function (x) { return x.tags.length; });
-  html += '<div class="tv-box"><div class="tv-head"><b>손이 필요한 요청</b><span>' + (needs.length ? needs.length + '건' : '') + '</span></div>' +
-    (needs.length ? needs.map(function (x) {
-      return '<button class="tv-need" onclick="openRec(\'' + esc(x.r.id) + '\')"><span>' + esc(x.r.title || '녹음') + '</span><span class="tv-tags">' +
-        x.tags.map(function (t) { return '<em class="' + t[0] + '">' + t[1] + '</em>'; }).join('') + '</span></button>';
-    }).join('') : '<p class="tv-empty">' + (open.length ? '모든 요청이 순조롭게 흘러가고 있어요' : '진행 중인 요청이 없어요') + '</p>') + '</div>';
-
-  // 오늘부터 2주: 녹음 회차(확정·조율 중)와 마감
-  var start = new Date(), cells = ''; start.setHours(0, 0, 0, 0);
-  for (var i = 0; i < 14; i++) {
-    var d = new Date(start.getTime() + i * 86400000);
-    var day = sess.filter(function (x) { return sameDay(x.s.start, d); });
-    var dues = open.filter(function (r) { return r.due_at && sameDay(r.due_at, d); });
-    var go = (day[0] && day[0].r) || dues[0];
-    var tip = day.map(function (x) { return hmMs(x.s.start) + ' ' + (x.r.title || '녹음'); }).concat(dues.map(function (r) { return (r.title || '녹음') + ' 마감'; })).join('\n');
-    cells += '<button class="tv-day' + (i === 0 ? ' today' : '') + (go ? ' has' : '') + '"' +
-      (go ? ' title="' + esc(tip) + '" onclick="openRec(\'' + esc(go.id) + '\')"' : ' disabled') + '>' +
-      '<small class="w' + d.getDay() + '">' + WD[d.getDay()] + '</small><b>' + d.getDate() + '</b><span class="tv-dots">' +
-      day.map(function (x) { return '<i class="' + (x.s.status === '조율중' ? 'adj' : 'ok') + '"></i>'; }).join('') +
-      dues.map(function () { return '<i class="due"></i>'; }).join('') + '</span></button>';
+  var sel = (byDay[RCAL.sel] || []).sort(function (a, b) { return a.start - b.start; }), selD = new Date(RCAL.sel);
+  var detail = !RC.list ? '<div class="mc-none">불러오는 중…</div>'
+    : '<div class="mc-dh">' + (selD.getMonth() + 1) + '월 ' + selD.getDate() + '일 ' + WD[selD.getDay()] + '요일' + (sel.length ? ' · 녹음 ' + sel.length + '건' : '') + '</div>' +
+      (sel.length ? sel.map(function (t) {
+        var v = t.s.people.filter(function (q) { return q.role === '녹음자' && q.selected; }).map(function (q) { return q.name; });
+        return '<button type="button" class="mc-it k-rec rc-calit" data-sid="' + esc(t.s.id) + '"><span class="mc-t">' + hmMs(t.start) + (t.end ? '–' + hmMs(t.end) : '') + '</span>' +
+          '<div><b>' + esc(t.title) + (t.adj ? ' <em class="rc-adjtag">조율 중</em>' : '') + '</b><small>' + esc((v.length ? '녹음자 ' + v.join(', ') : '녹음자 확정 전') + (RC.staff && t.s.location ? ' · ' + t.s.location : '')) + '</small></div></button>';
+      }).join('') : '<div class="mc-none">이날은 녹음이 없어요</div>');
+  $('rcalNote').textContent = RC.staff ? '확정 · 조율 중(점선) 회차' : '확정된 녹음';
+  $('recCal').innerHTML = '<div class="mc card">' +
+    '<div class="mc-top"><button type="button" class="mc-nav" data-m="-1" aria-label="지난달">‹</button><b>' + y + '년 ' + (m + 1) + '월</b>' +
+      '<button type="button" class="mc-nav" data-m="1" aria-label="다음 달">›</button>' + (RCAL.ym !== ymOf(now) ? '<button type="button" class="mc-nav mc-today" data-m="0">오늘</button>' : '') + '</div>' +
+    '<div class="mc-wd"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>' +
+    '<div class="mc-grid">' + cells + '</div><div class="mc-detail">' + detail + '</div></div>';
+}
+$('recCal').addEventListener('click', function (e) {
+  var nav = e.target.closest('.mc-nav'); if (nav) { rcalMove(+nav.getAttribute('data-m')); return; }
+  var it = e.target.closest('.rc-calit'); if (it) { openRecSess(it.getAttribute('data-sid')); return; }
+  var d = e.target.closest('.mc-d'); if (d) {
+    RCAL.sel = d.getAttribute('data-k'); renderRecCal();
+    var evs = recCalItems().filter(function (t) { return new Date(t.start).toDateString() === RCAL.sel; });
+    if (evs.length === 1 && isWide()) openRecSess(evs[0].s.id);
   }
-  html += '<div class="tv-box"><div class="tv-head"><b>앞으로 2주</b><span><i class="tv-dot ok"></i>확정 <i class="tv-dot adj"></i>조율 중 <i class="tv-dot due"></i>마감</span></div>' +
-    '<div class="tv-cal">' + cells + '</div></div></div>';
-  $('recOverview').innerHTML = html;
+});
+// 달력에서 녹음 누르기: 교관 이상 = 요청 상세 전부, 그 밖 = 녹음·녹음자·시간만
+function openRecSess(sid) {
+  var hit = recCalItems().filter(function (t) { return t.s.id === sid; })[0]; if (!hit) return;
+  if (RC.staff) { openRec(hit.r.id); return; }
+  recBrief(hit.r, hit.s);
+}
+function recBrief(r, x) {
+  var list = x ? [x] : activeSess(r);
+  $('itemModalT').textContent = r.title || '녹음'; $('itemModalS').textContent = '녹음 일정';
+  $('itemBody').innerHTML = (list.length ? list.map(function (s) {
+    var v = s.people.filter(function (q) { return q.role === '녹음자' && q.selected; }).map(function (q) { return q.name; });
+    return '<div class="rb-brief"><div><span>녹음</span><b>' + esc((r.title || '녹음') + (s.title ? ' · ' + s.title : '')) + '</b></div>' +
+      '<div><span>녹음자</span><b>' + (v.length ? esc(v.join(', ')) : '확정 전') + '</b></div>' +
+      '<div><span>시간</span><b>' + mdw(s.start) + ' ' + hmMs(s.start) + (s.end ? '–' + hmMs(s.end) : '') + '</b></div></div>';
+  }).join('') : '<p class="rec-none">아직 확정된 녹음 일정이 없어요 · 상태: ' + esc(r.status) + '</p>');
+  openModal('itemModal');
 }
 
 // ----- 요청 올리기 팝업: 예상 녹음시간 · 배역(지정/후보/미정) -----
@@ -3023,6 +3068,7 @@ function renderAvail() {
 
 function openRec(id) {
   var r = byId(RC.list || [], id); if (!r) return;
+  if (!RC.staff) { recBrief(r); return; }
   if (!RC.current || RC.current.id !== id) { RC.plan = null; RC.want = null; RC.day = null; RC.slot = null; RC.sel = null; RC.place = null; RC.adding = null; RC.planOpen = false; }
   RC.current = r;
   if (recAllowed() && !activeSess(r).length && freeRoles(r).length && recIsOpen(r) && r.status !== '보류') RC.planOpen = true;
@@ -3031,9 +3077,7 @@ function openRec(id) {
   $('recListWrap').style.display = wide ? 'block' : 'none';
   document.querySelector('.rec-title').style.display = wide ? '' : 'none';
   $('recAvail').style.display = wide && recAllowed() ? '' : 'none';
-  $('recView').classList.toggle('split', wide);
   renderRecList();
-  if (!wide) { $('recOverview').style.display = 'none'; $('recView').classList.remove('ov'); }
   $('recDetail').style.display = 'block'; $('recDetail').scrollTop = 0;
   try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
   if (!wide) window.scrollTo(0, 0);
@@ -3043,7 +3087,6 @@ function openRec(id) {
 function closeRec() {
   RC.current = null; RC.plan = null; RC.planOpen = false;
   document.body.classList.remove('rc-pop');
-  $('recView').classList.toggle('split', isWide());
   $('recDetail').style.display = 'none';
   $('recListWrap').style.display = 'block';
   document.querySelector('.rec-title').style.display = '';
@@ -3451,7 +3494,7 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && MODAL) { closeModal(); return; }
   if (RP.open && (e.key === 'Escape' || e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { if (e.key === 'Escape') closeRecap(); else recapStep(e.key === 'ArrowRight' ? 1 : -1); return; }
   if (e.key === 'Escape' && $('mePop').classList.contains('open')) { toggleMePop(false); return; }
-  if (e.key === 'Escape' && $('pfSub').classList.contains('open') && pfFloating()) { togglePfSub(false); return; }
+  if (e.key === 'Escape' && pfFloating() && ($('pfSub').classList.contains('open') || $('recSub').classList.contains('open'))) { togglePfSub(false); togglePfSub(false, 'recSub'); return; }
   if (e.key === 'Escape' && $('attFab').classList.contains('open')) { closeFabMenu(); return; }
   if (e.key !== 'Escape' || !isWide()) return;
   var t = e.target && e.target.tagName;
@@ -3884,7 +3927,7 @@ function openTodo(i) {
   };
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
   if (t.kind === 'recask' || t.kind === 'recarrive' || t.kind === 'recrun') { openAsk(t.id); return; }
-  if (t.kind === 'flowstep') { FW.pending = t.id; if (curTab === 'rec') loadFlows(); else goTab('rec'); return; }
+  if (t.kind === 'flowstep') { FW.pending = t.id; if (curTab === 'flow') loadFlows(); else goTab('flow'); return; }
   if (t.kind === 'mtgaction') { if (confirm('「' + t.name + '」 끝냈나요?')) api('mtg.actionDone', { id: t.id }).then(function () { haptic('success'); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); return; }
   if (t.kind === 'mtgprep') { inTeam(function () { openMeeting(t.id); }); return; }
   if (t.kind === 'poll') { PL.pending = t.id; if (curTab === 'poll') loadPolls(); else goTab('poll'); return; }
@@ -5030,7 +5073,7 @@ function actItems() {
     else if (inst) add('plus', '과제 내기', openHwModal);
   }
   if (t === 'rec' && recAllowed() && !RC.current) add('plus', '녹음 요청 올리기', openRecModal);
-  if (t === 'rec' && FW.can && !RC.current) add('plus', '작업 흐름 만들기', openFlowModal);
+  if (t === 'flow' && FW.can) add('plus', '작업 흐름 만들기', openFlowModal);
   if (t === 'profile') add('edit', '특이사항 알리기', function () { openNote({}); });
   if (t === 'profile' && statCan()) add('star', '스탯 주기', function () { closeAct(); openStatGrant({}); });
   if (t === 'dues' && DU.d && DU.d.treasurer) add('won', '회계 (확인·현황)', mgToggle('dues', renderDues), MG.dues);
@@ -5305,7 +5348,7 @@ function mtPerson(pid) {
 function openItem(id) {
   var it = id ? MT.d.items.filter(function (i) { return i.id === id; })[0] : null, staff = S.team.rank >= RANK.INSTRUCTOR;
   MT.ik = it ? it.kind : '일반';
-  $('itemModalT').textContent = it ? '안건 고치기' : '안건 올리기';
+  $('itemModalT').textContent = it ? '안건 고치기' : '안건 올리기'; $('itemModalS').textContent = '배경·정해야 할 것·선택지를 적으면 참석자들이 미리 의견을 남겨요';
   $('itemBody').innerHTML = (staff ? '<div class="b-chips" id="imKinds">' + [['일반', '일반'], ['인원', '👤 인원 (특이사항)']].map(function (k) { return '<button type="button" class="b-pick' + (MT.ik === k[0] ? ' on' : '') + '" data-k="' + k[0] + '" onclick="imKind(\'' + k[0] + '\')">' + k[1] + '</button>'; }).join('') + '</div>' : '') +
     '<div id="imWho" style="display:' + (MT.ik === '인원' ? '' : 'none') + '"><label class="field-label">누구 얘기인가요</label><div class="select-wrap"><select id="imPerson">' + MT.d.members.map(function (x) { return '<option value="' + x.id + '"' + (it && it.person_id === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div></div>' +
     '<label class="field-label" for="imTitle">안건</label><input type="text" id="imTitle" class="b-input" maxlength="80" value="' + esc(it ? it.title : '') + '" placeholder="예) 10월 정규수업 시간 조정">' +
@@ -5374,8 +5417,7 @@ function fwCard(f) {
 }
 function renderFlows() {
   var open = FW.list.filter(function (f) { return f.status === '진행'; }), fin = FW.list.filter(function (f) { return f.status === '완료'; });
-  if (!FW.list.length && !FW.can) { $('flowArea').innerHTML = ''; return; }
-  $('flowArea').innerHTML = '<div class="section-head b-gap"><h2>작업 흐름</h2><span class="section-count">' + (open.length ? open.length + '건 진행 중' : '') + '</span></div>' +
+  $('flowArea').innerHTML = '<div class="section-head"><h2>작업 흐름</h2><span class="section-count">' + (open.length ? open.length + '건 진행 중' : '') + '</span></div>' +
     (open.length ? open.map(fwCard).join('') : '<p class="rec-none">진행 중인 작업이 없어요' + (FW.can ? '. 오른쪽 아래 + 에서 \'작업 흐름 만들기\'' : '') + '</p>') +
     (fin.length ? '<details class="rm-past"><summary>끝난 작업 ' + fin.length + '건 (30일)</summary>' + fin.map(fwCard).join('') + '</details>' : '');
 }
@@ -5386,7 +5428,7 @@ function fwFind(spId) {
 function fwAct(spId) {
   var r = fwFind(spId); if (!r) return;
   var mine = r.p.person_id === S.me.profile.id;
-  $('itemModalT').textContent = mine ? '내 단계 보고' : r.p.name + '님 단계 (대신 누르기)';
+  $('itemModalT').textContent = mine ? '내 단계 보고' : r.p.name + '님 단계 (대신 누르기)'; $('itemModalS').textContent = '누르면 지시자에게 알림이 가요';
   $('itemBody').innerHTML = '<div class="fw-am"><small>' + esc(r.f.title) + '</small><b>' + esc(r.x.title) + '</b>' + (r.x.due_on ? '<span>' + r.x.due_on.slice(5).replace('-', '/') + '까지</span>' : '') + '<span>지금: ' + esc(r.p.state) + '</span></div>' +
     '<div class="fw-abtns">' + [['시작', '▶ 시작했어요'], ['완료', '✓ 끝냈어요'], ['막힘', '🆘 막혔어요'], ['대기', '되돌리기']].map(function (b) { return '<button type="button" class="fw-ab a-' + b[0] + (r.p.state === b[0] ? ' on' : '') + '" onclick="fwMark(\'' + spId + '\',\'' + b[0] + '\')">' + b[1] + '</button>'; }).join('') + '</div>' +
     '<label class="field-label" for="fwANote">메모 <span class="hint">막혔어요는 필수 · 지시자에게 같이 가요</span></label><input type="text" id="fwANote" class="b-input" maxlength="300" value="' + esc(r.p.note || '') + '" placeholder="예) 자료 링크 공유했어요 / 영상 원본이 없어요"><div class="msg" id="fwAMsg"></div>';

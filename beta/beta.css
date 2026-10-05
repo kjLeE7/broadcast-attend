@@ -1605,3 +1605,23 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .b-dacts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .b-dacts button { border: 1.5px solid var(--line); background: var(--card); border-radius: 12px; font: inherit; font-size: 13.5px; font-weight: 700; padding: 9px 14px; cursor: pointer; color: var(--text); }
 .b-dacts button:hover { border-color: var(--accent); }
+
+/* 업무 › 실무: 녹음 달력 · 녹음 표 (2026-10-06) */
+.mc-ev.rc-adj { opacity: .7; outline: 1.5px dashed var(--k); outline-offset: -1.5px; background: transparent; }
+.mc-dots i.rc-adj { background: transparent; box-shadow: inset 0 0 0 1.5px var(--k); }
+.rc-calit { width: 100%; border: none; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.rc-calit:hover { filter: brightness(.97); }
+.rc-adjtag { font-style: normal; font-size: 11px; font-weight: 700; color: var(--warn); margin-left: 4px; }
+.rt-search { margin: 0 0 8px; } .rt-search .b-input { margin: 0; }
+.rt-wrap { padding: 0; overflow-x: auto; }
+.rt { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+.rt th { text-align: left; font-size: 11.5px; font-weight: 800; color: var(--muted); padding: 10px 12px; border-bottom: 1.5px solid var(--line); white-space: nowrap; background: var(--card-soft); }
+.rt td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.rt tbody tr { cursor: pointer; } .rt tbody tr:hover { background: var(--card-soft); } .rt tbody tr:last-child td { border-bottom: none; }
+.rt tr.past td { color: var(--muted); } .rt tr.past .rt-t b { font-weight: 600; }
+.rt-t small { display: block; font-size: 11px; color: var(--muted); font-weight: 700; } .rt-t b { font-size: 13.5px; }
+.rt-d { white-space: nowrap; } .rt-d small { display: block; font-size: 11px; color: var(--muted); }
+.rt-none { color: var(--muted); opacity: .6; }
+.rt mark { background: #F2E3B3; color: inherit; border-radius: 3px; padding: 0 1px; }
+.rb-brief { display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--card-soft); margin-bottom: 8px; }
+.rb-brief > div { display: flex; gap: 12px; font-size: 14px; } .rb-brief span { flex: 0 0 52px; color: var(--muted); font-weight: 700; font-size: 13px; }

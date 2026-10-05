@@ -1738,12 +1738,12 @@ async function flowSync(ctx: Ctx, flowId: string) {
     must(await ctx.db.from("work_steps").update({ ready_at: now }).eq("id", st.id));
     const ids = ps.filter((x) => x.step_id === st.id && x.person_id && x.state !== "완료").map((x) => x.person_id);
     const who = await withTelegram(ctx, ids);
-    if (who.length) await sendToMembers(who, `🧩 <b>내 차례예요</b> · ${escHtml(f.title)}\n${escHtml(st.title)}${st.due_on ? ` · ${st.due_on.slice(5).replace("-", "/")}까지` : ""}${st.detail ? `\n${escHtml(st.detail)}` : ""}\n앱에서 [시작]·[완료]를 눌러주세요`, appButton("작업 보기", "?go=rec"));
+    if (who.length) await sendToMembers(who, `🧩 <b>내 차례예요</b> · ${escHtml(f.title)}\n${escHtml(st.title)}${st.due_on ? ` · ${st.due_on.slice(5).replace("-", "/")}까지` : ""}${st.detail ? `\n${escHtml(st.detail)}` : ""}\n앱에서 [시작]·[완료]를 눌러주세요`, appButton("작업 보기", "?go=flow"));
   }
   if (steps.length && steps.every((st) => done.has(st.id))) {
     must(await ctx.db.from("work_flows").update({ status: "완료", done_at: now }).eq("id", flowId));
     const boss = await withTelegram(ctx, [f.created_by]);
-    if (boss.length) await sendToMembers(boss, `🎉 <b>작업 흐름이 모두 끝났어요</b>\n${escHtml(f.title)} · ${steps.length}단계`, appButton("작업 보기", "?go=rec"));
+    if (boss.length) await sendToMembers(boss, `🎉 <b>작업 흐름이 모두 끝났어요</b>\n${escHtml(f.title)} · ${steps.length}단계`, appButton("작업 보기", "?go=flow"));
   }
 }
 // 마감 하루 전·지남 알림 (차례가 됐는데 안 끝난 단계, 8시 이후)
@@ -1758,7 +1758,7 @@ async function cronFlows(ctx: Ctx) {
     if (late ? st.reminded_over_at : st.reminded_d1_at) continue;
     const ps: any[] = must(await ctx.db.from("work_step_people").select("person_id").eq("step_id", st.id).neq("state", "완료").not("person_id", "is", null)) ?? [];
     const who = await withTelegram(ctx, ps.map((x) => x.person_id));
-    if (who.length) await sendToMembers(who, `${late ? "⏰ <b>작업 마감이 지났어요</b>" : "📌 <b>작업 마감이 다가와요</b>"} · ${escHtml(st.work_flows.title)}\n${escHtml(st.title)} · ${st.due_on.slice(5).replace("-", "/")}까지`, appButton("작업 보기", "?go=rec"));
+    if (who.length) await sendToMembers(who, `${late ? "⏰ <b>작업 마감이 지났어요</b>" : "📌 <b>작업 마감이 다가와요</b>"} · ${escHtml(st.work_flows.title)}\n${escHtml(st.title)} · ${st.due_on.slice(5).replace("-", "/")}까지`, appButton("작업 보기", "?go=flow"));
     must(await ctx.db.from("work_steps").update(late ? { reminded_over_at: new Date().toISOString() } : { reminded_d1_at: new Date().toISOString() }).eq("id", st.id));
     late ? over++ : d1++;
   }
@@ -2705,7 +2705,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (f.created_by !== ctx.me.id && p.state !== "대기") {
       const boss = await withTelegram(ctx, [f.created_by]);
       const ic = { 시작: "▶️", 완료: "✅", 막힘: "🆘" }[p.state as "시작"];
-      if (boss.length) await sendToMembers(boss, `${ic} <b>${escHtml(sp.name)}</b> · ${p.state}\n${escHtml(f.title)} › ${escHtml(sp.work_steps.title)}${note ? `\n💬 ${escHtml(note)}` : ""}`, appButton("작업 보기", "?go=rec"));
+      if (boss.length) await sendToMembers(boss, `${ic} <b>${escHtml(sp.name)}</b> · ${p.state}\n${escHtml(f.title)} › ${escHtml(sp.work_steps.title)}${note ? `\n💬 ${escHtml(note)}` : ""}`, appButton("작업 보기", "?go=flow"));
     }
     await flowSync(ctx, f.id);
     return { ok: true };
@@ -4353,7 +4353,20 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
         })),
       })),
     }));
-    return { requests, people };
+    // 교관 아래(2026-10-06): 녹음 제목·상태·마감 + 확정된 회차의 시간·녹음자 이름만
+    if (!(await canSeeDetail(ctx, sec.teamIds))) {
+      return {
+        staff: false, people: [],
+        requests: requests.map((r: any) => ({
+          id: r.id, team_id: r.team_id, title: r.title, request_code: r.request_code, status: r.status, due_at: r.due_at, received_at: r.received_at, roles: [],
+          sessions: r.sessions.filter((x: any) => x.status === "예정" || x.status === "완료").map((x: any) => ({
+            id: x.id, title: x.title, start: x.start, end: x.end, status: x.status,
+            people: x.people.filter((q: any) => q.role === "녹음자" && q.selected).map((q: any) => ({ id: q.id, name: q.name, role: q.role, selected: true, answer: "수락" })),
+          })),
+        })),
+      };
+    }
+    return { staff: true, requests, people };
   },
 
   // 녹음 요청 받기: { team_id, title, due_at, duration_min, roles:[배역 이름…], request_dept?, requester_name?, volume_desc?, note? }

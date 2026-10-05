@@ -914,10 +914,10 @@ function drawText(oc) {
   ctx.font = `${fs * .92}px ${DISPLAY}`; ctx.fillStyle = 'rgba(241,232,217,.85)'; ctx.fillText('스담 · 4층 복도', 10 * k, 204 * k);
   for (const id in cheers) { const c = cheers[id]; if (clockT >= c.until) { delete cheers[id]; continue; }
     tag([['🎉 수고했어요!', '#17151d']], c.x * k, (c.y - 22 - Math.min(1, 5 - (c.until - clockT)) * 4) * k, fs, 'center', '#f2b84b'); }
-  // 자주 하는 말 (look.say, 3개까지): 사람마다 다른 박자로 가끔(약 25~45초에 한 번, 4초 동안) 머리 위 말풍선
+  // 자주 하는 말 (look.say, 3개까지): 사람마다 다른 박자로 자주(약 10~18초에 한 번, 4초 동안) 머리 위 말풍선
   for (const p of people) {
     const say = p.look && p.look.say; if (!say || !say.length || p.hidden || p.moving || reduce) continue;
-    const per = 25 + (p.seed % 20), ph = (clockT + p.seed * 1.7) % per;
+    const per = 10 + (p.seed % 8), ph = (clockT + p.seed * 1.7) % per;
     if (ph > 4) continue;
     const txt = say[Math.floor((clockT + p.seed * 1.7) / per) % say.length], top = (p._top != null ? p._top : p.y - 16) - 4;
     ctx.font = `700 ${fs * .82}px ${DISPLAY}`;
