@@ -865,9 +865,9 @@ function renderHead() {
     (sessCiItems(s).length ? '<span class="chip">⏰ 체크인 ' + sessCiItems(s).map(function (x) { return CI_EMOJI[x] + x; }).join('·') + '</span>' : '') + '</div>' +
     (s.description ? '<div class="card b-desc">' + esc(s.description) + '</div>' : '') + fileChips('session', s.id) +
     (lead && nr ? '<div class="b-notify">📨 ' + esc(notifyText(nr)) + '</div>' : '') +
-    // 상세 안 버튼: 고치기(교관 이상) · 회의(이름에 '회의'면 누구나)
-    ((S.team.rank >= RANK.INSTRUCTOR && ph !== 'cancel') || /회의/.test(sessionName(s)) ? '<div class="b-dacts">' +
-      (S.team.rank >= RANK.INSTRUCTOR && ph !== 'cancel' ? '<button type="button" onclick="editSession()">✏️ 모임 고치기</button>' : '') +
+    // 상세 안 버튼: 고치기(조장 이상) · 회의(이름에 '회의'면 누구나)
+    ((lead && ph !== 'cancel') || /회의/.test(sessionName(s)) ? '<div class="b-dacts">' +
+      (lead && ph !== 'cancel' ? '<button type="button" onclick="editSession()">✏️ 모임 고치기</button>' : '') +
       (/회의/.test(sessionName(s)) ? '<button type="button" onclick="openMeeting(\'' + s.id + '\')">🗂 회의 열기 (안건·회의록)</button>' : '') + '</div>' : '') + '</div>';
 }
 
