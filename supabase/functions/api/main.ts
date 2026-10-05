@@ -4121,6 +4121,18 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   },
 
   // 회차 끝내기·취소: { session_id, status: "완료" | "취소" }
+  // 내가 맡은 녹음 (누구나): 미선정·취소 빼고, 지난 14일 ~ 앞으로. 누르면 응답 팝업(rec.ask)
+  async "rec.mine"(ctx) {
+    const rows: any[] = must(await ctx.db.from("recording_participants")
+      .select("id, role, answer, selected, arrived_at, recording_sessions!inner(id, title, status, scheduled_start, scheduled_end, location, started_at, ended_at, recording_requests(title))")
+      .eq("person_id", ctx.me.id).neq("answer", "미선정").neq("recording_sessions.status", "취소")
+      .gte("recording_sessions.scheduled_start", new Date(Date.now() - 14 * 24 * HOUR).toISOString())) ?? [];
+    return rows.map((r) => ({ id: r.id, role: REC_ROLE_KO[r.role] ?? r.role, answer: r.answer, selected: r.selected, arrived_at: r.arrived_at,
+      title: r.recording_sessions.recording_requests?.title ?? "녹음", session: r.recording_sessions.title ?? "", status: r.recording_sessions.status,
+      start: Date.parse(r.recording_sessions.scheduled_start), end: r.recording_sessions.scheduled_end ? Date.parse(r.recording_sessions.scheduled_end) : null,
+      location: r.recording_sessions.location ?? "", ended: !!r.recording_sessions.ended_at }))
+      .sort((a, b) => a.start - b.start);
+  },
   // 녹음실 도착 { participant_id }: 본인, 또는 그 회차 엔지니어·교관 이상이 대신 확인
   async "rec.arrive"(ctx) {
     const pt = must(await ctx.db.from("recording_participants").select("*").eq("id", ctx.payload?.participant_id).maybeSingle());

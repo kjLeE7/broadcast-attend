@@ -161,7 +161,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -357,6 +357,12 @@
 - 흐름: 글 저장 → `files.prepare`(쓴 사람·관리자만 `fileCanEdit`, 1회용 올리기 주소) → 브라우저가 보관함에 바로 PUT(문지기 200KB 제한을 안 거침) → `files.done`(실제로 올라갔는지 확인).
   보기: `files.list { kind, ids }`(내 팀·내가 대상인 글만, 이름만) → 칩 누르면 `files.open`(받는 사람만 `fileCanOpen` = 쓴 사람·관리자·대상자, **5분짜리 주소**, `access_log`에 열람 기록). `files.delete`(올린 사람·관리자).
 - **자동 삭제**: 과제는 마감+14일, 공지·마감 없는 과제는 올린 날+14일(설정값 `file_keep_days`). `cron.reminders` 안 `cronFiles`가 지움(올리다 만 것도 하루 뒤 정리).
+
+### 탭 다시 나누기 (2026-10-06, 함수 버전 50)
+- 아래 탭 = 홈 · **일정**(←출결) · **소식**(←공지) · **업무**(이제 모두에게) · 개인 (+ PC: 동네지도·하늘방송국). 화면 id·`curTab` 값은 그대로(attend·notice·rec·profile).
+- 부모 탭(`parentTab`): 시간취합(poll) → 일정 [모임 | 월간 리포트 | 시간취합], 업무가능(weekly) → 업무 [녹음 | 업무가능 시간], 과제(task) → 소식 [공지 | 과제] 한 곳만, 회비 → 개인. 개인 하위 메뉴는 나의 기록·회비만.
+- 업무 탭 맨 위 **'내가 맡은 녹음'**(`#recMine`, `rec.mine` = 내가 들어간 회차, 미선정·취소 빼고 지난 14일~앞으로, 누르면 `openAsk`). 교관 아래(`!recAllowed()`)는 이것과 [업무가능 시간] 칩만, 녹음 요청 관리·한눈에·2주 모아보기는 교관 이상.
+- 다음 할 일: 일정 탭에 [장소 신청] 칩 (녹음실 = 엔지니어팀장 승인, 총회 대회의실·과천 성전 10층 = 과장·부과장 승인, 스담 = 승인 없이 먼저 신청한 사람).
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)

@@ -1251,7 +1251,8 @@ function goTab(t) {
 }
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
-function parentTab(t) { return t === 'weekly' || t === 'poll' || t === 'dues' ? 'profile' : t === 'task' ? taskFrom : t; }
+// 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
+function parentTab(t) { return t === 'weekly' ? 'rec' : t === 'poll' ? 'attend' : t === 'dues' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1277,7 +1278,7 @@ function togglePfSub(open) {
 function pfGo(t) {
   toggleMePop(false);
   if (pfFloating()) togglePfSub(false);
-  if (t === 'task') goTask('profile'); else goTab(t);
+  goTab(t);
 }
 document.addEventListener('click', function (e) {
   if (!pfFloating() || !$('pfSub').classList.contains('open')) return;
@@ -1289,7 +1290,6 @@ function lastTab() {
   var t = lsGetS('betaTab');
   if (!t || t === 'home' || !VIEWS[t]) return null;
   if (t === 'town' && !townAllowed()) return null;
-  if (t === 'rec' && !recAllowed()) return null;
   return t;
 }
 function setTabUI(t) {
@@ -2651,7 +2651,7 @@ var KIND_ROLE = { voice: '녹음자', engineer: '엔지니어', director: '감�
 var DEEP_REC = (function () { try { return new URLSearchParams(location.search).get('rec'); } catch (e) { return null; } })();
 var DEEP_ASK = (function () { try { return new URLSearchParams(location.search).get('ask'); } catch (e) { return null; } })();
 function recAllowed() { return !!(S.me && S.me.teams.some(function (t) { return t.rank >= RANK.INSTRUCTOR; })); }
-function setupRecTab() { $('recTab').style.display = recAllowed() ? '' : 'none'; }
+function setupRecTab() { $('recTab').style.display = ''; }   // 업무 탭은 모두에게 (교관 이상은 녹음 요청 관리까지)
 function recIsOpen(r) { return ['접수', '캐스팅중', '일정확정', '보류'].indexOf(r.status) !== -1; }
 function durText(m) { return m === 10 ? '10분 내외' : m >= 120 ? '2시간 이상' : m % 60 ? (m >= 60 ? Math.floor(m / 60) + '시간 ' : '') + (m % 60) + '분' : (m / 60) + '시간'; }
 function ddText(ms) { var d = dayDiff(ms); return d < 0 ? '마감 지남' : d === 0 ? '오늘 마감' : 'D-' + d; }
@@ -2666,7 +2666,13 @@ function freeRoles(r) {
 
 function loadRec() {
   if (!STF.data) loadStatForm().then(function () { if (RC.current && statCan()) renderRecBoard(); });
-  if (!S.team || !recAllowed()) return Promise.resolve();
+  if (!S.team) return Promise.resolve();
+  loadRecMine();
+  var mgr = recAllowed();
+  // 교관 아래: 내가 맡은 녹음만 (녹음 요청 관리·한눈에·2주 모아보기는 숨김)
+  $('recListWrap').classList.toggle('rec-member', !mgr); $('recAvail').style.display = mgr ? '' : 'none'; $('recFab').style.display = mgr ? '' : 'none';
+  $('recDesc').textContent = mgr ? '녹음 요청을 올리면 세 팀 교관 이상 모두에게 알림이 가요. 마감까지 가능한 사람·장소·시간을 찾아 드려요' : '내가 맡은 녹음이에요. 눌러서 수락·조율하고, 당일엔 녹음실 도착을 눌러주세요';
+  if (!mgr) { $('recOverview').style.display = 'none'; $('recView').classList.remove('split'); return Promise.resolve(); }
   if (!RC.list) $('recOpen').innerHTML = '<div class="skeleton row-skel"></div>';
   loadAvail();
   return api('rec.list', { team_id: S.team.id }).then(function (d) {
@@ -3814,7 +3820,7 @@ function openTodo(i) {
   }
   if (t.kind === 'checkin') { inTeam(function () { goTab('attend'); }); return; }
   if (t.kind === 'task') {
-    inTeam(function () { A.current = null; goTask('profile'); var tries = 0;
+    inTeam(function () { A.current = null; goTask('notice'); var tries = 0;
       (function open() { if (A.list && byId(A.list, t.id)) openTask(t.id); else if (tries++ < 20) setTimeout(open, 150); })(); });
     return;
   }
@@ -4767,4 +4773,21 @@ function delFile(kind, id) {
     Object.keys(FL[kind] || {}).forEach(function (k) { FL[kind][k] = FL[kind][k].filter(function (f) { return f.id !== id; }); });
     if (kind === 'notice') renderNotices(); else if (kind === 'session') renderHead(); else { renderTasks(); if (A.current) openTask(A.current.id); }
   }).catch(function (err) { alertMsg(err.message); });
+}
+
+// ----- 내가 맡은 녹음 (업무 탭 맨 위, 누구나) -----
+var ANS_TXT = { '대기': ['답해주세요', 'st-지각'], '수락': ['수락', 'st-참석'], '조율': ['조율 요청함', 'st-불참'] };
+function loadRecMine() {
+  api('rec.mine').then(function (l) {
+    var now = Date.now(), up = l.filter(function (x) { return !x.ended && (x.end || x.start) > now - 3600000; }), past = l.filter(function (x) { return up.indexOf(x) === -1; });
+    var row = function (x) {
+      var st = x.ended ? ['녹음 마침', 'st-참석'] : x.status === '예정' && x.selected ? (x.arrived_at ? ['도착', 'st-참석'] : ['확정', 'st-참석']) : (ANS_TXT[x.answer] || [x.answer, 'st-none']);
+      return '<button type="button" class="card rm-row" onclick="openAsk(\'' + x.id + '\')"><span class="rm-when"><b>' + mdw(x.start) + '</b>' + hmMs(x.start) + '</span>' +
+        '<span class="rm-what"><b>' + esc(x.title) + (x.session ? ' · ' + esc(x.session) : '') + '</b><small>' + esc(x.role) + (x.location ? ' · ' + esc(x.location) : '') + '</small></span>' +
+        '<span class="st ' + st[1] + '">' + st[0] + '</span></button>';
+    };
+    $('recMine').innerHTML = '<div class="section-head"><h2>내가 맡은 녹음</h2><span class="section-count">' + up.length + '건</span></div>' +
+      (up.length ? up.map(row).join('') : '<p class="rec-none">지금 맡은 녹음이 없어요. 요청이 오면 알림으로 알려 드려요</p>') +
+      (past.length ? '<details class="rm-past"><summary>지난 2주 ' + past.length + '건</summary>' + past.map(row).join('') + '</details>' : '');
+  }).catch(function (err) { $('recMine').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }

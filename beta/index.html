@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006h">
+  <link rel="stylesheet" href="beta.css?v=20261006j">
 </head>
 <body>
   <div class="app">
@@ -139,7 +139,7 @@
     <section id="listView" style="display:none;">
       <h1 class="page-title">함께한 자리</h1>
       <p class="page-desc">모임을 눌러 오늘의 자리를 남겨주세요</p>
-      <div class="b-attseg"><button class="wkchip active" onclick="showList()">모임</button><button class="wkchip" onclick="showReport()">월간 리포트</button></div>
+      <div class="b-attseg"><button class="wkchip active" onclick="showList()">모임</button><button class="wkchip" onclick="showReport()">월간 리포트</button><button class="wkchip" onclick="goTab('poll')">시간취합</button></div>
 
       <!-- 사유 입력·사전 체크가 필요한 모임 -->
       <div id="needArea"></div>
@@ -197,7 +197,7 @@
     <section id="reportView" style="display:none;">
       <h1 class="page-title">한 달의 발자취</h1>
       <p class="page-desc" id="rpDesc">한 달 동안의 출결을 사람마다 모아봐요</p>
-      <div class="b-attseg"><button class="wkchip" onclick="showList()">모임</button><button class="wkchip active" onclick="showReport()">월간 리포트</button></div>
+      <div class="b-attseg"><button class="wkchip" onclick="showList()">모임</button><button class="wkchip active" onclick="showReport()">월간 리포트</button><button class="wkchip" onclick="goTab('poll')">시간취합</button></div>
       <div class="b-month">
         <button type="button" onclick="moveMonth(-1)">‹</button>
         <b id="rpMonth"></b>
@@ -266,7 +266,10 @@
       <!-- 제목은 PC 반반 배치 위에 한 줄로 (목록·녹음 한눈에 모두 이 아래) -->
       <div class="rec-title">
         <h1 class="page-title">목소리를 담는 시간</h1>
-        <p class="page-desc">녹음 요청을 올리면 세 팀 교관 이상 모두에게 알림이 가요. 마감까지 가능한 사람·장소·시간을 찾아 드려요</p>
+        <p class="page-desc" id="recDesc">녹음 요청을 올리면 세 팀 교관 이상 모두에게 알림이 가요. 마감까지 가능한 사람·장소·시간을 찾아 드려요</p>
+        <div class="b-attseg"><button class="wkchip active" onclick="goTab('rec')">녹음</button><button class="wkchip" onclick="goTab('weekly')">업무가능 시간</button></div>
+        <!-- 내가 맡은 녹음 (누구나): 누르면 응답·도착·보고 팝업 -->
+        <div id="recMine"></div>
       </div>
       <div id="recListWrap">
         <div class="b-fab" id="recFab">
@@ -384,6 +387,7 @@
     <section id="weeklyView" style="display:none;">
       <h1 class="page-title">업무가능 시간 취합</h1>
       <p class="page-desc">녹음·사회·촬영 등 업무가 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
+      <div class="b-attseg"><button class="wkchip" onclick="goTab('rec')">녹음</button><button class="wkchip active" onclick="goTab('weekly')">업무가능 시간</button></div>
 
       <div class="subtabs">
         <button class="subtab wk-which" data-wk="next" onclick="openWeekly('next')">다음 주</button>
@@ -455,6 +459,7 @@
       <div id="pollList">
         <h1 class="page-title">함께할 시간 찾기</h1>
         <p class="page-desc">모일 사람을 고르고 후보 날짜를 정하면, 각자 되는 시간을 칠해서 다 같이 되는 때를 찾아요</p>
+        <div class="b-attseg"><button class="wkchip" onclick="goTab('attend')">모임</button><button class="wkchip" onclick="goTab('attend');showReport()">월간 리포트</button><button class="wkchip active">시간취합</button></div>
         <div class="b-fab" id="pollFab">
           <button class="fab" type="button" onclick="openTpModal()" aria-label="시간취합 만들기" title="시간취합 만들기"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
@@ -513,13 +518,13 @@
       <svg viewBox="0 0 24 24"><path d="M2 21h20"/><path d="M4 21V10l5-4 5 4v11"/><path d="M14 21V8l3-3 3 3v13"/><path d="M7 13h4M7 17h4M17 11v.01M17 15v.01"/></svg>
       <span>동네지도</span>
     </button>
-    <button class="tab" data-tab="attend" title="출결" onclick="goTab('attend')">
+    <button class="tab" data-tab="attend" title="일정" onclick="goTab('attend')">
       <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
-      <span>출결</span>
+      <span>일정</span>
     </button>
-    <button class="tab" data-tab="notice" title="공지" onclick="goTab('notice')">
+    <button class="tab" data-tab="notice" title="소식" onclick="goTab('notice')">
       <svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg>
-      <span>공지</span>
+      <span>소식</span>
     </button>
     <button class="tab" data-tab="rec" title="업무" id="recTab" onclick="goTab('rec')" style="display:none;">
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
@@ -532,9 +537,6 @@
     <!-- '개인'을 누르면 펼쳐지는 하위 메뉴 (PC 펼친 메뉴: 아래로 펼침 / 폰·접힌 메뉴: 떠 있는 상자) -->
     <div class="b-pfsub" id="pfSub">
       <button type="button" data-t="profile" onclick="pfGo('profile')">나의 기록</button>
-      <button type="button" data-t="task" onclick="pfGo('task')">내 과제</button>
-      <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
-      <button type="button" data-t="poll" onclick="pfGo('poll')">시간취합</button>
       <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
     </div>
     <button class="tab" data-tab="sky" title="하늘방송국" id="skyTab" onclick="goTab('sky')" style="display:none;">
@@ -857,6 +859,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006i"></script>
+  <script src="beta.js?v=20261006j"></script>
 </body>
 </html>
