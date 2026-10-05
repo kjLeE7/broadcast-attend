@@ -1552,3 +1552,14 @@ body.town-mode .act-fab, body.sky-mode .act-fab { display: none !important; }
 .c-ag-row { display: flex; gap: 6px; align-items: center; font-size: 13px; } .c-ag-row .select-wrap:first-child { flex: 0 0 80px; } .c-ag-row .select-wrap + span + .select-wrap { flex: 1; }
 .c-ag-x { margin-left: auto; border: none; background: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 4px 8px; }
 .c-ag-add { width: auto; margin: 0 0 12px; }
+
+/* 모임 만들기 칸 배치: 짧은 칸은 한 줄에 */
+.c-grid { display: grid; gap: 10px; } .c-grid > div { min-width: 0; }
+.c-grid .b-input, .c-grid .select-wrap { margin-bottom: 0; }
+.c-grid { margin-bottom: 4px; }
+.c-g2 { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+.c-g3 { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); }
+.c-gp { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
+.c-gp .b-slide { grid-column: 2; }
+@media (max-width: 520px) { .c-g2 { grid-template-columns: 1fr; } .c-g3 { grid-template-columns: 1.3fr 1fr 1fr; gap: 6px; } .c-g3 .b-input, .c-g3 select { padding-left: 10px; padding-right: 22px; font-size: 14px; } }
+.c-gp .b-slide.open { margin-top: 0; }

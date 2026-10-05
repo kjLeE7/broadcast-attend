@@ -589,7 +589,7 @@ var TPLF = {
       place: getPlace(), desc: $('cDesc').value, notify: $('cNotify').checked, ci: cCiItems() }; },
     set: function (d) {
       $('cType').value = [].some.call($('cType').options, function (o) { return o.value === d.type; }) ? d.type : '';
-      $('cTitle').value = d.title || ''; $('cStart').value = d.start || ''; $('cEnd').value = d.end || '';
+      $('cTitle').value = d.title || ''; setTm('cStart', d.start); setTm('cEnd', d.end);
       setPlace(d.place); $('cDesc').value = d.desc || ''; $('cNotify').checked = d.notify !== false; setCCiItems(d.ci);
     }, done: '날짜만 확인해주세요.'
   },
@@ -666,18 +666,37 @@ function openSessModal() {
   openModal('cModal');
   pkOpen('c');
 }
+// 시간 고르기: 앱 모양 select (06:00~24:00, 10분 단위). 목록에 없는 시각(예: 04:14)은 그 값만 끼워 넣음
+function fillTm(id) {
+  var sel = $(id); if (sel.options.length) return;
+  var h = '<option value="">--:--</option>';
+  for (var m = 6 * 60; m <= 24 * 60; m += 10) { var v = ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + m % 60).slice(-2); h += '<option value="' + v + '">' + v + '</option>'; }
+  sel.innerHTML = h;
+}
+function setTm(id, v) {
+  fillTm(id); var sel = $(id); v = v ? String(v).slice(0, 5) : '';
+  if (v && ![].some.call(sel.options, function (o) { return o.value === v; })) {
+    var o = document.createElement('option'); o.value = o.textContent = v;
+    var after = [].filter.call(sel.options, function (x) { return x.value && x.value < v; }).pop();
+    sel.insertBefore(o, after ? after.nextSibling : sel.options[1] || null);
+  }
+  sel.value = v;
+}
+fillTm('cStart'); fillTm('cEnd');
+// 시작을 고르면 끝이 비어 있을 때 1시간 뒤로
+$('cStart').addEventListener('change', function () { if (!$('cEnd').value && this.value) { var m = parseInt(this.value, 10) * 60 + parseInt(this.value.slice(3), 10) + 60; if (m <= 24 * 60) setTm('cEnd', ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + m % 60).slice(-2)); } });
 function fillTypeSelect() {
   var sel = $('cType'), keep = sel.value;
   sel.innerHTML = '<option value="">모임 유형을 고르세요</option>' + S.types.map(function (t) {
-    return '<option value="' + esc(t.id) + '">' + esc(t.name) + (t.target_desc ? ' (' + esc(t.target_desc) + ')' : '') + '</option>';
+    return '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>';
   }).join('');
   sel.value = keep;
 }
 function applyTypeDefaults() {
   var t = S.types.filter(function (x) { return x.id === $('cType').value; })[0];
   if (!t) return;
-  if (t.default_start && !$('cStart').value) $('cStart').value = hm(t.default_start);
-  if (t.default_end && !$('cEnd').value) $('cEnd').value = hm(t.default_end);
+  if (t.default_start && !$('cStart').value) setTm('cStart', hm(t.default_start));
+  if (t.default_end && !$('cEnd').value) setTm('cEnd', hm(t.default_end));
   if (t.default_location && !getPlace()) setPlace(t.default_location);
   cAgSync();
 }
@@ -2038,7 +2057,7 @@ function editSession() {
   editOn('c', s.id, targetText(s));
   $('cType').value = s.meeting_type_id || ''; $('cType').disabled = true;
   $('cTitle').value = s.title || ''; $('cDate').value = s.session_date;
-  $('cStart').value = hm(s.start_time); $('cEnd').value = hm(s.end_time);
+  setTm('cStart', hm(s.start_time)); setTm('cEnd', hm(s.end_time));
   setPlace(s.location || ''); $('cDesc').value = s.description || '';
   setCCiItems(sessCiItems(s));
   $('cNotify').checked = false; $('cNotify').nextElementSibling.textContent = '바뀐 날짜·시간·장소를 대상자에게 알리기';
