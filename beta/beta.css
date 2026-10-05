@@ -1662,3 +1662,13 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .apr-done { padding: 8px 14px; display: grid; gap: 6px; font-size: 13px; } .apr-done small { color: var(--muted); }
 .apr-whobox { margin-top: 28px; padding: 14px 16px; display: grid; gap: 6px; font-size: 13.5px; background: var(--card-soft); box-shadow: none; }
 .apr-whobox span { display: inline-block; width: 80px; color: var(--muted); font-weight: 700; } .apr-whobox .ghost-btn { width: auto; justify-self: start; margin: 4px 0 0; }
+
+/* 홈 일정 자세히 팝업 */
+.dash-tap { cursor: pointer; } .dash-tap:hover { background: var(--card-soft); } .dash-tap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.di { border-left: 4px solid var(--k, var(--accent)); padding-left: 14px; display: grid; gap: 10px; }
+.di-when { font-size: 17px; font-weight: 800; } .di-when small { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+.di-desc { margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; background: var(--card-soft); padding: 10px 12px; border-radius: 10px; }
+.di-rows { display: grid; gap: 6px; font-size: 13.5px; } .di-rows div { display: flex; gap: 12px; } .di-rows span { flex: 0 0 92px; color: var(--muted); font-weight: 700; } .di-rows b { font-weight: 600; }
+.di-lock { margin: 0; font-size: 13px; color: var(--muted); background: var(--card-soft); padding: 10px 12px; border-radius: 10px; }
+.di-prog .pj-bar { max-width: 220px; }
+.di-go { margin-top: 12px; }

@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -439,6 +439,13 @@
 - `approve.get { team_id }` → role(admin·dues·recording·external), 대기 장소 신청(내가 승인하는 종류, 관리자는 전부), 대기 회비·물품(회계·관리자), 최근 7일 처리 기록, 누가 승인자인지. 서버 helper `approveRoles`·`approvePending`.
 - 카드마다 [승인/확인] [반려(사유 prompt)] → 기존 `place.decide` / `dues.review`. **관리자도 대신 처리 가능**(두 기능에 isAdmin 허용, 2026-10-07).
 - 장소 신청·회비 확인 요청 봇 알림 버튼은 이제 `?go=approve`로 감. 장소 화면의 '승인할 신청'·회비 화면의 회계 보기는 그대로 둠.
+
+### 홈 자세히 팝업 · 아나운서·엔지니어 스탯/칭호 (2026-10-07, 함수 버전 67)
+- 홈의 오늘의 트랙 칸·준비 중 줄·프로젝트·사명자 일정·한 달 달력 목록을 누르면 `openDashItem(src, id)` → `dashboard.item { team_id, src: session|rec|duty|staff|project, id }` 팝업(`#itemModal`, `.di`).
+  모임 = 대상·만든 사람·사전체크/출결 수·내용 + '모임 화면으로', 녹음 = 요청 코드·요청 부서·배역별 사람·엔지니어(교대 시간)·감독·진행 + '녹음 요청 자세히'(교관 이상), 업무 = 담당·요청 부서, 사명자 일정 = 주최·함께하는 사람, 프로젝트 = 채널·상태·진행률·마감·담당·MC.
+  **녹음과 사회 업무는 과 안 교관 이상만 내용, 그 밖엔 '녹음/사회 + 시간'만**(서버가 `masked: true`로 돌려줌). dashboard.load의 schedules·projects에 `src/id` 추가.
+- 스탯 축(마이그레이션 `supabase/migrations/20261007_team_stats_badges.sql`): 아나운서팀 = 발성·발음·전달력·임기응변·진행력·자기관리, 엔지니어팀 = 장비 세팅·작업 속도·피드백·편집 디테일·사운드 감각·소통·협업.
+- 칭호: 조건 `duty_count`(사회·촬영 업무를 맡아 끝낸 수, 아나운서), `eng_count`(엔지니어로 녹음 완료 회차) 추가, `award_badges` 갱신. 아나운서 11개(첫 마이크 온·무대의 얼굴·믿고 맡기는 MC·또랑또랑·단단한 목소리·순발력 왕·분위기 메이커·균형·모임 2·피드백 수집가), 엔지니어 11개(첫 큐 사인·콘솔 지킴이·소리의 장인·먼저 와 있는 사람·번개 손·귀가 밝은 디렉터·숨소리 조각가·사운드 마법사·균형·모임·피드백 수집가). 녹음 마침 때 엔지니어도 배지 판정.
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)

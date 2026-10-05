@@ -4502,11 +4502,13 @@ ${text}`;
     // 사명자 일정 = 직접 등록한 일정 + 각 팀 모임 회차
     const schedules = [
       ...S.map((r: any) => ({
+        src: "staff", id: r.id,
         start: Date.parse(r.starts_at), end: r.ends_at ? Date.parse(r.ends_at) : null,
         title: r.title, category: r.category ?? "", place: r.place ?? "",
         name: names.get(r.organizer_id) ?? "", role: r.organizer_role ?? unitLabel(r.unit_id), participants: r.participants ?? "",
       })),
       ...M.map((r: any) => ({
+        src: "session", id: r.id,
         start: kstMs(r.session_date, r.start_time ?? "00:00:00"), end: r.end_time ? kstMs(r.session_date, r.end_time) : null,
         title: r.title || r.meeting_types?.name || "모임", category: r.meeting_types?.name ?? "모임", place: r.location ?? "",
         name: names.get(r.created_by) ?? "", role: unitLabel(r.team_id), participants: unitLabel(r.team_id),
@@ -4525,7 +4527,7 @@ ${text}`;
       .sort((a: any, b: any) => (a.start ?? Infinity) - (b.start ?? Infinity));
 
     const projects = P.map((r: any) => ({
-      channel: r.channel ?? "", title: r.title, desc: r.description ?? "",
+      id: r.id, channel: r.channel ?? "", title: r.title, desc: r.description ?? "",
       owner: names.get(r.owner_id) ?? "", mc: names.get(r.mc_id) ?? "",
       progress: r.progress, due: r.due_on ? kstMs(r.due_on) : null, status: r.status,
     }));
@@ -5088,7 +5090,7 @@ ${text}`;
     if (s.status !== "예정") throw new HttpError(400, "확정된 녹음만 마칠 수 있어요");
     const now = new Date().toISOString();
     must(await ctx.db.from("recording_sessions").update({ status: "완료", ended_at: now, ended_by: ctx.me.id, started_at: s.started_at ?? now, started_by: s.started_at ? undefined : ctx.me.id }).eq("id", s.id));
-    await awardBadges(ctx, (s.recording_participants ?? []).filter((x: any) => x.role === "녹음자" && x.selected).map((x: any) => x.person_id));
+    await awardBadges(ctx, (s.recording_participants ?? []).filter((x: any) => (x.role === "녹음자" || x.role === "엔지니어") && x.selected).map((x: any) => x.person_id));   // 엔지니어 칭호도 (2026-10-07)
     const req = must(await ctx.db.from("recording_requests").select("title").eq("id", s.request_id).single());
     if (s.created_by !== ctx.me.id) await sendToMembers(await withTelegram(ctx, [s.created_by]), `✅ <b>녹음 마쳤습니다</b> · ${escHtml(req.title ?? "녹음")}${s.title ? " · " + escHtml(s.title) : ""}\n${escHtml(ctx.me.name)}님 보고`);
     return { ok: true, status: await recSyncStatus(ctx, s.request_id) };
@@ -5101,7 +5103,7 @@ ${text}`;
     if (status === "완료" && s.status !== "예정") throw new HttpError(400, "확정된 회차만 완료할 수 있어요");
     if (status === "취소") await rateLimit(ctx, "rec_cancel", 10, 30);
     must(await ctx.db.from("recording_sessions").update({ status }).eq("id", s.id));
-    if (status === "완료") await awardBadges(ctx, (s.recording_participants ?? []).filter((x: any) => x.role === "녹음자" && x.selected).map((x: any) => x.person_id));
+    if (status === "완료") await awardBadges(ctx, (s.recording_participants ?? []).filter((x: any) => (x.role === "녹음자" || x.role === "엔지니어") && x.selected).map((x: any) => x.person_id));
     let notify = null;
     if (status === "취소") {
       must(await ctx.db.from("recording_roles").update({ session_id: null }).eq("session_id", s.id));
@@ -5117,6 +5119,65 @@ ${text}`;
 
   // ----- 홈 월 달력 -----
   // { team_id, month: "YYYY-MM" } → 그달(앞뒤 주 포함 6주)의 과 전체 모임·녹음·업무·사명자 일정
+  // 홈에서 일정·업무·프로젝트를 누르면 자세히 { team_id, src: session|rec|duty|staff|project, id }
+  // 녹음·사회는 과 안 교관 이상만 내용(제목·배역·사람·장소)까지, 그 밖엔 '녹음/사회 + 시간'만
+  async "dashboard.item"(ctx) {
+    const p = ctx.payload ?? {};
+    await requireRank(ctx, p.team_id, RANK.MEMBER);
+    if (!UUID_RE.test(String(p.id))) throw new HttpError(400, "잘못된 요청이에요");
+    const sec = await sectionOf(ctx, p.team_id), staff = await canSeeDetail(ctx, sec.teamIds);
+    const unitOk = (u: string) => sec.unitIds.includes(u), label = (u: string) => sec.unitName.get(u) ?? "방송예술과";
+    const nf = () => new HttpError(404, "찾을 수 없어요");
+    const rows: [string, string][] = [];   // [이름, 값] 줄
+    let out: any;
+    if (p.src === "session") {
+      const m = must(await ctx.db.from("meeting_sessions").select("id, team_id, title, session_date, start_time, end_time, location, status, target_label, target_unit_id, description, created_by, closed_at, meeting_types(name)").eq("id", p.id).maybeSingle());
+      if (!m || !unitOk(m.team_id)) throw nf();
+      const att: any[] = must(await ctx.db.from("attendance").select("status, planned_status").eq("session_id", m.id)) ?? [];
+      const nm = await nameMap(ctx, [m.created_by]);
+      const cnt = (k: string, v: string) => att.filter((a) => a[k] === v).length;
+      out = { kind: "모임", type: m.meeting_types?.name ?? "모임", title: sessionName(m), team: label(m.team_id), start: sessionStart(m) ?? kstMs(m.session_date, "00:00:00"), end: sessionEnd(m), place: m.location ?? "", desc: m.description ?? "", open_session: m.id };
+      rows.push(["대상", m.target_label || (m.target_unit_id ? "조 모임" : label(m.team_id) + " 전체")], ["만든 사람", nm.get(m.created_by) ?? ""], ["상태", m.closed_at ? "마감" : m.status]);
+      rows.push(m.closed_at ? ["출결", `참석 ${cnt("status", "참석")} · 지각 ${cnt("status", "지각")} · 불참 ${cnt("status", "불참")}`] : ["사전 체크", `참석 ${cnt("planned_status", "참석")} · 지각 ${cnt("planned_status", "지각")} · 불참 ${cnt("planned_status", "불참")}`]);
+    } else if (p.src === "rec") {
+      const r = must(await ctx.db.from("recording_sessions").select("id, team_id, request_id, title, scheduled_start, scheduled_end, location, status, started_at, ended_at, recording_requests(title, request_code, request_dept, requester_name, volume_desc, note), recording_participants(person_id, role, role_id, selected, answer, starts_at, ends_at)").eq("id", p.id).maybeSingle());
+      if (!r || !unitOk(r.team_id)) throw nf();
+      const st = Date.parse(r.scheduled_start), en = r.scheduled_end ? Date.parse(r.scheduled_end) : st + 2 * HOUR;
+      if (!staff) return { kind: "녹음", type: "녹음", title: "녹음", team: label(r.team_id), start: st, end: en, rows: [], masked: true };
+      const rq = r.recording_requests ?? {}, ps = (r.recording_participants ?? []).filter((x: any) => x.selected);
+      const roles: any[] = must(await ctx.db.from("recording_roles").select("id, name").eq("session_id", r.id).order("sort_order")) ?? [];
+      const nm = await nameMap(ctx, ps.map((x: any) => x.person_id));
+      out = { kind: "녹음", type: "녹음", title: [rq.title, r.title].filter(Boolean).join(" · "), team: label(r.team_id), start: st, end: en, place: r.location ?? "", desc: rq.note ?? "", open_rec: r.request_id };
+      rows.push(["요청 코드", rq.request_code ?? ""], ["요청", [rq.request_dept, rq.requester_name].filter(Boolean).join(" · ")], ["분량", rq.volume_desc ?? ""]);
+      for (const ro of roles) rows.push(["배역 · " + ro.name, ps.filter((x: any) => x.role === "녹음자" && x.role_id === ro.id).map((x: any) => nm.get(x.person_id)).join(", ") || "확정 전"]);
+      rows.push(["엔지니어", ps.filter((x: any) => x.role === "엔지니어").map((x: any) => (nm.get(x.person_id) ?? "") + (x.starts_at ? ` (${kstHm(Date.parse(x.starts_at))}~${kstHm(Date.parse(x.ends_at))})` : "")).join(", ")],
+        ["감독", ps.filter((x: any) => x.role === "감독자").map((x: any) => nm.get(x.person_id)).join(", ")],
+        ["진행", r.ended_at ? "녹음 마침" : r.started_at ? "녹음 중" : r.status]);
+    } else if (p.src === "duty") {
+      const d = must(await ctx.db.from("duties").select("id, unit_id, duty_type, title, owner_id, place, request_dept, starts_at, ends_at").eq("id", p.id).maybeSingle());
+      if (!d || !unitOk(d.unit_id)) throw nf();
+      const st = d.starts_at ? Date.parse(d.starts_at) : Date.now(), en = d.ends_at ? Date.parse(d.ends_at) : st + 3 * HOUR;
+      const gated = d.duty_type === "녹음" || d.duty_type === "사회";
+      if (gated && !staff) return { kind: d.duty_type, type: d.duty_type, title: d.duty_type, team: label(d.unit_id), start: st, end: en, rows: [], masked: true };
+      const nm = await nameMap(ctx, [d.owner_id]);
+      out = { kind: d.duty_type, type: d.duty_type === "음향편집" ? "음향편집" : d.duty_type, title: d.title || d.duty_type, team: label(d.unit_id), start: st, end: en, place: d.place ?? "", desc: "" };
+      rows.push(["담당", nm.get(d.owner_id) ?? ""], ["요청 부서", d.request_dept ?? ""]);
+    } else if (p.src === "staff") {
+      const x = must(await ctx.db.from("staff_schedules").select("*").eq("id", p.id).maybeSingle());
+      if (!x || !unitOk(x.unit_id)) throw nf();
+      const nm = await nameMap(ctx, [x.organizer_id]), st = Date.parse(x.starts_at);
+      out = { kind: "일정", type: x.category ?? "일정", title: x.title, team: label(x.unit_id), start: st, end: x.ends_at ? Date.parse(x.ends_at) : st + HOUR, place: x.place ?? "", desc: "" };
+      rows.push(["주최", [nm.get(x.organizer_id), x.organizer_role].filter(Boolean).join(" ")], ["함께하는 사람", x.participants ?? ""]);
+    } else if (p.src === "project") {
+      const x = must(await ctx.db.from("projects").select("*").eq("id", p.id).maybeSingle());
+      if (!x || !unitOk(x.unit_id)) throw nf();
+      const nm = await nameMap(ctx, [x.owner_id, x.mc_id, x.created_by]);
+      out = { kind: "프로젝트", type: x.channel ?? "프로젝트", title: x.title, team: label(x.unit_id), start: null, end: null, place: "", desc: x.description ?? "", progress: x.progress, status: x.status, due: x.due_on };
+      rows.push(["채널", x.channel ?? ""], ["상태", x.status ?? ""], ["진행률", x.progress != null ? x.progress + "%" : ""], ["마감", x.due_on ?? ""], ["담당", nm.get(x.owner_id) ?? ""], ["MC", nm.get(x.mc_id) ?? ""], ["등록", nm.get(x.created_by) ?? ""]);
+    } else throw new HttpError(400, "잘못된 요청이에요");
+    return { ...out, rows: rows.filter((r) => r[1]), staff };
+  },
+
   async "dashboard.month"(ctx) {
     const { team_id } = ctx.payload;
     await requireRank(ctx, team_id, RANK.MEMBER);

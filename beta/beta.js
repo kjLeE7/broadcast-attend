@@ -3704,7 +3704,7 @@ function renderUpcoming() {
   var show = UP_MORE ? list : list.slice(0, 6);
   $('taskUpArea').innerHTML = '<div class="hl card">' + show.map(function (t) {
     var dd = dayDiff(t.start);
-    return '<div class="up-row"><span class="up-dd' + (dd <= 2 ? ' soon' : '') + '">' + (dd <= 0 ? '오늘' : 'D-' + dd) + '</span>' +
+    return '<div class="up-row dash-tap" role="button" tabindex="0" onclick="openDashItem(\'' + t.src + '\',\'' + t.id + '\')"><span class="up-dd' + (dd <= 2 ? ' soon' : '') + '">' + (dd <= 0 ? '오늘' : 'D-' + dd) + '</span>' +
       '<div class="up-b"><b>' + esc(t.title) + '</b><small>' + esc(t.team) + ' · ' + mdw(t.start) + (t.allDay ? '' : ' ' + hmMs(t.start)) + (t.place ? ' · ' + esc(t.place) : '') + '</small></div>' +
       '<i class="up-k ' + kindCls(t.kind) + '" title="' + esc(KIND_NAME[t.kind] || t.kind) + '"></i></div>';
   }).join('') +
@@ -3725,7 +3725,7 @@ function renderProjects() {
   $('projectArea').innerHTML = '<div class="hl card">' + d.projects.map(function (p) {
     var st = PJ_ST[p.status] || [p.status || '', 'pjs-plan'], n = projSegs(p);
     var due = p.due ? (dayDiff(p.due) < 0 ? '마감 지남' : dayDiff(p.due) === 0 ? '오늘 마감' : 'D-' + dayDiff(p.due)) + ' · ' + mdw(p.due) : '';
-    return '<div class="pj">' +
+    return '<div class="pj dash-tap" role="button" tabindex="0" onclick="openDashItem(\'project\',\'' + p.id + '\')">' +
       '<div class="pj-top"><b>' + esc(p.title) + '</b><span class="pj-st ' + st[1] + '">' + esc(st[0]) + '</span></div>' +
       '<div class="pj-bar ' + st[1] + '"><i' + (n >= 1 ? ' class="on"' : '') + '></i><i' + (n >= 2 ? ' class="on"' : '') + '></i><i' + (n >= 3 ? ' class="on"' : '') + '></i></div>' +
       '<div class="pj-meta">' + esc([p.channel, p.owner && '담당 ' + p.owner, p.mc && 'MC ' + p.mc].filter(Boolean).join(' · ')) +
@@ -3748,7 +3748,7 @@ function renderWeekSched() {
     var dt = new Date(g[0]), today = sameDay(g[0], Date.now());
     return '<div class="ws-day' + (today ? ' today' : '') + '"><div class="ws-d"><small>' + (today ? '오늘' : WD[dt.getDay()]) + '</small><b>' + dt.getDate() + '일</b></div>' +
       '<div class="ws-list">' + g[1].map(function (r) {
-        return '<div class="ws-it"><b>' + esc(r.title) + '</b><small>' + hmMs(r.start) + (r.end ? '–' + hmMs(r.end) : '') +
+        return '<div class="ws-it dash-tap" role="button" tabindex="0" onclick="openDashItem(\'' + r.src + '\',\'' + r.id + '\')"><b>' + esc(r.title) + '</b><small>' + hmMs(r.start) + (r.end ? '–' + hmMs(r.end) : '') +
           esc([r.place, r.name && (r.name + (r.role ? ' ' + r.role : ''))].filter(Boolean).map(function (x) { return ' · ' + x; }).join('')) + '</small></div>';
       }).join('') + '</div></div>';
   }).join('') + '</div>';
@@ -3808,7 +3808,7 @@ function renderMonth() {
   var detail = !items ? '<div class="mc-none">불러오는 중…</div>'
     : '<div class="mc-dh">' + (selD.getMonth() + 1) + '월 ' + selD.getDate() + '일 ' + WD[selD.getDay()] + '요일' + (sel.length ? ' · ' + sel.length + '건' : '') + '</div>' +
       (sel.length ? sel.map(function (t) {
-        return '<div class="mc-it ' + kindCls(t.kind) + '"><span class="mc-t">' + timeRange(t) + '</span>' +
+        return '<div class="mc-it dash-tap ' + kindCls(t.kind) + '" role="button" tabindex="0" onclick="openDashItem(\'' + t.src + '\',\'' + t.id + '\')"><span class="mc-t">' + timeRange(t) + '</span>' +
           '<div><b>' + esc(t.title) + '</b><small>' + esc([t.team, KIND_NAME[t.kind] || t.kind, t.place, t.src === 'session' ? (t.who && '대상 ' + t.who) : t.who].filter(Boolean).join(' · ')) + '</small></div></div>';
       }).join('') : '<div class="mc-none">이날은 일정이 없어요</div>');
   $('monthArea').innerHTML = '<div class="mc card">' +
@@ -4018,6 +4018,7 @@ $('trackArea').addEventListener('click', function (e) {
   document.querySelectorAll('#trackArea .trk-b.sel').forEach(function (x) { x.classList.remove('sel'); });
   b.classList.add('sel');
   $('trkDetail').innerHTML = itemDetailHtml(t);
+  openDashItem(t.src, t.id);
 });
 $('monthArea').addEventListener('click', function (e) {
   var n = e.target.closest('.mc-nav');
@@ -5717,3 +5718,29 @@ function aprDues(id, ok) {
   var reason = ok ? '' : prompt('반려 사유를 적어주세요 (올린 사람에게 같이 가요)'); if (!ok && !reason) return;
   api('dues.review', { id: id, ok: ok, reason: reason }).then(function () { haptic('success'); loadApprove(); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); });
 }
+
+// =====================================================================
+// 홈: 일정·업무·프로젝트를 누르면 자세히 (교관 이상은 녹음·사회 내용까지, 그 밖엔 '녹음/사회 + 시간'만 — 서버가 거름)
+// =====================================================================
+function openDashItem(src, id) {
+  if (!src || !id || !S.team) return;
+  $('itemModalT').textContent = '불러오는 중...'; $('itemModalS').textContent = '';
+  $('itemBody').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  openModal('itemModal');
+  api('dashboard.item', { team_id: S.team.id, src: src, id: id }).then(function (d) {
+    var kc = kindCls(d.kind === '사회' || d.kind === '촬영' || d.kind === '음향편집' ? '사회·촬영·편집' : d.kind === '프로젝트' ? '기타' : d.kind);
+    $('itemModalT').textContent = d.title;
+    $('itemModalS').textContent = [d.team, d.type !== d.title ? d.type : ''].filter(Boolean).join(' · ');
+    var when = d.start ? mdw(d.start) + ' ' + hmMs(d.start) + (d.end ? '–' + hmMs(d.end) : '') : '';
+    var h = '<div class="di ' + kc + '">' +
+      (when ? '<div class="di-when">' + when + (d.place ? '<small>' + esc(d.place) + '</small>' : '') + '</div>' : '') +
+      (d.status === undefined ? '' : '<div class="di-prog"><div class="pj-bar ' + ((PJ_ST[d.status] || [0, 'pjs-plan'])[1]) + '">' + [1, 2, 3].map(function (n) { return '<i' + (projSegs({ progress: d.progress, status: d.status }) >= n ? ' class="on"' : '') + '></i>'; }).join('') + '</div></div>') +
+      (d.desc ? '<p class="di-desc">' + esc(d.desc) + '</p>' : '') +
+      (d.rows.length ? '<div class="di-rows">' + d.rows.map(function (r) { return '<div><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b></div>'; }).join('') + '</div>' : '') +
+      (d.masked ? '<p class="di-lock">🔒 ' + esc(d.kind) + '의 자세한 내용(제목·사람·장소)은 교관 이상만 볼 수 있어요</p>' : '') + '</div>' +
+      (d.open_session ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');inTeam(function(){goTab(\'attend\');refreshSessions().then(function(){openSession(\'' + d.open_session + '\')})})">모임 화면으로 ›</button>' : '') +
+      (d.open_rec && recAllowed() ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');RC.pending=\'' + d.open_rec + '\';goTab(\'rec\')">녹음 요청 자세히 ›</button>' : '');
+    $('itemBody').innerHTML = h;
+  }).catch(function (err) { $('itemModalT').textContent = '열 수 없어요'; $('itemBody').innerHTML = '<p class="rec-none">' + esc(err.message) + '</p>'; });
+}
+document.addEventListener('keydown', function (e) { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('dash-tap')) { e.preventDefault(); e.target.click(); } });
