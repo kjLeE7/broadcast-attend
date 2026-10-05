@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261007l">
+  <link rel="stylesheet" href="beta.css?v=20261007m">
 </head>
 <body>
   <div class="app">
@@ -521,8 +521,8 @@
 
     <!-- ===== 관리자 페이지 (관리자 명단만) ===== -->
     <section id="adminView" style="display:none;">
-      <h1 class="page-title">관리자</h1>
-      <p class="page-desc">앱 운영 설정이에요. 관리자 명단에 있는 사람만 볼 수 있어요</p>
+      <h1 class="page-title" id="admTitle">관리자</h1>
+      <p class="page-desc" id="admDesc">앱 운영 설정이에요. 관리자 명단에 있는 사람만 볼 수 있어요</p>
       <div id="adminArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
 
@@ -644,10 +644,18 @@
       <i class="tab-ic"><svg viewBox="0 0 24 24"><path d="M9 4h6l1 3H8z"/><path d="M8 7h8v3.5a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2z"/><path d="M12 12.5V15"/><path d="M5 15h14v3H5z"/><path d="M5 21h14"/></svg><b class="tab-badge" id="aprBadge" hidden></b></i>
       <span>승인함</span>
     </button>
-    <button class="tab" data-tab="admin" title="관리자" id="adminTab" onclick="goTab('admin')" style="display:none;">
+    <button class="tab" data-tab="admin" title="관리자" id="adminTab" onclick="togglePfSub(undefined, 'admSub')" style="display:none;">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       <span>관리자</span>
     </button>
+    <!-- '관리자' 하위 메뉴 -->
+    <div class="b-pfsub" id="admSub">
+      <button type="button" data-t="adm-admins" onclick="admGo('admins')">관리자 설정</button>
+      <button type="button" data-t="adm-treasurers" onclick="admGo('treasurers')">회계담당자 설정</button>
+      <button type="button" data-t="adm-place" onclick="admGo('place')">장소승인자 설정</button>
+      <button type="button" data-t="adm-perms" onclick="admGo('perms')">읽기 권한 설정</button>
+      <button type="button" data-t="adm-recap" onclick="admGo('recap')">올해의 성우 리포트</button>
+    </div>
   </nav>
 
   <!-- 연말 결산: 스토리처럼 한 장씩 (openRecap) -->
@@ -1036,6 +1044,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007l"></script>
+  <script src="beta.js?v=20261007n"></script>
 </body>
 </html>

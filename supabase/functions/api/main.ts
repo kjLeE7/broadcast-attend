@@ -680,9 +680,10 @@ async function readTarget(ctx: Ctx, kind: string, id: string) {
     if (!n) throw new HttpError(404, "공지를 찾을 수 없습니다");
     const unit = must(await ctx.db.from("org_units").select("unit_type").eq("id", n.team_id).single());
     const rank = await rankIn(ctx, n.team_id);
-    // 확인 명단: 쓴 사람 + 조장 이상 (과 공지는 과의 어느 팀이든 조장 이상)
-    let canSee = n.created_by === ctx.me.id || rank >= RANK.GROUP_LEADER;
-    if (!canSee && unit.unit_type !== "팀") canSee = (await myTeams(ctx)).teams.some((t: any) => t.rank >= RANK.GROUP_LEADER);
+    // 확인 명단: 쓴 사람 + 읽기 권한 설정(notice_reads, 기본 조장 이상). 과 공지는 과의 어느 팀이든
+    const nrMin = await permMin(ctx, "notice_reads");
+    let canSee = n.created_by === ctx.me.id || rank >= nrMin;
+    if (!canSee && unit.unit_type !== "팀") canSee = (await myTeams(ctx)).teams.some((t: any) => t.rank >= nrMin);
     // 과 공지: 과의 팀 사람이면 받는 사람 (과 직책이 없어 rank가 0이어도) — 예전엔 확인이 저장 안 돼 '안 읽음'으로 돌아갔음 (2026-10-07)
     const inSection = unit.unit_type !== "팀" && rank < RANK.MEMBER && (await unitAudience(ctx, n.team_id)).some((m: any) => m.id === ctx.me.id);
     return {
@@ -699,7 +700,7 @@ async function readTarget(ctx: Ctx, kind: string, id: string) {
     if (!a) throw new HttpError(404, "과제를 찾을 수 없습니다");
     const rank = await rankIn(ctx, a.team_id);
     return {
-      team_id: a.team_id, rank, canSee: a.created_by === ctx.me.id || rank >= RANK.GROUP_LEADER, by: a.created_by,
+      team_id: a.team_id, rank, canSee: a.created_by === ctx.me.id || rank >= await permMin(ctx, "assign_reads"), by: a.created_by,
       inTarget: !!a.target_people?.includes(ctx.me.id),
       audience: async () => (await sessionMembers(ctx, { team_id: a.team_id, session_date: kstToday(), target_unit_id: a.target_unit_id, target_people: a.target_people }))
         .filter((m) => m.id !== a.created_by),
@@ -789,6 +790,32 @@ async function sectionOf(ctx: Ctx, teamId: string) {
   return { sectionId, kids, teamIds, unitIds: [sectionId, ...teamIds], unitName: new Map<string, string>(kids.map((k) => [k.id, k.name])) };
 }
 // 과 안 어느 팀에서든 교관 이상이면 녹음·사회의 구체적인 제목을 봄 (동네지도와 같은 규칙)
+// ----- 읽기 권한 (2026-10-07): 관리자 페이지에서 항목마다 '어느 직책부터 볼 수 있나'를 바꿈. 설정값 read_perms {키: 최소 서열} -----
+const PERMS: [string, string, string, number][] = [
+  ["reviews_view",   "모임 후기 보기",                     "모임 글 아래 댓글처럼 달린 후기",                         10],
+  ["review_missing", "후기 안 쓴 사람 명단",               "모임 후기 칸 아래 '아직 안 쓴 사람'",                     20],
+  ["attend_reason",  "다른 사람 출결 사유",                "지각·불참·조퇴 사유 (본인 것은 늘 보임)",                 20],
+  ["notice_reads",   "공지 확인 명단",                     "누가 '다 읽었어요'를 눌렀는지",                           20],
+  ["assign_reads",   "과제 확인 명단",                     "누가 과제를 열어 봤는지",                                 20],
+  ["rec_detail",     "녹음·사회 자세한 내용",              "홈·달력·동네지도·업무 탭의 녹음 제목·사람·장소",           30],
+  ["avail_overview", "업무가능 2주 모아보기",              "업무 탭 아래 모두의 업무가능 시간 표",                    30],
+  ["people_notes",   "인원 특이사항 (인원 탭)",            "팀원별 특이사항·출결 기록 (🔴 민감)",                     30],
+];
+async function readPerms(ctx: Ctx): Promise<Record<string, number>> {
+  const c: any = ctx as any; if (c._perms) return c._perms;
+  const r = must(await ctx.db.from("app_settings").select("value").eq("key", "read_perms").maybeSingle());
+  const v = r?.value ?? {};
+  c._perms = Object.fromEntries(PERMS.map(([k, , , d]) => [k, [10, 20, 30, 40].includes(Number(v[k])) ? Number(v[k]) : d]));
+  return c._perms;
+}
+async function permMin(ctx: Ctx, key: string) { return (await readPerms(ctx))[key]; }
+// 과 안 어느 팀이든 그 서열이면 (녹음 내용·업무가능처럼 과 전체를 보는 것)
+async function permAnyTeam(ctx: Ctx, key: string, teamIds: string[]) {
+  const min = await permMin(ctx, key); let m = 0;
+  for (const t of teamIds) m = Math.max(m, await rankIn(ctx, t));
+  return m >= min;
+}
+
 async function canSeeDetail(ctx: Ctx, teamIds: string[]) {
   let m = 0;
   for (const t of teamIds) m = Math.max(m, await rankIn(ctx, t));
@@ -1668,7 +1695,7 @@ async function approvePending(ctx: Ctx, r: any) {
 const NOTE_CAT = ["건강", "직장·학업", "일정 충돌", "가정", "기타"], NOTE_AFFECT = ["수업", "스터디", "녹음", "업무"];
 async function noteStaff(ctx: Ctx, teamId: string) {
   if (!UUID_RE.test(String(teamId))) throw new HttpError(400, "팀을 다시 골라주세요");
-  if ((await rankIn(ctx, teamId)) < RANK.INSTRUCTOR) throw new HttpError(403, "인원 특이사항은 그 팀 교관 이상만 볼 수 있어요");
+  if ((await rankIn(ctx, teamId)) < await permMin(ctx, "people_notes")) throw new HttpError(403, "인원 특이사항을 볼 권한이 없어요");
 }
 // 팀원 = 그 팀(과 상속 포함) 직책이 있는 활성 인원
 async function noteMembers(ctx: Ctx, teamId: string) { return await unitAudience(ctx, teamId); }
@@ -1851,6 +1878,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       })),
       teams,
       is_admin: await isAdmin(ctx),
+      perms: await readPerms(ctx),
       // 승인함 탭: 관리자·회계·장소 승인자만
       can_approve: await (async () => { try { if (!teams.length) return false; const r = await approveRoles(ctx, teams[0].id); return r.admin || r.dues || r.recording || r.external; } catch { return false; } })(),
     };
@@ -2583,12 +2611,12 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // ----- 관리자 페이지 (관리자 명단 admins만) -----
   async "admin.get"(ctx) {
     if (!(await isAdmin(ctx))) throw new HttpError(403, "관리자만 볼 수 있어요");
-    const keys = ["admins", "treasurers", "place_approvers", "recap_enabled", "recap_open"];
+    const keys = ["admins", "treasurers", "place_approvers", "recap_enabled", "recap_open", "read_perms"];
     const rows: any[] = must(await ctx.db.from("app_settings").select("key, value").in("key", keys)) ?? [];
     const v = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     const { teams } = await myTeams(ctx);
     const people = teams.length ? (await unitAudience(ctx, (await sectionUnits(ctx, teams[0].id))[0])).map((m: any) => ({ id: m.id, name: m.name, position: m.position, unit: m.unit })) : [];
-    return { settings: v, people };
+    return { settings: v, people, perms: PERMS.map(([key, name, desc, def]) => ({ key, name, desc, def })), perm_values: await readPerms(ctx) };
   },
   // { key, value } — 정해진 것만, 사람 id는 과원 중에서
   async "admin.set"(ctx) {
@@ -2602,6 +2630,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     else if (key === "treasurers") val = idList(value);
     else if (key === "place_approvers") val = { recording: idList(value?.recording), external: idList(value?.external) };
     else if (key === "recap_enabled") val = value === true;
+    else if (key === "read_perms") {
+      val = {}; for (const [k] of PERMS) { const n = Number(value?.[k]); if ([10, 20, 30, 40].includes(n)) val[k] = n; }
+    }
     else if (key === "recap_open") { if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(value))) throw new HttpError(400, "날짜를 다시 골라주세요"); val = String(value); }
     else throw new HttpError(400, "바꿀 수 없는 설정이에요");
     must(await ctx.db.from("app_settings").upsert({ key, value: val, updated_by: ctx.me.id, updated_at: new Date().toISOString() }));
@@ -3536,15 +3567,17 @@ ${text}`;
     const rank = await rankIn(ctx, s.team_id);
     const members = await sessionMembers(ctx, s);
     const isMember = members.some((m: any) => m.id === ctx.me.id);
+    const rvMin = await permMin(ctx, "reviews_view"), rmMin = await permMin(ctx, "review_missing");
     if (!isMember && rank < RANK.MEMBER) throw new HttpError(403, "이 모임을 볼 수 있는 사람만 후기를 볼 수 있어요");
+    const canList = rank >= rvMin;
     const due = reviewDue(s), start = sessionStart(s) ?? kstMs(s.session_date, "00:00:00");
     const mine = must(await ctx.db.from("session_reviews").select("body, updated_at").eq("session_id", s.id).eq("author_id", ctx.me.id).maybeSingle());
-    const out: any = { due, open: Date.now() >= start && Date.now() < due, started: Date.now() >= start, member: isMember, mine: mine ?? null, staff: rank >= RANK.GROUP_LEADER, total: members.length };
+    const out: any = { due, open: Date.now() >= start && Date.now() < due, started: Date.now() >= start, member: isMember, mine: mine ?? null, staff: rank >= rmMin, total: members.length, hidden: !canList };
     // 후기는 댓글처럼 모두에게 (2026-10-07). 안 쓴 사람 명단은 조장 이상만
     const all: any[] = must(await ctx.db.from("session_reviews").select("author_id, body, created_at, updated_at").eq("session_id", s.id).order("created_at")) ?? [];
     const nm = new Map(members.map((m: any) => [m.id, m.name]));
     const extra = await nameMap(ctx, all.map((x) => x.author_id).filter((id) => !nm.has(id)));
-    out.list = all.filter((x) => x.body).map((x) => ({ name: nm.get(x.author_id) ?? extra.get(x.author_id) ?? "", body: x.body, at: x.created_at, edited: Date.parse(x.updated_at) - Date.parse(x.created_at) > 60000, mine: x.author_id === ctx.me.id }));
+    out.list = all.filter((x) => x.body && (canList || x.author_id === ctx.me.id)).map((x) => ({ name: nm.get(x.author_id) ?? extra.get(x.author_id) ?? "", body: x.body, at: x.created_at, edited: Date.parse(x.updated_at) - Date.parse(x.created_at) > 60000, mine: x.author_id === ctx.me.id }));
     if (out.staff) {
       const done = new Set(all.filter((x) => x.body).map((x) => x.author_id));
       out.missing = members.filter((m: any) => !done.has(m.id)).map((m: any) => m.name);
@@ -3708,7 +3741,7 @@ ${text}`;
     if (rank < RANK.MEMBER && !inTargets(s, ctx.me.id)) throw new HttpError(403, "권한이 없습니다");
     if (!visibleToMe(s, rank, await myGroupIds(ctx), ctx.me.id)) throw new HttpError(403, "이 모임 대상이 아니에요");
     [s] = await autoClose(ctx, [s]);
-    const lead = rank >= RANK.GROUP_LEADER;
+    const lead = rank >= RANK.GROUP_LEADER, reasonMin = await permMin(ctx, "attend_reason");
     const [members, rowsRes, grace] = await Promise.all([
       sessionMembers(ctx, s),
       ctx.db.from("attendance").select("*").eq("session_id", s.id),
@@ -3725,7 +3758,7 @@ ${text}`;
       ...extraIds.map((id) => ({ id, name: names.get(id) ?? "", position: "", group: null })),
     ].map((m: any) => {
       const r = byPerson.get(m.id);
-      const v = attView(r, lead || m.id === ctx.me.id);
+      const v = attView(r, rank >= reasonMin || m.id === ctx.me.id);
       if (v && r?.checked_by) v.checked_by_name = names.get(r.checked_by) ?? "";
       return { id: m.id, name: m.name, position: m.position, group: m.group, me: m.id === ctx.me.id, att: v };
     });
@@ -4020,7 +4053,8 @@ ${text}`;
   async "weekly.overview"(ctx) {
     const teams = await boardTeams(ctx);
     // 업무가능 2주 모아보기는 교관 이상만 (2026-10-06)
-    if (!teams.length || !(await myTeams(ctx)).teams.some((t: any) => t.rank >= RANK.INSTRUCTOR)) throw new HttpError(403, "업무가능 모아보기는 교관 이상만 볼 수 있어요");
+    const avMin = await permMin(ctx, "avail_overview");
+    if (!teams.length || !(await myTeams(ctx)).teams.some((t: any) => t.rank >= avMin)) throw new HttpError(403, "업무가능 모아보기를 볼 권한이 없어요");
     const teamIds = teams.map((t) => t.id);
     const today = kstToday();
     const dates = Array.from({ length: 14 }, (_, i) => addDaysStr(today, i));
@@ -4116,8 +4150,9 @@ ${text}`;
       .concat((must(elsewhere as any) ?? []).filter((r: any) => !mine.has(r.id)))
       .sort((a: any, b: any) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0) || (a.published_at < b.published_at ? 1 : -1));
     const [names, { counts, seen }] = await Promise.all([nameMap(ctx, list.map((r: any) => r.created_by)), readCounts(ctx, "notice", list)]);
-    // 확인 명단은 쓴 사람 + 조장 이상 (2026-10-07)
-    const canSee = (r: any) => r.created_by === ctx.me.id || rank >= RANK.GROUP_LEADER;
+    // 확인 명단은 쓴 사람 + 읽기 권한 설정(notice_reads)
+    const nrMin = await permMin(ctx, "notice_reads");
+    const canSee = (r: any) => r.created_by === ctx.me.id || rank >= nrMin;
     return list.map((r: any) => ({
       ...r, scope: r.team_id === team_id ? "team" : units.includes(r.team_id) ? "section" : "other",
       target_names: (r.target_positions ?? []).map((c: string) => (pos.get(c) as any)?.name).filter(Boolean),
@@ -4641,7 +4676,7 @@ ${text}`;
 
     // 오늘의 트랙(오늘 하루) + 우리는 준비 중(지금부터 30일) — 모임·녹음·업무·사명자 일정을 한 모양으로
     const sec = { sectionId, kids, teamIds, unitIds, unitName };
-    const canDetail = await canSeeDetail(ctx, teamIds);
+    const canDetail = await permAnyTeam(ctx, "rec_detail", teamIds);
     const dayStart = kstMs(todayK);
     const [todayItems, ahead, teamCounts] = await Promise.all([
       sectionItems(ctx, sec, dayStart, dayStart + DAY, canDetail),
@@ -4697,7 +4732,7 @@ ${text}`;
       })),
     }));
     // 교관 아래(2026-10-06): 녹음 제목·상태·마감 + 확정된 회차의 시간·녹음자 이름만
-    if (!(await canSeeDetail(ctx, sec.teamIds))) {
+    if (!(await permAnyTeam(ctx, "rec_detail", sec.teamIds))) {
       return {
         staff: false, people: [],
         requests: requests.map((r: any) => ({
@@ -5224,7 +5259,7 @@ ${text}`;
     const p = ctx.payload ?? {};
     await requireRank(ctx, p.team_id, RANK.MEMBER);
     if (!UUID_RE.test(String(p.id))) throw new HttpError(400, "잘못된 요청이에요");
-    const sec = await sectionOf(ctx, p.team_id), staff = await canSeeDetail(ctx, sec.teamIds);
+    const sec = await sectionOf(ctx, p.team_id), staff = await permAnyTeam(ctx, "rec_detail", sec.teamIds);
     const unitOk = (u: string) => sec.unitIds.includes(u), label = (u: string) => sec.unitName.get(u) ?? "방송예술과";
     const nf = () => new HttpError(404, "찾을 수 없어요");
     const rows: [string, string][] = [];   // [이름, 값] 줄
@@ -5286,7 +5321,7 @@ ${text}`;
     const dow = new Date(first + "T00:00:00Z").getUTCDay();
     const gridStart = addDaysStr(first, -dow), gridEnd = addDaysStr(gridStart, 42);
     const sec = await sectionOf(ctx, team_id);
-    const canDetail = await canSeeDetail(ctx, sec.teamIds);
+    const canDetail = await permAnyTeam(ctx, "rec_detail", sec.teamIds);
     const items = await sectionItems(ctx, sec, kstMs(gridStart), kstMs(gridEnd), canDetail);
     return { month, from: gridStart, to: gridEnd, items };
   },
@@ -5307,7 +5342,7 @@ ${text}`;
 
     let myMax = 0;
     for (const t of teamIds) myMax = Math.max(myMax, await rankIn(ctx, t));
-    const canDetail = myMax >= RANK.INSTRUCTOR;
+    const canDetail = myMax >= await permMin(ctx, "rec_detail");
 
     const today = kstToday();
     const dow = new Date(today + "T00:00:00Z").getUTCDay();

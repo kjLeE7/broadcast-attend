@@ -140,7 +140,7 @@ function boot() {
     setupRecTab();
     $('adminTab').style.display = me.is_admin ? '' : 'none';   // 관리자 탭은 관리자 명단만
     $('approveTab').style.display = me.can_approve ? '' : 'none';   // 승인함은 관리자·회계·장소 승인자만
-    $('peopleTab').style.display = me.teams.some(function (t) { return t.rank >= RANK.INSTRUCTOR; }) ? '' : 'none';   // 인원 탭은 교관 이상
+    $('peopleTab').style.display = me.teams.some(function (t) { return t.rank >= perm('people_notes'); }) ? '' : 'none';   // 인원 탭: 읽기 권한 설정(기본 교관 이상)
     setupTownTab();
     document.body.classList.add('b-nav');
     renderTeamTabs();
@@ -1334,7 +1334,7 @@ function renderTaskSeg() {
 // PC 펼친 메뉴에선 그 자리 아래로 펼침(개인 화면에 있으면 늘 펼침), 폰·접힌 메뉴에선 떠 있는 상자
 function pfFloating() { return !isWide() || document.body.classList.contains('nav-mini'); }
 // 하위 메뉴: 개인(pfSub) · 업무(recSub). 떠 있을 땐 하나만 열림
-var SUB_TAB = { pfSub: 'pfTab', recSub: 'recTab' };
+var SUB_TAB = { pfSub: 'pfTab', recSub: 'recTab', admSub: 'adminTab' };
 function togglePfSub(open, id) {
   id = id || 'pfSub';
   var el = $(id), tab = $(SUB_TAB[id]);
@@ -1348,7 +1348,7 @@ function togglePfSub(open, id) {
 }
 function pfGo(t) {
   toggleMePop(false);
-  if (pfFloating()) { togglePfSub(false); togglePfSub(false, 'recSub'); }
+  if (pfFloating()) { togglePfSub(false); togglePfSub(false, 'recSub'); togglePfSub(false, 'admSub'); }
   goTab(t);
 }
 document.addEventListener('click', function (e) {
@@ -1371,8 +1371,10 @@ function setTabUI(t) {
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
   var sub = t === 'task' && taskFrom !== 'profile' ? '' : t;
   document.querySelectorAll('#pfSub button, #recSub button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === sub); });
+  document.querySelectorAll('#admSub button').forEach(function (b) { b.classList.toggle('on', t === 'admin' && b.getAttribute('data-t') === 'adm-' + ADMSEC); });
   togglePfSub(!pfFloating() && pt === 'profile');
   togglePfSub(!pfFloating() && pt === 'rec', 'recSub');
+  togglePfSub(!pfFloating() && pt === 'admin', 'admSub');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
   $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'mytodo' && t !== 'approve' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
@@ -2738,6 +2740,10 @@ var REC_ROLES = [['voice', '성우'], ['engineer', '엔지니어'], ['director',
 var KIND_ROLE = { voice: '녹음자', engineer: '엔지니어', director: '감독자' };
 var DEEP_REC = (function () { try { return new URLSearchParams(location.search).get('rec'); } catch (e) { return null; } })();
 var DEEP_ASK = (function () { try { return new URLSearchParams(location.search).get('ask'); } catch (e) { return null; } })();
+// 읽기 권한 설정값 (서버 me.perms, 없으면 기본)
+var PERM_DEF = { reviews_view: 10, review_missing: 20, attend_reason: 20, notice_reads: 20, assign_reads: 20, rec_detail: 30, avail_overview: 30, people_notes: 30 };
+function perm(k) { return (S.me && S.me.perms && S.me.perms[k]) || PERM_DEF[k]; }
+function availAllowed() { return !!(S.me && S.me.teams.some(function (t) { return t.rank >= perm('avail_overview'); })); }
 function recAllowed() { return !!(S.me && S.me.teams.some(function (t) { return t.rank >= RANK.INSTRUCTOR; })); }
 function setupRecTab() { $('recTab').style.display = ''; }   // 업무 탭은 모두에게 (교관 이상은 녹음 요청 관리까지)
 function recIsOpen(r) { return ['접수', '캐스팅중', '일정확정', '보류'].indexOf(r.status) !== -1; }
@@ -2757,10 +2763,10 @@ function loadRec() {
   if (!S.team) return Promise.resolve();
   loadRecMine();
   // 진행 상황은 과원 모두 봄 (2026-10-06). 올리기·배치·알림 같은 관리와 업무가능 2주 모아보기는 교관 이상만
-  var mgr = recAllowed();
-  $('recView').classList.toggle('rec-ro', !mgr); $('recAvail').style.display = mgr ? '' : 'none'; $('recFab').style.display = mgr ? '' : 'none';
+  var mgr = recAllowed(), av = availAllowed();
+  $('recView').classList.toggle('rec-ro', !mgr); $('recAvail').style.display = av ? '' : 'none'; $('recFab').style.display = mgr ? '' : 'none';
   if (!RC.list) $('recTable').innerHTML = '<div class="skeleton row-skel"></div>';
-  if (mgr) loadAvail();
+  if (av) loadAvail();
   return api('rec.list', { team_id: S.team.id }).then(function (d) {
     RC.list = d.requests; RC.people = d.people || []; RC.staff = !!d.staff;
     renderRecList();
@@ -3134,7 +3140,7 @@ function openRec(id) {
   document.body.classList.toggle('rc-pop', wide);   // PC: 상세는 화면 가운데 팝업 (옆에서 밀고 들어오지 않음)
   $('recListWrap').style.display = wide ? 'block' : 'none';
   document.querySelector('.rec-title').style.display = wide ? '' : 'none';
-  $('recAvail').style.display = wide && recAllowed() ? '' : 'none';
+  $('recAvail').style.display = wide && availAllowed() ? '' : 'none';
   renderRecList();
   $('recDetail').style.display = 'block'; $('recDetail').scrollTop = 0;
   try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
@@ -3148,7 +3154,7 @@ function closeRec() {
   $('recDetail').style.display = 'none';
   $('recListWrap').style.display = 'block';
   document.querySelector('.rec-title').style.display = '';
-  $('recAvail').style.display = recAllowed() ? '' : 'none';
+  $('recAvail').style.display = availAllowed() ? '' : 'none';
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
   if (RC.list) renderRecList();
 }
@@ -3552,7 +3558,7 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && MODAL) { closeModal(); return; }
   if (RP.open && (e.key === 'Escape' || e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { if (e.key === 'Escape') closeRecap(); else recapStep(e.key === 'ArrowRight' ? 1 : -1); return; }
   if (e.key === 'Escape' && $('mePop').classList.contains('open')) { toggleMePop(false); return; }
-  if (e.key === 'Escape' && pfFloating() && ($('pfSub').classList.contains('open') || $('recSub').classList.contains('open'))) { togglePfSub(false); togglePfSub(false, 'recSub'); return; }
+  if (e.key === 'Escape' && pfFloating() && ($('pfSub').classList.contains('open') || $('recSub').classList.contains('open') || $('admSub').classList.contains('open'))) { togglePfSub(false); togglePfSub(false, 'recSub'); togglePfSub(false, 'admSub'); return; }
   if (e.key === 'Escape' && $('attFab').classList.contains('open')) { closeFabMenu(); return; }
   if (e.key !== 'Escape' || !isWide()) return;
   var t = e.target && e.target.tagName;
@@ -5080,30 +5086,74 @@ function loadAdmin() {
   api('admin.get').then(function (d) { ADM = d; ADM.edit = JSON.parse(JSON.stringify(d.settings)); renderAdmin(); })
     .catch(function (err) { $('adminArea').innerHTML = '<div class="empty"><b>열 수 없어요</b>' + esc(err.message) + '</div>'; });
 }
+// 담당자 고르기: 지금 지정된 사람은 칩(× 빼기), 추가는 이름 검색 → 결과에서 누르기
+var ADMSEC = 'admins';
+function admGo(sec) { ADMSEC = sec; pfGo('admin'); if (ADM && ADM.edit) renderAdmin(); }
 function admPick(key, sub, title, desc) {
-  var cur = sub ? ((ADM.edit[key] || {})[sub] || []) : (ADM.edit[key] || []);
-  return '<div class="card adm-box"><div class="adm-h"><b>' + title + '</b><small>' + desc + '</small></div><div class="b-chips">' + ADM.people.map(function (p) {
-    return '<button type="button" class="b-pick' + (cur.indexOf(p.id) !== -1 ? ' on' : '') + '" onclick="admToggle(\'' + key + '\',\'' + (sub || '') + '\',\'' + p.id + '\')">' + esc(p.name) + '<small> ' + esc(p.unit + ' ' + p.position) + '</small></button>';
-  }).join('') + '</div><button class="btn-primary adm-save" onclick="admSave(\'' + key + '\')">저장</button><div class="msg" id="admMsg-' + key + '"></div></div>';
+  var cur = sub ? ((ADM.edit[key] || {})[sub] || []) : (ADM.edit[key] || []), id = key + (sub ? '-' + sub : '');
+  var byId2 = {}; ADM.people.forEach(function (p) { byId2[p.id] = p; });
+  return '<div class="card adm-box"><div class="adm-h"><b>' + title + '</b><small>' + desc + '</small></div>' +
+    '<div class="adm-cur">' + (cur.length ? cur.map(function (pid) { var p = byId2[pid] || { name: '(과 밖)', unit: '', position: '' };
+      return '<span class="adm-chip"><b>' + esc(p.name) + '</b><small>' + esc((p.unit || '') + ' ' + (p.position || '')) + '</small><button type="button" aria-label="빼기" onclick="admToggle(\'' + key + '\',\'' + (sub || '') + '\',\'' + pid + '\')">×</button></span>'; }).join('') : '<span class="adm-none">아직 없어요</span>') + '</div>' +
+    '<div class="adm-find"><input type="search" class="b-input" id="admQ-' + id + '" placeholder="이름으로 찾아 추가하기" oninput="admFind(\'' + key + '\',\'' + (sub || '') + '\')" oncompositionend="admFind(\'' + key + '\',\'' + (sub || '') + '\')"><div class="adm-res" id="admR-' + id + '"></div></div>' +
+    '<button class="btn-primary adm-save" onclick="admSave(\'' + key + '\')">저장</button><div class="msg" id="admMsg-' + key + '"></div></div>';
+}
+function admFind(key, sub) {
+  if (window.event && window.event.isComposing) return;
+  var id = key + (sub ? '-' + sub : ''), q = $('admQ-' + id).value.trim(), cur = sub ? ((ADM.edit[key] || {})[sub] || []) : (ADM.edit[key] || []);
+  var l = q ? ADM.people.filter(function (p) { return p.name.indexOf(q) !== -1 && cur.indexOf(p.id) === -1; }).slice(0, 8) : [];
+  $('admR-' + id).innerHTML = q && !l.length ? '<span class="adm-none">「' + esc(q) + '」인 과원이 없어요</span>' : l.map(function (p) {
+    return '<button type="button" onclick="admToggle(\'' + key + '\',\'' + (sub || '') + '\',\'' + p.id + '\')">+ ' + esc(p.name) + '<small>' + esc(p.unit + ' ' + p.position) + '</small></button>';
+  }).join('');
+}
+var ADM_SEC = {
+  admins: ['관리자 설정', '이 페이지를 볼 수 있는 사람이에요'],
+  treasurers: ['회계담당자 설정', '회비 확인 요청을 받는 사람이에요'],
+  place: ['장소승인자 설정', '녹음실·외부 장소 신청을 승인하는 사람이에요'],
+  perms: ['읽기 권한 설정', '항목마다 어느 직책부터 볼 수 있는지 정해요. 체크된 직책은 모두 봐요'],
+  recap: ['올해의 성우 리포트', '연말 결산 카드를 켜고 공개일을 정해요']
+};
+var PERM_RANKS = [[10, '팀원'], [20, '조장'], [30, '교관'], [40, '팀장']];
+function permsHtml() {
+  var v = ADM.edit.read_perms = Object.assign({}, ADM.perm_values, ADM.edit.read_perms || {});
+  return '<div class="card adm-box"><div class="perm-grid"><div class="perm-hd"><span>항목</span>' + PERM_RANKS.map(function (r) { return '<span>' + r[1] + '</span>'; }).join('') + '</div>' +
+    ADM.perms.map(function (p) {
+      var min = v[p.key];
+      return '<div class="perm-row"><div class="perm-nm"><b>' + esc(p.name) + '</b><small>' + esc(p.desc) + (min !== p.def ? ' · <em>기본은 ' + PERM_RANKS.filter(function (r) { return r[0] === p.def; })[0][1] + '부터</em>' : '') + '</small></div>' +
+        PERM_RANKS.map(function (r) { return '<label class="perm-ck"><input type="checkbox" ' + (r[0] >= min ? 'checked' : '') + ' onchange="permSet(\'' + p.key + '\',' + r[0] + ',this.checked)"><span>' + r[1] + '</span></label>'; }).join('') + '</div>';
+    }).join('') + '</div><p class="perm-note">윗 직책(부과장·과장 등)은 언제나 봐요. 본인 것(내 출결 사유·내 후기 등)은 설정과 상관없이 늘 보여요.</p>' +
+    '<button class="btn-primary adm-save" onclick="admSave(\'read_perms\')">저장</button><div class="msg" id="admMsg-read_perms"></div></div>';
+}
+// 체크박스: 어느 직책을 켜면 그 위 직책은 다 켜짐, 끄면 그 아래도 다 꺼짐 = '여기부터 볼 수 있음'
+function permSet(key, rank, on) {
+  var v = ADM.edit.read_perms;
+  v[key] = on ? Math.min(v[key], rank) : Math.min(40, PERM_RANKS.map(function (r) { return r[0]; }).filter(function (x) { return x > rank; })[0] || 40);
+  renderAdmin();
 }
 function renderAdmin() {
-  var e = ADM.edit, md = String(e.recap_open || '12-22');
-  $('adminArea').innerHTML =
-    admPick('admins', '', '관리자', '이 페이지를 볼 수 있는 사람이에요. 나 자신은 뺄 수 없어요') +
-    admPick('treasurers', '', '회계담당자', '회비 확인 요청을 받고 확인·반려해요') +
-    admPick('place_approvers', 'recording', '녹음실 승인자 (코드원·SMC)', '비워 두면 엔지니어팀 팀장 이상이 승인해요') +
-    admPick('place_approvers', 'external', '총회 대회의실·과천 성전 10층 승인자', '비워 두면 부과장 이상이 승인해요') +
-    '<div class="card adm-box"><div class="adm-h"><b>올해의 성우 리포트</b><small>켜면 공개일 전엔 교관 이상 미리보기, 공개일부터 모두에게 보여요</small></div>' +
+  var e = ADM.edit, md = String(e.recap_open || '12-22'), sec = ADM_SEC[ADMSEC] ? ADMSEC : 'admins';
+  $('admTitle').textContent = ADM_SEC[sec][0]; $('admDesc').textContent = ADM_SEC[sec][1];
+  var h = '';
+  if (sec === 'admins') h = admPick('admins', '', '관리자', '나 자신은 뺄 수 없어요');
+  else if (sec === 'treasurers') h = admPick('treasurers', '', '회계담당자', '회비 확인 요청을 받고 확인·반려해요');
+  else if (sec === 'place') h = admPick('place_approvers', 'recording', '녹음실 승인자 (코드원·SMC)', '비워 두면 엔지니어팀 팀장 이상이 승인해요') +
+    admPick('place_approvers', 'external', '총회 대회의실·과천 성전 10층 승인자', '비워 두면 부과장 이상이 승인해요');
+  else if (sec === 'perms') h = permsHtml();
+  else h = '<div class="card adm-box"><div class="adm-h"><b>올해의 성우 리포트</b><small>켜면 공개일 전엔 교관 이상 미리보기, 공개일부터 모두에게 보여요</small></div>' +
       '<label class="adm-sw"><input type="checkbox" ' + (e.recap_enabled === true ? 'checked' : '') + ' onchange="admSetNow(\'recap_enabled\', this.checked)"> 리포트 켜기</label>' +
       '<div class="tp-row"><span>공개일</span><input type="date" id="admRecap" value="' + new Date().getFullYear() + '-' + esc(md) + '"><button class="ghost-btn rp-save" onclick="admSetNow(\'recap_open\', $(\'admRecap\').value.slice(5))">저장</button></div>' +
       '<div class="msg" id="admMsg-recap"></div></div>';
+  $('adminArea').innerHTML = h;
 }
 function admToggle(key, sub, id) {
   var arr = sub ? ((ADM.edit[key] = ADM.edit[key] || {})[sub] = (ADM.edit[key][sub] || [])) : (ADM.edit[key] = ADM.edit[key] || []);
   var i = arr.indexOf(id); if (i === -1) arr.push(id); else arr.splice(i, 1); renderAdmin();
 }
 function admSave(key) {
-  api('admin.set', { key: key, value: ADM.edit[key] }).then(function (r) { haptic('success'); ADM.settings[key] = r.value; setMsg('admMsg-' + key, '저장했어요'); })
+  api('admin.set', { key: key, value: ADM.edit[key] }).then(function (r) {
+    haptic('success'); ADM.settings[key] = r.value; setMsg('admMsg-' + key, '저장했어요');
+    if (key === 'read_perms') { ADM.perm_values = r.value; if (S.me) S.me.perms = Object.assign({}, S.me.perms, r.value); }
+  })
     .catch(function (err) { setMsg('admMsg-' + key, err.message, true); });
 }
 function admSetNow(key, value) {
@@ -5889,7 +5939,8 @@ function renderReviews() {
     return '<div class="cm-it' + (x.mine ? ' mine' : '') + '"><span class="cm-av">' + esc((x.name || '?').slice(-2)) + '</span><div class="cm-b"><div class="cm-meta"><b>' + esc(x.name) + '</b><small>' + rvAgo(x.at) + (x.edited ? ' · 수정됨' : '') + '</small>' +
       (x.mine && d.open ? '<button type="button" onclick="editReview()">고치기</button>' : '') + '</div><p>' + esc(x.body) + '</p></div></div>';
   }).join('');
-  if (!l.length) h += '<p class="cm-empty">' + (d.started ? '아직 후기가 없어요. 첫 후기를 남겨 주세요' : '모임이 끝나면 여기에 후기가 모여요') + '</p>';
+  if (d.hidden) h += '<p class="cm-empty">🔒 다른 사람 후기는 운영진만 볼 수 있게 설정돼 있어요</p>';
+  else if (!l.length) h += '<p class="cm-empty">' + (d.started ? '아직 후기가 없어요. 첫 후기를 남겨 주세요' : '모임이 끝나면 여기에 후기가 모여요') + '</p>';
   if (d.member && d.open && (!d.mine || RV.editing)) {
     h += '<div class="cm-write"><span class="cm-av me">' + esc((S.me.profile.name || '나').slice(-2)) + '</span><textarea id="rvBody" rows="' + (RV.editing ? 3 : 1) + '" maxlength="3000" placeholder="이번 모임을 통해 느낀 점을 남겨요" oninput="this.rows=Math.min(6,Math.max(1,this.value.split(\'\\n\').length+(this.value.length>40?1:0)))">' + esc(RV.editing && d.mine ? d.mine.body : '') + '</textarea>' +
       '<button type="button" id="rvBtn" onclick="saveReview()">' + (RV.editing ? '저장' : '등록') + '</button></div><div class="msg" id="rvMsg"></div>';
