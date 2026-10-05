@@ -914,6 +914,19 @@ function drawText(oc) {
   ctx.font = `${fs * .92}px ${DISPLAY}`; ctx.fillStyle = 'rgba(241,232,217,.85)'; ctx.fillText('스담 · 4층 복도', 10 * k, 204 * k);
   for (const id in cheers) { const c = cheers[id]; if (clockT >= c.until) { delete cheers[id]; continue; }
     tag([['🎉 수고했어요!', '#17151d']], c.x * k, (c.y - 22 - Math.min(1, 5 - (c.until - clockT)) * 4) * k, fs, 'center', '#f2b84b'); }
+  // 자주 하는 말 (look.say, 3개까지): 사람마다 다른 박자로 가끔(약 25~45초에 한 번, 4초 동안) 머리 위 말풍선
+  for (const p of people) {
+    const say = p.look && p.look.say; if (!say || !say.length || p.hidden || p.moving || reduce) continue;
+    const per = 25 + (p.seed % 20), ph = (clockT + p.seed * 1.7) % per;
+    if (ph > 4) continue;
+    const txt = say[Math.floor((clockT + p.seed * 1.7) / per) % say.length], top = (p._top != null ? p._top : p.y - 16) - 4;
+    ctx.font = `700 ${fs * .82}px ${DISPLAY}`;
+    const w = ctx.measureText(txt).width + fs * .9, h = fs * 1.35, x0 = p.x * k - w / 2, y0 = top * k - h - fs * .5, a = Math.min(1, ph * 3, (4 - ph) * 3);
+    ctx.globalAlpha = a; ctx.fillStyle = '#2a2228'; ctx.fillRect(x0 - 2, y0 - 2, w + 4, h + 4);
+    ctx.fillStyle = '#fbf5e8'; ctx.fillRect(x0, y0, w, h);
+    ctx.beginPath(); ctx.moveTo(p.x * k - fs * .35, y0 + h); ctx.lineTo(p.x * k + fs * .35, y0 + h); ctx.lineTo(p.x * k, y0 + h + fs * .45); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#2a2228'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, p.x * k, y0 + h / 2 + fs * .04); ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+  }
   if (showNames) { const placed = [], vis = {};
     for (const p of people) if (!p.hidden && !p.moving) { const id = placeOf(p.seg.place).id; vis[id] = (vis[id] || 0) + 1; }
     // 한 방에 9명 이상 모이면 이름표가 겹쳐서 숨김 (마우스를 올리면 보임)

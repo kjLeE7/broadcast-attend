@@ -2217,6 +2217,9 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       out[k] = String(v);
     }
     if (src.blush !== undefined) out.blush = !!src.blush;
+    // 자주 하는 말 (동네지도 말풍선) 3개까지, 20자
+    const say = (Array.isArray(src.say) ? src.say : []).map((x: any) => String(x ?? "").replace(/[\u0000-\u001f]/g, "").trim().slice(0, 20)).filter(Boolean).slice(0, 3);
+    if (say.length) out.say = say;
     await rateLimit(ctx, "look_save", 30, 60);
     must(await ctx.db.from("people").update({ town_look: out, updated_at: new Date().toISOString() }).eq("id", ctx.me.id));
     return { look: out };

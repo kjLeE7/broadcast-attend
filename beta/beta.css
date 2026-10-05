@@ -1523,3 +1523,8 @@ body.town-mode .act-fab, body.sky-mode .act-fab { display: none !important; }
 .mt-di { padding: 10px 0; border-top: 1px solid var(--line); } .mt-di:first-child { border-top: 0; }
 .mt-di h3 { font-size: 15px; margin: 0 0 6px; } .mt-di p { margin: 4px 0; font-size: 13.5px; white-space: pre-wrap; }
 .mt-di p small { font-weight: 800; color: var(--muted); margin-right: 6px; } .mt-di p.dec { font-weight: 700; }
+
+/* 자주 하는 말 · 장소 신청 시간 */
+.lk-l small { display: block; font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+.lk-says { display: grid; gap: 6px; flex: 1; } .lk-say { margin: 0; padding: 9px 12px; font-size: 13.5px; }
+#placeModal .tp-row .select-wrap { flex: 1; }

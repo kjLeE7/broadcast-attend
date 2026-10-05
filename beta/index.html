@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006p">
+  <link rel="stylesheet" href="beta.css?v=20261006q">
 </head>
 <body>
   <div class="app">
@@ -302,8 +302,8 @@
 
     <section id="profileView" style="display:none;">
       <div id="pfMain">
-        <h1 class="page-title">나의 기록</h1>
-        <p class="page-desc">내 성장과 정보, 동네지도에 나오는 내 모습을 모아봐요</p>
+        <h1 class="page-title">프로필</h1>
+        <p class="page-desc">내 성장·배지·정보, 동네지도에 나오는 내 모습을 모아봐요</p>
 
         <!-- 연말 결산 카드 (관리자가 켰을 때만. 공개일 뒤 모두, 그 전엔 교관 이상 미리보기) -->
         <div id="recapArea"></div>
@@ -326,18 +326,11 @@
 
         <!-- 내가 알린 특이사항 (본인 것만) -->
         <div id="myNotes"></div>
-        <div class="section-head b-gap"><h2>한 달 활동</h2><span class="section-count" id="pfMonthNote"></span></div>
-        <div class="b-month">
-          <button type="button" onclick="pfMoveMonth(-1)">‹</button>
-          <b id="pfMonth"></b>
-          <button type="button" id="pfNext" onclick="pfMoveMonth(1)">›</button>
-        </div>
-        <div id="pfReport"></div>
       </div>
 
       <!-- 내 정보 고치기 (PC: 오른쪽 패널 / 폰: 화면 전환) -->
       <div id="pfEdit" style="display:none;">
-        <button class="back" onclick="closePfEdit()">‹ 나의 기록</button>
+        <button class="back" onclick="closePfEdit()">‹ 프로필</button>
         <button class="b-close" type="button" onclick="closePfEdit()" aria-label="닫기" title="닫기 (Esc)">✕</button>
         <div class="b-dhead"><h1>내 정보 고치기</h1><p>바꾼 내용은 저장을 눌러야 남아요</p></div>
         <div class="card b-pad b-top">
@@ -457,6 +450,19 @@
       <div class="b-attseg"><button class="wkchip" onclick="goTab('attend')">모임</button><button class="wkchip" onclick="goTab('poll')">시간취합</button><button class="wkchip active">장소 신청</button></div>
       <div class="b-fab" id="placeFab"><button class="fab" type="button" onclick="openPlaceModal()" aria-label="장소 신청" title="장소 신청"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></div>
       <div id="placeArea"><div class="b-wait">불러오는 중...</div></div>
+    </section>
+
+    <!-- ===== 월간 리포트 (개인 › 월간 리포트): 한 달 동안 내 모임·녹음·실무·과제 ===== -->
+    <section id="pmonthView" style="display:none;">
+      <h1 class="page-title">월간 리포트</h1>
+      <p class="page-desc">한 달 동안 걸어온 길이에요. 모임 출결·실무 녹음·그 밖의 실무·과제를 모아봐요</p>
+        <div class="section-head"><h2>한 달 활동</h2><span class="section-count" id="pfMonthNote"></span></div>
+        <div class="b-month">
+          <button type="button" onclick="pfMoveMonth(-1)">‹</button>
+          <b id="pfMonth"></b>
+          <button type="button" id="pfNext" onclick="pfMoveMonth(1)">›</button>
+        </div>
+        <div id="pfReport"></div>
     </section>
 
     <!-- ===== 회의 모드 (모임 › 회의 열기) ===== -->
@@ -581,7 +587,8 @@
     </button>
     <!-- '개인'을 누르면 펼쳐지는 하위 메뉴 (PC 펼친 메뉴: 아래로 펼침 / 폰·접힌 메뉴: 떠 있는 상자) -->
     <div class="b-pfsub" id="pfSub">
-      <button type="button" data-t="profile" onclick="pfGo('profile')">나의 기록</button>
+      <button type="button" data-t="profile" onclick="pfGo('profile')">프로필</button>
+      <button type="button" data-t="pmonth" onclick="pfGo('pmonth')">월간 리포트</button>
       <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
     </div>
     <button class="tab" data-tab="sky" title="하늘방송국" id="skyTab" onclick="goTab('sky')" style="display:none;">
@@ -777,9 +784,9 @@
         <label class="field-label" for="plPlace">장소</label>
         <div class="select-wrap"><select id="plPlace" onchange="placeRuleText()"></select></div>
         <label class="field-label" for="plDate">날짜</label>
-        <input type="date" id="plDate">
+        <input type="date" id="plDate" class="b-input">
         <label class="field-label">시간</label>
-        <div class="tp-row"><input type="time" id="plFrom" step="1800"><span>~</span><input type="time" id="plTo" step="1800"></div>
+        <div class="tp-row"><div class="select-wrap"><select id="plFrom" onchange="plFromChanged()"></select></div><span>~</span><div class="select-wrap"><select id="plTo"></select></div></div>
         <label class="field-label" for="plPurpose">무엇에 쓰나요</label>
         <input type="text" id="plPurpose" class="b-input" maxlength="100" placeholder="예) 2조 스터디, 웹드라마 녹음">
         <button class="btn-primary" id="plBtn" onclick="bookPlace()">신청하기</button>
@@ -951,8 +958,8 @@
   </div>
 
   <script src="../krmap.js?v=20261001a"></script>
-  <script src="town.js?v=20261006a"></script>
+  <script src="town.js?v=20261006b"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006p"></script>
+  <script src="beta.js?v=20261006q"></script>
 </body>
 </html>

@@ -108,7 +108,7 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -1237,7 +1237,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1257,7 +1257,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { return t === 'weekly' ? 'rec' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { return t === 'weekly' ? 'rec' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1307,7 +1307,7 @@ function setTabUI(t) {
   togglePfSub(!pfFloating() && pt === 'profile');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
   setTimeout(renderAct, 0);
@@ -1329,6 +1329,7 @@ function refreshTab() {
   else if (curTab === 'admin') loadAdmin();
   else if (curTab === 'people') loadPeople();
   else if (curTab === 'mtg') loadMeeting();
+  else if (curTab === 'pmonth') { if (!P.month) P.month = curMonth(); loadPfReport(); }
 }
 
 // =====================================================================
@@ -3991,7 +3992,6 @@ function loadProfile() {
   if (P.info) renderPfCard();
   else api('profile.get').then(function (d) { P.info = d; renderPfCard(); })
     .catch(function (err) { $('pfCard').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
-  loadPfReport();
   loadStats();
   loadBadges();
   loadRecapStatus();
@@ -4651,12 +4651,16 @@ function renderLook() {
         : '<button type="button" class="lk-sw' + on + '" style="background:' + v + '" aria-label="' + r[1] + '" onclick="lookSet(\'' + k + '\',\'' + v + '\')"></button>';
     }).join('') + '</div></div>';
   });
+  h += '<div class="lk-row"><span class="lk-l">자주 하는 말<small>동네지도 말풍선 · 3개까지</small></span><div class="lk-says">' + [0, 1, 2].map(function (i) {
+    return '<input type="text" class="b-input lk-say" maxlength="20" placeholder="' + ['예) 오늘도 화이팅!', '예) 커피 한 잔 할래요?', '예) 녹음 들어갑니다 🎙'][i] + '" value="' + esc((L.say || [])[i] || '') + '" oninput="lookSay(' + i + ',this.value)">';
+  }).join('') + '</div></div>';
   h += '<div class="lk-row"><span class="lk-l">볼터치</span><div class="lk-ch"><button type="button" class="b-pick' + (L.blush ? ' on' : '') + '" onclick="lookSet(\'blush\',' + !L.blush + ')">' + (L.blush ? '있음' : '없음') + '</button></div></div></div>' +
     '<div class="lk-acts"><button class="btn-primary" id="lkBtn" onclick="saveLook()">저장하기</button><button class="ghost-btn" onclick="resetLook()">기본 모습으로</button></div><div class="msg" id="lkMsg"></div>';
   if (LK.stop) LK.stop();
   $('lookArea').innerHTML = h;
   LK.stop = window.Town && Town.avatar ? Town.avatar($('lookCv'), function () { return LK.look; }) : null;
 }
+function lookSay(i, v) { var a = (LK.look.say || []).slice(); a[i] = v; LK.look.say = a; }
 function lookSet(k, v) { LK.look[k] = v; renderLook(); }
 function resetLook() { LK.look = {}; renderLook(); }
 function saveLook() {
@@ -4830,7 +4834,7 @@ function renderPlace() {
   h += '<div class="card pl-grid"><div class="pl-axis"><span></span><div>' + [8, 10, 12, 14, 16, 18, 20, 22].map(function (x) { return '<i style="left:' + ((x - H0) / (H1 - H0) * 100) + '%">' + x + '</i>'; }).join('') + '</div></div>' +
     d.places.map(function (p) {
       var bs = d.bookings.filter(function (b) { return b.place_code === p.code; });
-      return '<div class="pl-line" onclick="openPlaceModal(\'' + p.code + '\')"><span class="pl-name"><b>' + esc(p.name) + '</b><small>' + (p.approval === 'none' ? '바로 확정' : p.approval === 'recording' ? '엔지니어팀장 승인' : '과장·부과장 승인') + '</small></span><div class="pl-bar">' +
+      return '<div class="pl-line" onclick="plLineClick(event,\'' + p.code + '\')"><span class="pl-name"><b>' + esc(p.name) + '</b><small>' + (p.approval === 'none' ? '바로 확정' : p.approval === 'recording' ? '엔지니어팀장 승인' : '과장·부과장 승인') + '</small></span><div class="pl-bar">' +
         bs.map(function (b) { var a = pct(Date.parse(b.starts_at)), z = pct(Date.parse(b.ends_at));
           return '<i class="' + (b.status === '승인' ? 'ok' : 'wait') + (b.mine ? ' mine' : '') + '" style="left:' + a + '%;width:' + Math.max(2, z - a) + '%" title="' + esc(hmMs(Date.parse(b.starts_at)) + '~' + hmMs(Date.parse(b.ends_at)) + ' ' + b.name + ' · ' + b.purpose) + '">' + esc(b.name) + '</i>'; }).join('') + '</div></div>';
     }).join('') + '<small class="pl-hint">줄을 누르면 그 장소로 신청해요 · 진한 칸 = 확정, 점선 = 승인 기다리는 중</small></div>';
@@ -4842,11 +4846,28 @@ function renderPlace() {
   $('placeArea').innerHTML = h;
 }
 function plMove(k) { var dd = parseDate(PLC.date); dd.setDate(dd.getDate() + k); PLC.date = ymd(dd); loadPlace(); }
-function openPlaceModal(code) {
+// 시간표 줄을 누르면: 누른 곳의 30분 칸이 시작, 1시간 뒤가 끝
+function plLineClick(e, code) {
+  var bar = e.currentTarget.querySelector('.pl-bar'), r = bar.getBoundingClientRect(), k = (e.clientX - r.left) / r.width;
+  var mins = k >= 0 && k <= 1 ? Math.floor((8 * 60 + k * 16 * 60) / 30) * 30 : null;
+  openPlaceModal(code, mins);
+}
+var PL_SLOTS = (function () { var a = []; for (var m = 8 * 60; m <= 24 * 60; m += 30) a.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + m % 60).slice(-2)); return a; })();
+function plFromChanged() {
+  var f = PL_SLOTS.indexOf($('plFrom').value), t = PL_SLOTS.indexOf($('plTo').value);
+  $('plTo').innerHTML = PL_SLOTS.slice(f + 1).map(function (x) { return '<option>' + x + '</option>'; }).join('');
+  $('plTo').value = t > f ? PL_SLOTS[t] : PL_SLOTS[Math.min(PL_SLOTS.length - 1, f + 2)];
+}
+function openPlaceModal(code, startMin) {
   var d = PLC.d; if (!d) return;
+  $('plFrom').innerHTML = PL_SLOTS.slice(0, -1).map(function (x) { return '<option>' + x + '</option>'; }).join('');
+  var now = new Date(), st = startMin != null ? startMin : Math.max(8 * 60, Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30);
+  st = Math.min(23 * 60 + 30, st);
+  $('plFrom').value = ('0' + Math.floor(st / 60)).slice(-2) + ':' + ('0' + st % 60).slice(-2);
+  $('plTo').value = ''; plFromChanged();
   $('plPlace').innerHTML = d.places.map(function (p) { return '<option value="' + p.code + '">' + esc(p.name) + '</option>'; }).join('');
   if (code) $('plPlace').value = code;
-  if (!$('plDate').value) $('plDate').value = PLC.date; $('plDate').min = todayStr();
+  $('plDate').value = PLC.date; $('plDate').min = todayStr();
   placeRuleText(); setMsg('plMsg', ''); openModal('placeModal');
 }
 function placeRuleText() { var p = PLC.d.places.filter(function (x) { return x.code === $('plPlace').value; })[0]; $('placeRule').textContent = p ? p.rule : ''; }
