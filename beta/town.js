@@ -251,6 +251,7 @@ function build() {
   building('chonghoe', 276, 60, 4, { name:'총회 건물', roof:'#4a4e3a', roofL:'#6a6e5a', wall:'#d8c9a8', line:'#c2b28f', awn:'#6cc4a1' });
   building('seongjeon', 368, 72, 10, { name:'과천 성전', roof:'#4b3d55', roofL:'#6b5d75', wall:'#e8e0d0', line:'#d2c8b4', awn:'#d98ad6' });
   place('work', { name:'직장', group:'일상', where:'각자 직장에서 근무 중', rect:[190, 20, 46, 36], door:[213, 60], hiddenOnly:true });
+  place('road', { name:'가는 중', group:'그 밖', where:'다음 일정 장소로 걸어가는 중 (점선 = 가는 길)', rect:[0, 56, W, 28], door:[6, 70], hiddenOnly:true });
 
   // ===== 스담 4층 =====
   R(b, P.ol, 4, 88, 248, 236); R(b, P.cap, 5, 89, 246, 234);
@@ -364,7 +365,7 @@ function build() {
   for (const [sx, sy] of [[468, 214], [494, 216], [458, 232], [482, 232], [446, 248], [460, 280], [476, 286], [492, 280], [470, 300], [486, 306], [458, 306], [496, 296]]) S(pl, sx, sy, ['stand'], 'stand', 'down');
 
   // 휴게실 (넓게)
-  pl = place('lounge', { name:'휴게실', group:'그 밖', where:'지금 일정이 없는 사람', rect:[260, 248, 160, 72], cap:8,
+  pl = place('lounge', { name:'휴게실', group:'그 밖', where:'지금 일정이 없는 사람 (자리가 차면 거리를 산책해요)', rect:[260, 248, 160, 72], cap:8,
     door: roomBox(260, 248, 160, 72, { floor:'wood', door:{ side:'bottom', dx:76 } }) });
   winW(272, 251, 22); winW(306, 251, 22); wallClock(344, 252);
   rug(282, 280, 60, 20, '#6b8fa8', '#4f7088');
@@ -617,7 +618,7 @@ const TYPES = {
   '녹음':{ c:'#e8584a', gated:true }, '사회':{ c:'#d98ad6', gated:true },
   '수업':{ c:'#6cc4a1' }, '연습':{ c:'#f2b84b' }, '회의':{ c:'#7aa6e8' }, '스터디':{ c:'#b4a0f0' }, '모임':{ c:'#9cc75f' },
   '촬영':{ c:'#f08a4b' }, '편집':{ c:'#5fc2d6', label:'음향편집' }, '행정':{ c:'#b9c6cc' }, '기타':{ c:'#c7a98a' },
-  '근무':{ c:'#8e8a96', label:'직장' }, '휴식':{ c:'#d7c7a4', label:'일정 없음' }
+  '근무':{ c:'#8e8a96', label:'직장' }, '휴식':{ c:'#d7c7a4', label:'일정 없음' }, '이동':{ c:'#e9dcc0', label:'가는 중' }
 };
 const typeOf = k => TYPES[k] || TYPES['기타'];
 const typeLabel = k => (TYPES[k] && TYPES[k].label) || k;
@@ -647,11 +648,22 @@ let people = [], byId = new Map(), dataVer = 0;
 let viewMin = 0, lastAssignMin = -1, lastAssignVer = -1;
 let maskDetail = () => false;
 
+// 일정 사이 빈 시간: 다음 일정이 3시간 안이면 앞 장소(없으면 집 = 거리 왼쪽 끝)에서 다음 장소로 '빈 시간 동안' 천천히 걸어감
+// (18시 퇴근 → 19시 SMC면 1시간, 20시면 2시간에 걸쳐 같은 길을 감 = 더 느림). 집에서 나서는 건 1시간 전부터
+const TRAVEL_MAX = 180, HOME_LEAD = 60;
 function segFor(p, t) {
   for (const s of p.segs) if (s.from <= t && t < s.to) return s;
+  let prev = null, next = null;
+  for (const s of p.segs) { if (s.to <= t && (!prev || s.to > prev.to)) prev = s; if (s.from > t && (!next || s.from < next.from)) next = s; }
+  if (next && next.place !== 'work') {
+    const a = prev ? Math.max(prev.to, next.from - TRAVEL_MAX) : next.from - HOME_LEAD;
+    const fromPlace = prev ? prev.place : 'home';
+    if (t >= a && (fromPlace === 'home' || placeOf(fromPlace).id !== placeOf(next.place).id))
+      return { place:'road', type:'이동', title: next.title || '', detail:'', from:a, to:next.from, transit:{ from:fromPlace, to:next.place, a, b:next.from, next } };
+  }
   return { place:'lounge', type:'휴식', title:'', detail:'' };
 }
-const segKey = s => s.place + '|' + s.type + '|' + (s.from == null ? '' : s.from) + '|' + (s.lead ? 1 : 0) + '|' + (s.ext || '');
+const segKey = s => s.place + '|' + s.type + '|' + (s.from == null ? '' : s.from) + '|' + (s.lead ? 1 : 0) + '|' + (s.ext || '') + '|' + (s.transit ? s.transit.to + s.transit.b : '');
 function prefTags(s, p) {
   if (s.type === '녹음') return /엔지니어/.test(p.team) ? ['console', 'desk', 'seat', 'stand'] : ['mic', 'stand'];
   if (s.lead) return ['lead', 'stand'];
@@ -678,14 +690,53 @@ function pickSpot(pl, tags, random) {
   return pl.owner.findIndex(o => !o);
 }
 function visibleCount(pl) { let n = 0; for (const q of people) if (q.spot && q.spot.place === pl.id && q.spot.i >= 0) n++; return n; }
+// 가는 길(점선)과 시간에 맞춘 위치: poly = 꺾이는 점들, cum = 거기까지 길이
+function travelPath(from, to) {
+  const s = from === 'home' ? [4, 70] : (placeOf(from).door || [4, 70]), e = placeOf(to).door;
+  const [si, sj] = nearestWalk(Math.floor(s[0] / T), Math.floor(s[1] / T)), [gi, gj] = nearestWalk(Math.floor(e[0] / T), Math.floor((e[1] - 1) / T));
+  const poly = [s].concat(astar(si, sj, gi, gj) || [], [e]), cum = [0];
+  for (let k = 1; k < poly.length; k++) cum.push(cum[k - 1] + Math.hypot(poly[k][0] - poly[k - 1][0], poly[k][1] - poly[k - 1][1]));
+  return { poly, cum, total: cum[cum.length - 1] };
+}
+function travelK(p) { const k = (viewMin - p.tr.a) / (p.tr.b - p.tr.a); return Math.min(1, k * (1 + (p.seed % 10) * .03)); }   // 같은 길이면 사람마다 조금씩 앞뒤로
+function travelAt(tr, k) {
+  const d = Math.max(0, Math.min(1, k)) * tr.total; let i = 1;
+  while (i < tr.poly.length - 1 && tr.cum[i] < d) i++;
+  const a = tr.poly[i - 1], b2 = tr.poly[i], seg = (tr.cum[i] - tr.cum[i - 1]) || 1, f = (d - tr.cum[i - 1]) / seg;
+  return { x: a[0] + (b2[0] - a[0]) * f, y: a[1] + (b2[1] - a[1]) * f, i, dx: b2[0] - a[0], dy: b2[1] - a[1] };
+}
+// 자리가 모자랄 때: 방 안 빈 바닥에 서 있기 (다른 사람과 6px 이상 떨어진 곳)
+function extraSpot(pl, p) {
+  const r = pl.rect, cand = [];
+  for (let y = r[1] + 22; y < r[1] + r[3] - 6; y += 4) for (let x = r[0] + 8; x < r[0] + r[2] - 8; x += 4) {
+    if (!walk[Math.floor(y / T) * GW + Math.floor(x / T)]) continue;
+    if (people.some(q => q !== p && !q.hidden && q.spot && q.spot.place === pl.id && Math.abs(q.spot.s.x - x) < 7 && Math.abs(q.spot.s.y - y) < 6)) continue;
+    if (pl.spots.some(sp => Math.abs(sp.x - x) < 7 && Math.abs(sp.y - y) < 6)) continue;
+    cand.push([x, y]);
+  }
+  return cand.length ? cand[Math.floor(rnd() * cand.length)] : null;
+}
+// 휴게실이 차면 거리(인도) 아무 데나
+function streetSpot() { return [8 + Math.floor(rnd() * (W - 16)), 58 + Math.floor(rnd() * 4) * 6]; }
 function goTo(p, instant) {
   const pl = placeOf(p.seg.place);
   const prevPlace = p.spot ? p.spot.place : null;
   freeSpot(p);
+  p.tr = null;
+  if (p.seg.transit) {   // 다음 일정으로 가는 중: 위치는 step에서 시간에 맞춰
+    const t0 = p.seg.transit;
+    p.tr = Object.assign(travelPath(t0.from, t0.to), { a: t0.a, b: t0.b, ox: (p.seed % 5) - 2, oy: ((p.seed >> 2) % 3) - 1 });
+    p.spot = { place:'road', i:-1, s:{ x:0, y:0, pose:'stand', face:'down', tags:[] } };
+    p.hidden = false; p.hideAtEnd = false; p.path = []; p.moving = true;
+    const q = travelAt(p.tr, travelK(p)); p.x = q.x + p.tr.ox; p.y = q.y + p.tr.oy;
+    return;
+  }
   let i = -1;
   if (!pl.hiddenOnly && !(pl.cap && visibleCount(pl) >= pl.cap)) i = pickSpot(pl, prefTags(p.seg, p), p.seg.type === '휴식');
   let tx, ty, hideAtEnd = false;
   if (i >= 0) { pl.owner[i] = p.id; const s = pl.spots[i]; p.spot = { place:pl.id, i, s }; tx = s.x; ty = s.y; }
+  else if (!pl.hiddenOnly && pl.id === 'lounge') { const [sx, sy] = streetSpot(); p.spot = { place:pl.id, i:-2, s:{ x:sx, y:sy, pose:'stand', face:'down', tags:[] } }; tx = sx; ty = sy; }
+  else if (!pl.hiddenOnly && extraSpot(pl, p)) { const [sx, sy] = extraSpot(pl, p); p.spot = { place:pl.id, i:-3, s:{ x:sx, y:sy, pose:'stand', face:'up', tags:[] } }; tx = sx; ty = sy; }
   else { p.spot = { place:pl.id, i:-1, s:{ x:pl.door[0], y:pl.door[1], pose:'stand', face:'up', tags:[] } }; tx = pl.door[0]; ty = pl.door[1]; hideAtEnd = true; }
   if (p.hidden) { // 건물 안에 있던 사람은 그 문에서 나옴
     const from = PL[prevPlace]; if (from && from.door) { p.x = from.door[0]; p.y = from.door[1]; }
@@ -700,7 +751,7 @@ function goTo(p, instant) {
   p.moving = true;
 }
 function wander(p, now) {
-  if (p.seg.type !== '휴식' || p.moving || p.hidden || !p.spot || p.spot.i < 0 || p.spot.s.pose !== 'stand' || now < p.wanderAt) return;
+  if (p.seg.type !== '휴식' || p.moving || p.hidden || !p.spot || (p.spot.i < 0 && p.spot.i !== -2) || p.spot.s.pose !== 'stand' || now < p.wanderAt) return;
   p.wanderAt = now + 5 + rnd() * 7;
   if (rnd() < .45) goTo(p, false);
 }
@@ -749,7 +800,7 @@ let placeSt = {}, cheers = {};   // cheers[스튜디오] = { until, x, y } 녹�
 function updatePlaceStatus(byTime) {
   const st = {};
   for (const p of people) {
-    const ty = p.seg.type; if (ty === '휴식' || ty === '근무') continue;
+    const ty = p.seg.type; if (ty === '휴식' || ty === '근무' || ty === '이동') continue;
     const id = placeOf(p.seg.place).id, c = st[id] || (st[id] = { n: 0, types: {} });
     c.n++; c.types[ty] = (c.types[ty] || 0) + 1;
   }
@@ -779,6 +830,25 @@ function occupancy() {
   }
   return { all, hid };
 }
+// 가는 사람의 남은 길: 옅은 점선 + 도착지 표시 (마우스를 올린 사람은 진하게)
+function drawRoutes(c, t) {
+  for (const p of people) {
+    if (!p.tr || p.hidden) continue;
+    const q = travelAt(p.tr, travelK(p)), pts = [[q.x, q.y]].concat(p.tr.poly.slice(q.i));
+    const on = hoverId === p.id || (selId === p.id && t < selUntil), col = typeOf(p.seg.transit.next.type).c;
+    c.globalAlpha = on ? .9 : .35; c.fillStyle = col;
+    let carry = 0;   // 2칸 칠하고 2칸 쉬는 점선, 천천히 앞으로 흐름
+    const phase = reduce ? 0 : (t * 3) % 4;
+    for (let k = 1; k < pts.length; k++) {
+      const [x0, y0] = pts[k - 1], [x1, y1] = pts[k], L = Math.hypot(x1 - x0, y1 - y0);
+      for (let d = 0; d < L; d++) { if ((carry + d + 4 - phase) % 4 < 2) c.fillRect(Math.round(x0 + (x1 - x0) * d / L), Math.round(y0 + (y1 - y0) * d / L), 1, 1); }
+      carry += L;
+    }
+    const e = p.tr.poly[p.tr.poly.length - 1];
+    c.fillRect(e[0] - 2, e[1] - 1, 5, 1); c.fillRect(e[0], e[1] - 3, 1, 5);
+    c.globalAlpha = 1;
+  }
+}
 function drawWorld(t) {
   const [s0, s1] = sky(viewMin), nk = nightK(viewMin);
   const h0 = rgbToHex(s0), h1 = rgbToHex(s1);
@@ -787,6 +857,7 @@ function drawWorld(t) {
   w.drawImage(bgC, 0, 0);
   const oc = occupancy(), litFloors = {};
   for (const id in oc.all) { const pl = PL[id]; if (pl && pl.bld && oc.all[id].some(p => !p.moving)) (litFloors[pl.bld] = litFloors[pl.bld] || {})[pl.fl] = true; }
+  drawRoutes(w, t);
   const workN = (oc.all.work || []).filter(p => p.hidden).length;
   for (const id in buildings) { const bd = buildings[id]; let workLeft = workN;
     for (let f = 1; f <= bd.floors; f++) { const r = bd.rows[f]; const on = litFloors[id] && litFloors[id][f];
@@ -930,12 +1001,12 @@ function drawText(oc) {
   if (showNames) { const placed = [], vis = {};
     for (const p of people) if (!p.hidden && !p.moving) { const id = placeOf(p.seg.place).id; vis[id] = (vis[id] || 0) + 1; }
     // 한 방에 9명 이상 모이면 이름표가 겹쳐서 숨김 (마우스를 올리면 보임)
-    for (const p of [...people].filter(p => !p.hidden && (p.moving || (vis[placeOf(p.seg.place).id] || 0) <= 8)).sort((a, c) => a.y - c.y)) { if (p.title) pill(p.title, p.x * k, (p.y + 1.5) * k, fs * .74, '#f2b84b', null, placed); pill(p.name, p.x * k, (p.y + 1.5) * k, fs * .86, '#f1e8d9', typeOf(p.seg.type).c, placed); } }
+    for (const p of [...people].filter(p => !p.hidden && (p.tr ? p.id === hoverId : (p.moving || (vis[placeOf(p.seg.place).id] || 0) <= 8))).sort((a, c) => a.y - c.y)) { if (p.title) pill(p.title, p.x * k, (p.y + 1.5) * k, fs * .74, '#f2b84b', null, placed); pill(p.name, p.x * k, (p.y + 1.5) * k, fs * .86, '#f1e8d9', typeOf(p.seg.type).c, placed); } }
 }
 let showNames = true;
 
 // ---------- 패널 ----------
-const ORDER = [['스담 · 인덕원 4층 건물 4층', ['sdam-living', 'sdam-meeting', 'sdam-office', 'sdam-mirror', 'sdam-lab']], ['인덕원', ['codeone', 'jamun', 'smc']], ['정부과천청사역', ['chonghoe', 'seongjeon']], ['그 밖', ['outside', 'work', 'lounge']]];
+const ORDER = [['스담 · 인덕원 4층 건물 4층', ['sdam-living', 'sdam-meeting', 'sdam-office', 'sdam-mirror', 'sdam-lab']], ['인덕원', ['codeone', 'jamun', 'smc']], ['정부과천청사역', ['chonghoe', 'seongjeon']], ['그 밖', ['outside', 'road', 'work', 'lounge']]];
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const FLOOR_TAG = { codeone:'8층', jamun:'8층', smc:'2층', chonghoe:'4층' };
 function renderPanel() {
@@ -1031,6 +1102,12 @@ function personTip(p) {
   let detail = '';
   if (ty.gated) detail = s.detail && !maskDetail() ? esc(s.detail) : '<span class="tw-lock">구체적인 내용은 교관 이상에게만 보여요</span>';
   else if (s.title) detail = esc(s.title);
+  if (s.transit) {   // 가는 중: 어디로, 몇 시까지
+    const nx = s.transit.next, to = placeOf(nx.place), toName = to.id === 'outside' && nx.ext ? '외부 · ' + nx.ext : (to.group === '스담' ? '스담 ' + to.name : to.name), nt = typeOf(nx.type);
+    return `<div class="tw-t-name">${esc(p.name)}<span>${esc(p.team)}${p.role ? ' · ' + esc(p.role) : ''}</span></div>`
+      + `<div class="tw-t-type"><i class="tw-dot" style="--c:${nt.c}"></i>${esc(toName)}(으)로 가는 중</div>`
+      + `<div class="tw-t-time">${fmt(Math.floor(s.transit.b))} ${esc(typeLabel(nx.type))} 시작 · 천천히 걸어가요</div>`;
+  }
   const plName = pl.id === 'outside' && s.ext ? '외부 · ' + s.ext : (pl.group === '스담' ? '스담 ' + pl.name : pl.name);
   return `<div class="tw-t-name">${esc(p.name)}<span>${esc(p.team)}${p.role ? ' · ' + esc(p.role) : ''}</span></div>`
     + `<div class="tw-t-type"><i class="tw-dot" style="--c:${ty.c}"></i>${esc(typeLabel(s.type))}${p.moving ? ' · 이동 중' : ''}${s.lead ? ' · 진행' : ''}</div>`
@@ -1074,6 +1151,13 @@ function step(dt) {
   if (Math.floor(viewMin) !== lastAssignMin) assignAll(false);
   let arrived = false;
   for (const p of people) {
+    if (p.tr) {   // 빈 시간 동안 천천히: 시간 비율만큼 길 위에
+      const q = travelAt(p.tr, travelK(p)); q.x += p.tr.ox; q.y += p.tr.oy;
+      if (Math.abs(q.dx) > .3) p.dir = q.dx > 0 ? 1 : -1;
+      p.face = Math.abs(q.dx) > Math.abs(q.dy) ? (q.dx > 0 ? 'right' : 'left') : (q.dy > 0 ? 'down' : 'up');
+      p.moving = viewMin < p.tr.b; p.x = q.x; p.y = q.y;
+      continue;
+    }
     if (p.moving && p.path.length) {
       let left = (p.look.ride === 'ford' ? 55 : RIDES[p.look.ride] ? RIDES[p.look.ride].speed : 30) * dt;   // 탈것마다 빠르기 (거북이는 느림)
       while (left > 0 && p.path.length) {
