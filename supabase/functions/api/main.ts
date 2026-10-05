@@ -805,7 +805,7 @@ async function readPerms(ctx: Ctx): Promise<Record<string, number>> {
   const c: any = ctx as any; if (c._perms) return c._perms;
   const r = must(await ctx.db.from("app_settings").select("value").eq("key", "read_perms").maybeSingle());
   const v = r?.value ?? {};
-  c._perms = Object.fromEntries(PERMS.map(([k, , , d]) => [k, [10, 20, 30, 40].includes(Number(v[k])) ? Number(v[k]) : d]));
+  c._perms = Object.fromEntries(PERMS.map(([k, , , d]) => [k, [10, 20, 30, 40, 50, 60].includes(Number(v[k])) ? Number(v[k]) : d]));
   return c._perms;
 }
 async function permMin(ctx: Ctx, key: string) { return (await readPerms(ctx))[key]; }
@@ -2616,7 +2616,14 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const v = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     const { teams } = await myTeams(ctx);
     const people = teams.length ? (await unitAudience(ctx, (await sectionUnits(ctx, teams[0].id))[0])).map((m: any) => ({ id: m.id, name: m.name, position: m.position, unit: m.unit })) : [];
-    return { settings: v, people, perms: PERMS.map(([key, name, desc, def]) => ({ key, name, desc, def })), perm_values: await readPerms(ctx) };
+    // 조직도: 과·팀마다 직책 (한 사람이 과 부과장 + 팀장처럼 여러 곳이면 모두)
+    let org: any = null;
+    if (teams.length) {
+      const ro = await sectionRoster(ctx, teams[0].id), uname = new Map<string, string>([[ro.section.id, ro.section.name], ...ro.teams.map((t: any) => [t.id, t.name] as [string, string])]);
+      org = { section: ro.section.name, teams: ro.teams.map((t: any) => t.name),
+        members: ro.members.map((m: any) => ({ id: m.id, name: m.name, group: m.group, roles: Object.keys(m.pos).map((u) => ({ unit: uname.get(u) ?? "", position: m.pos[u], rank: m.ranks[u] ?? 0 })) })) };
+    }
+    return { settings: v, people, org, perms: PERMS.map(([key, name, desc, def]) => ({ key, name, desc, def })), perm_values: await readPerms(ctx) };
   },
   // { key, value } — 정해진 것만, 사람 id는 과원 중에서
   async "admin.set"(ctx) {
@@ -2631,7 +2638,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     else if (key === "place_approvers") val = { recording: idList(value?.recording), external: idList(value?.external) };
     else if (key === "recap_enabled") val = value === true;
     else if (key === "read_perms") {
-      val = {}; for (const [k] of PERMS) { const n = Number(value?.[k]); if ([10, 20, 30, 40].includes(n)) val[k] = n; }
+      val = {}; for (const [k] of PERMS) { const n = Number(value?.[k]); if ([10, 20, 30, 40, 50, 60].includes(n)) val[k] = n; }
     }
     else if (key === "recap_open") { if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(value))) throw new HttpError(400, "날짜를 다시 골라주세요"); val = String(value); }
     else throw new HttpError(400, "바꿀 수 없는 설정이에요");

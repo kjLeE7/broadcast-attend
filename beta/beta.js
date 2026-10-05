@@ -5087,14 +5087,15 @@ function loadAdmin() {
     .catch(function (err) { $('adminArea').innerHTML = '<div class="empty"><b>열 수 없어요</b>' + esc(err.message) + '</div>'; });
 }
 // 담당자 고르기: 지금 지정된 사람은 칩(× 빼기), 추가는 이름 검색 → 결과에서 누르기
-var ADMSEC = 'admins';
+var ADMSEC = 'people';
 function admGo(sec) { ADMSEC = sec; pfGo('admin'); if (ADM && ADM.edit) renderAdmin(); }
 function admPick(key, sub, title, desc) {
   var cur = sub ? ((ADM.edit[key] || {})[sub] || []) : (ADM.edit[key] || []), id = key + (sub ? '-' + sub : '');
   var byId2 = {}; ADM.people.forEach(function (p) { byId2[p.id] = p; });
   return '<div class="card adm-box"><div class="adm-h"><b>' + title + '</b><small>' + desc + '</small></div>' +
     '<div class="adm-cur">' + (cur.length ? cur.map(function (pid) { var p = byId2[pid] || { name: '(과 밖)', unit: '', position: '' };
-      return '<span class="adm-chip"><b>' + esc(p.name) + '</b><small>' + esc((p.unit || '') + ' ' + (p.position || '')) + '</small><button type="button" aria-label="빼기" onclick="admToggle(\'' + key + '\',\'' + (sub || '') + '\',\'' + pid + '\')">×</button></span>'; }).join('') : '<span class="adm-none">아직 없어요</span>') + '</div>' +
+      var me = key === 'admins' && pid === S.me.profile.id;   // 나 자신은 관리자에서 못 뺌
+      return '<span class="adm-chip' + (me ? ' me' : '') + '"><b>' + esc(p.name) + '</b><small>' + esc((p.unit || '') + ' ' + (p.position || '')) + (me ? ' · 나' : '') + '</small>' + (me ? '' : '<button type="button" aria-label="빼기" onclick="admToggle(\'' + key + '\',\'' + (sub || '') + '\',\'' + pid + '\')">×</button>') + '</span>'; }).join('') : '<span class="adm-none">아직 없어요</span>') + '</div>' +
     '<div class="adm-find"><input type="search" class="b-input" id="admQ-' + id + '" placeholder="이름으로 찾아 추가하기" oninput="admFind(\'' + key + '\',\'' + (sub || '') + '\')" oncompositionend="admFind(\'' + key + '\',\'' + (sub || '') + '\')"><div class="adm-res" id="admR-' + id + '"></div></div>' +
     '<button class="btn-primary adm-save" onclick="admSave(\'' + key + '\')">저장</button><div class="msg" id="admMsg-' + key + '"></div></div>';
 }
@@ -5107,13 +5108,11 @@ function admFind(key, sub) {
   }).join('');
 }
 var ADM_SEC = {
-  admins: ['관리자 설정', '이 페이지를 볼 수 있는 사람이에요'],
-  treasurers: ['회계담당자 설정', '회비 확인 요청을 받는 사람이에요'],
-  place: ['장소승인자 설정', '녹음실·외부 장소 신청을 승인하는 사람이에요'],
+  people: ['담당자 설정', '관리자·회계·장소 승인자를 정하고, 아래 조직도에서 누가 무엇을 맡았는지 한눈에 봐요'],
   perms: ['읽기 권한 설정', '항목마다 어느 직책부터 볼 수 있는지 정해요. 체크된 직책은 모두 봐요'],
   recap: ['올해의 성우 리포트', '연말 결산 카드를 켜고 공개일을 정해요']
 };
-var PERM_RANKS = [[10, '팀원'], [20, '조장'], [30, '교관'], [40, '팀장']];
+var PERM_RANKS = [[10, '팀원'], [20, '조장'], [30, '교관'], [40, '팀장'], [50, '부과장'], [60, '과장']];
 function permsHtml() {
   var v = ADM.edit.read_perms = Object.assign({}, ADM.perm_values, ADM.edit.read_perms || {});
   return '<div class="card adm-box"><div class="perm-grid"><div class="perm-hd"><span>항목</span>' + PERM_RANKS.map(function (r) { return '<span>' + r[1] + '</span>'; }).join('') + '</div>' +
@@ -5121,23 +5120,24 @@ function permsHtml() {
       var min = v[p.key];
       return '<div class="perm-row"><div class="perm-nm"><b>' + esc(p.name) + '</b><small>' + esc(p.desc) + (min !== p.def ? ' · <em>기본은 ' + PERM_RANKS.filter(function (r) { return r[0] === p.def; })[0][1] + '부터</em>' : '') + '</small></div>' +
         PERM_RANKS.map(function (r) { return '<label class="perm-ck"><input type="checkbox" ' + (r[0] >= min ? 'checked' : '') + ' onchange="permSet(\'' + p.key + '\',' + r[0] + ',this.checked)"><span>' + r[1] + '</span></label>'; }).join('') + '</div>';
-    }).join('') + '</div><p class="perm-note">윗 직책(부과장·과장 등)은 언제나 봐요. 본인 것(내 출결 사유·내 후기 등)은 설정과 상관없이 늘 보여요.</p>' +
+    }).join('') + '</div><p class="perm-note">과장 위(서무·문화부장)는 언제나 봐요. 과장 칸까지 끄면 과장도 못 봐요. 본인 것(내 출결 사유·내 후기 등)은 설정과 상관없이 늘 보여요.</p>' +
     '<button class="btn-primary adm-save" onclick="admSave(\'read_perms\')">저장</button><div class="msg" id="admMsg-read_perms"></div></div>';
 }
 // 체크박스: 어느 직책을 켜면 그 위 직책은 다 켜짐, 끄면 그 아래도 다 꺼짐 = '여기부터 볼 수 있음'
 function permSet(key, rank, on) {
   var v = ADM.edit.read_perms;
-  v[key] = on ? Math.min(v[key], rank) : Math.min(40, PERM_RANKS.map(function (r) { return r[0]; }).filter(function (x) { return x > rank; })[0] || 40);
+  v[key] = on ? Math.min(v[key], rank) : Math.min(60, PERM_RANKS.map(function (r) { return r[0]; }).filter(function (x) { return x > rank; })[0] || 60);
   renderAdmin();
 }
 function renderAdmin() {
   var e = ADM.edit, md = String(e.recap_open || '12-22'), sec = ADM_SEC[ADMSEC] ? ADMSEC : 'admins';
   $('admTitle').textContent = ADM_SEC[sec][0]; $('admDesc').textContent = ADM_SEC[sec][1];
   var h = '';
-  if (sec === 'admins') h = admPick('admins', '', '관리자', '나 자신은 뺄 수 없어요');
-  else if (sec === 'treasurers') h = admPick('treasurers', '', '회계담당자', '회비 확인 요청을 받고 확인·반려해요');
-  else if (sec === 'place') h = admPick('place_approvers', 'recording', '녹음실 승인자 (코드원·SMC)', '비워 두면 엔지니어팀 팀장 이상이 승인해요') +
-    admPick('place_approvers', 'external', '총회 대회의실·과천 성전 10층 승인자', '비워 두면 부과장 이상이 승인해요');
+  if (sec === 'people') h = '<div class="adm-3">' +
+    '<div>' + admPick('admins', '', '👑 관리자', '이 관리자 페이지를 볼 수 있어요. 나 자신은 뺄 수 없어요') + '</div>' +
+    '<div>' + admPick('treasurers', '', '💰 회계담당자', '회비 확인 요청을 받고 확인·반려해요') + '</div>' +
+    '<div>' + admPick('place_approvers', 'recording', '🎙 녹음실 승인 (코드원·SMC)', '비우면 엔지니어팀 팀장 이상') +
+      admPick('place_approvers', 'external', '🏛 총회 대회의실·과천 성전 10층 승인', '비우면 부과장 이상') + '</div></div>' + orgChart();
   else if (sec === 'perms') h = permsHtml();
   else h = '<div class="card adm-box"><div class="adm-h"><b>올해의 성우 리포트</b><small>켜면 공개일 전엔 교관 이상 미리보기, 공개일부터 모두에게 보여요</small></div>' +
       '<label class="adm-sw"><input type="checkbox" ' + (e.recap_enabled === true ? 'checked' : '') + ' onchange="admSetNow(\'recap_enabled\', this.checked)"> 리포트 켜기</label>' +
@@ -5146,6 +5146,7 @@ function renderAdmin() {
   $('adminArea').innerHTML = h;
 }
 function admToggle(key, sub, id) {
+  if (key === 'admins' && id === S.me.profile.id) return;
   var arr = sub ? ((ADM.edit[key] = ADM.edit[key] || {})[sub] = (ADM.edit[key][sub] || [])) : (ADM.edit[key] = ADM.edit[key] || []);
   var i = arr.indexOf(id); if (i === -1) arr.push(id); else arr.splice(i, 1); renderAdmin();
 }
@@ -5955,4 +5956,31 @@ function saveReview() {
   var btn = $('rvBtn'); btn.disabled = true;
   api('reviews.save', { session_id: RV.sid, body: $('rvBody').value }).then(function () { haptic('success'); RV.editing = false; loadReviews(RV.sid); refreshTodos(true); })
     .catch(function (err) { btn.disabled = false; setMsg('rvMsg', err.message, true); });
+}
+
+// 방송예술과 조직도: 과(과장·부과장·서무) → 팀마다 직책 순 + 맡은 일 배지(👑 관리자 · 💰 회계 · 🎙 녹음실 승인 · 🏛 외부 장소 승인)
+function orgChart() {
+  var o = ADM.org; if (!o) return '';
+  var st = ADM.settings || {}, pa = st.place_approvers || {}, has = function (k, id) { return (k || []).indexOf(id) !== -1; };
+  var badges = function (id) {
+    return (has(st.admins, id) ? '<i title="관리자">👑</i>' : '') + (has(st.treasurers, id) ? '<i title="회계담당자">💰</i>' : '') +
+      (has(pa.recording, id) ? '<i title="녹음실 승인">🎙</i>' : '') + (has(pa.external, id) ? '<i title="외부 장소 승인">🏛</i>' : '');
+  };
+  var person = function (m, pos) { var b = badges(m.id); return '<span class="org-p' + (b ? ' has' : '') + '"><b>' + esc(m.name) + '</b><small>' + esc(pos) + '</small>' + (b ? '<em>' + b + '</em>' : '') + '</span>'; };
+  var inUnit = function (u) { return o.members.map(function (m) { var r = m.roles.filter(function (x) { return x.unit === u; })[0]; return r ? { m: m, r: r } : null; }).filter(Boolean).sort(function (a, b) { return b.r.rank - a.r.rank || a.m.name.localeCompare(b.m.name, 'ko'); }); };
+  var top = inUnit(o.section);
+  var teamBox = function (t) {
+    var l = inUnit(t), lead = l.filter(function (x) { return x.r.rank >= RANK.INSTRUCTOR; }), rest = l.filter(function (x) { return x.r.rank < RANK.INSTRUCTOR; });
+    var marked = rest.filter(function (x) { return badges(x.m.id); });
+    var groups = {}; rest.forEach(function (x) { var g = x.m.group || '조 없음'; groups[g] = (groups[g] || 0) + 1; });
+    return '<div class="org-team"><div class="org-th">' + esc(t) + '<small>' + l.length + '명</small></div>' +
+      '<div class="org-lead">' + (lead.length ? lead.map(function (x) { return person(x.m, x.r.position); }).join('') : '<span class="adm-none">운영진 없음</span>') + '</div>' +
+      (marked.length ? '<div class="org-lead">' + marked.map(function (x) { return person(x.m, x.r.position + (x.m.group ? ' · ' + x.m.group : '')); }).join('') + '</div>' : '') +
+      '<div class="org-groups">' + Object.keys(groups).sort().map(function (g) { return '<span>' + esc(g) + ' ' + groups[g] + '명</span>'; }).join('') + '</div></div>';
+  };
+  return '<div class="section-head b-gap"><h2>방송예술과 조직도</h2><span class="section-count">👑 관리자 · 💰 회계 · 🎙 녹음실 승인 · 🏛 외부 장소 승인</span></div>' +
+    '<div class="card org"><div class="org-top"><div class="org-th">' + esc(o.section) + '</div><div class="org-lead">' + (top.length ? top.map(function (x) { return person(x.m, x.r.position); }).join('') : '<span class="adm-none">과 직책 없음</span>') + '</div></div>' +
+    '<div class="org-line"></div><div class="org-teams">' + o.teams.map(teamBox).join('') + '</div>' +
+    (pa.recording && pa.recording.length ? '' : '<p class="perm-note">🎙 녹음실 승인자를 따로 안 정해서 엔지니어팀 팀장 이상이 승인해요.</p>') +
+    (pa.external && pa.external.length ? '' : '<p class="perm-note">🏛 외부 장소 승인자를 따로 안 정해서 부과장 이상이 승인해요.</p>') + '</div>';
 }

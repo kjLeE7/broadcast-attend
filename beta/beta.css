@@ -1427,7 +1427,7 @@ html { scrollbar-gutter: stable; }
 .adm-save { margin-top: 12px; }
 .adm-sw { display: flex; gap: 8px; align-items: center; font-weight: 700; margin-bottom: 10px; }
 .adm-save { width: auto; padding: 9px 22px; margin-top: 12px; }
-@media (min-width: 1000px) { #adminArea { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; align-items: start; } }
+#adminArea { display: block; }
 
 /* 할 수 있는 일 FAB: 예전 화면별 + 버튼은 숨기고 이 하나로 */
 .b-fab:not(.act-fab) { display: none !important; }
@@ -1798,13 +1798,31 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .adm-find .b-input { margin: 0; } .adm-res { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .adm-res button { border: 1.5px solid var(--line); background: var(--card); border-radius: 99px; font: inherit; font-size: 13px; font-weight: 700; padding: 6px 12px; cursor: pointer; color: var(--text); }
 .adm-res button small { color: var(--muted); font-weight: 600; margin-left: 4px; font-size: 11.5px; } .adm-res button:hover { border-color: var(--accent); }
-.perm-grid { display: grid; } .perm-hd, .perm-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, 58px); align-items: center; gap: 4px; }
+.perm-grid { display: grid; } .perm-hd, .perm-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(6, 54px); align-items: center; gap: 4px; }
 .perm-hd { font-size: 12px; font-weight: 800; color: var(--muted); padding: 0 0 8px; border-bottom: 1.5px solid var(--line); } .perm-hd span:not(:first-child) { text-align: center; }
 .perm-row { padding: 10px 0; border-bottom: 1px solid var(--line); } .perm-row:last-child { border-bottom: 0; }
 .perm-nm b { display: block; font-size: 14px; } .perm-nm small { display: block; font-size: 12px; color: var(--muted); } .perm-nm em { font-style: normal; color: var(--warn); font-weight: 700; }
 .perm-ck { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; } .perm-ck input { width: 20px; height: 20px; accent-color: var(--accent); cursor: pointer; } .perm-ck span { display: none; font-size: 10.5px; color: var(--muted); }
-@media (max-width: 600px) { .perm-hd { display: none; } .perm-row { grid-template-columns: repeat(4, 1fr); } .perm-nm { grid-column: 1 / -1; margin-bottom: 4px; } .perm-ck span { display: block; } }
+@media (max-width: 600px) { .perm-hd { display: none; } .perm-row { grid-template-columns: repeat(6, 1fr); } .perm-nm { grid-column: 1 / -1; margin-bottom: 4px; } .perm-ck span { display: block; } }
 .perm-note { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
 
 /* 팝업은 녹음 상세(가운데 팝업, z 72) 위로 — 스탯 주기·응답 팝업이 뒤로 숨지 않게 */
 .b-modal { z-index: 90; }
+
+/* 담당자 설정: 3칸 + 조직도 */
+.adm-3 { display: grid; gap: 14px; align-items: start; } .adm-3 > div { display: grid; gap: 14px; } .adm-3 .adm-box { margin: 0; }
+@media (min-width: 1000px) { .adm-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.adm-chip.me { background: var(--card-soft); }
+.org { padding: 18px; } .org-top { text-align: center; }
+.org-th { font-family: var(--font-title) !important; font-size: 17px; font-weight: 700; margin-bottom: 8px; } .org-th small { font-family: var(--font-body) !important; font-size: 12px; color: var(--muted); font-weight: 600; margin-left: 6px; }
+.org-lead { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 6px; }
+.org-p { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 12px; background: var(--card-soft); font-size: 13px; }
+.org-p small { color: var(--muted); font-size: 11.5px; } .org-p em { font-style: normal; display: inline-flex; gap: 1px; } .org-p em i { font-style: normal; font-size: 13px; }
+.org-p.has { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.org-line { width: 2px; height: 18px; background: var(--line); margin: 4px auto 0; }
+.org-teams { display: grid; gap: 12px; border-top: 2px solid var(--line); padding-top: 14px; }
+@media (min-width: 800px) { .org-teams { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.org-team { background: var(--bg); border-radius: 14px; padding: 12px; text-align: center; }
+.org-groups { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-top: 4px; } .org-groups span { font-size: 12px; color: var(--muted); background: var(--card); border-radius: 99px; padding: 2px 9px; }
+.adm-3 .adm-find .b-input { font-size: 14px; }
+.adm-chip { max-width: 100%; } .adm-chip b { white-space: nowrap; }
