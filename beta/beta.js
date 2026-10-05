@@ -662,6 +662,7 @@ function openSessModal() {
   tplLoad('c');
   if (!$('cDate').value) $('cDate').value = todayStr();
   setMsg('cMsg', '');
+  cAgSync();
   openModal('cModal');
   pkOpen('c');
 }
@@ -678,6 +679,31 @@ function applyTypeDefaults() {
   if (t.default_start && !$('cStart').value) $('cStart').value = hm(t.default_start);
   if (t.default_end && !$('cEnd').value) $('cEnd').value = hm(t.default_end);
   if (t.default_location && !getPlace()) setPlace(t.default_location);
+  cAgSync();
+}
+// 회의면 안건 칸 보이기 (모임 유형 이름이나 제목에 '회의')
+function cIsMeeting() {
+  var t = S.types.filter(function (x) { return x.id === $('cType').value; })[0];
+  return /회의/.test((t ? t.name : '') + ' ' + $('cTitle').value);
+}
+function cAgSync() {
+  var on = cIsMeeting() && !EDIT.c; $('cAgendaBox').style.display = on ? '' : 'none';
+  if (on && !$('cAgenda').children.length) cAgAdd();
+}
+function cAgAdd() {
+  var d = document.createElement('div'); d.className = 'card c-ag';
+  d.innerHTML = '<input type="text" class="b-input ag-t" maxlength="80" placeholder="안건 · 예) 10월 정규수업 시간 조정">' +
+    '<input type="text" class="b-input ag-d" maxlength="500" placeholder="정해야 할 것 (선택) · 예) 토요일 오후로 옮길지">' +
+    '<div class="c-ag-row"><div class="select-wrap"><select class="ag-m">' + [5, 10, 15, 20, 30, 45, 60].map(function (n) { return '<option' + (n === 10 ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div><span>분</span>' +
+    '<div class="select-wrap"><select class="ag-p"><option value="1">중요도 높음</option><option value="2" selected>중요도 보통</option><option value="3">중요도 낮음</option></select></div>' +
+    '<button type="button" class="c-ag-x" onclick="this.closest(\'.c-ag\').remove()" aria-label="안건 빼기">✕</button></div>';
+  $('cAgenda').appendChild(d);
+}
+function cAgItems() {
+  if ($('cAgendaBox').style.display === 'none') return [];
+  return [].slice.call(document.querySelectorAll('#cAgenda .c-ag')).map(function (r) {
+    return { title: r.querySelector('.ag-t').value.trim(), decide: r.querySelector('.ag-d').value.trim(), minutes_min: +r.querySelector('.ag-m').value, priority: +r.querySelector('.ag-p').value };
+  }).filter(function (x) { return x.title; });
 }
 function notifyText(r) {
   if (!r) return '';
@@ -713,7 +739,14 @@ function createSession() {
   if (p.end_time && p.end_time <= p.start_time) { setMsg('cMsg', '끝나는 시간이 시작보다 늦어야 해요!', true); return; }
   if (!fileCheck('c')) return;
   var btn = $('cBtn'); btn.disabled = true; setMsg('cMsg', p.notify ? '만들고 알림 보내는 중...' : '만드는 중...');
+  var agenda = cAgItems();
   api('sessions.create', p).then(function (s) { return fileUpload('c', 'session', s.id).then(function () { return s; }); }).then(function (s) {
+    // 회의 안건: 회의를 만들고(mtg.get) 안건을 차례로 올림
+    if (!agenda.length) return s;
+    return api('mtg.get', { session_id: s.id }).then(function (d) {
+      return agenda.reduce(function (pr, it) { return pr.then(function () { return api('mtg.item', Object.assign({ meeting_id: d.meeting.id, kind: '일반' }, it)); }); }, Promise.resolve());
+    }).then(function () { s.agendaN = agenda.length; return s; }, function (err) { s.agendaErr = err.message; return s; });
+  }).then(function (s) {
     Object.assign(s, {
       start_ms: kstMs(s.session_date, s.start_time), end_ms: s.end_time ? kstMs(s.session_date, s.end_time) : kstMs(s.session_date, s.start_time) + 3 * 3600000,
       target_count: s.target_people ? s.target_people.length : targetMembersCount(s.target_unit_id), is_target: false,
@@ -722,13 +755,13 @@ function createSession() {
     if (s.team_id === S.team.id) S.sessions.push(s);
     S.sessions.sort(function (a, b) { return a.session_date + (a.start_time || '') < b.session_date + (b.start_time || '') ? -1 : 1; });
     ['cTitle', 'cStart', 'cEnd', 'cDesc'].forEach(function (id) { $(id).value = ''; }); setPlace('');
-    $('cType').value = ''; pkReset('c'); setCCiItems([]);
+    $('cType').value = ''; pkReset('c'); setCCiItems([]); $('cAgenda').innerHTML = ''; cAgSync();
     btn.disabled = false;
     // 체크인이 같이 생겼으면 출결 위 체크인 카드도 새로
     if (s.checkins && s.checkins.length) api('checkins.list', { team_id: S.team.id }).then(function (l) { C.list = l || []; renderCheckins(); }).catch(function () {});
     haptic('success');
     renderList();
-    setMsg('cMsg', '만들었어요!' + (s.notify ? '\n' + notifyText(s.notify) : ''));
+    setMsg('cMsg', '만들었어요!' + (s.agendaN ? '\n회의 안건 ' + s.agendaN + '개도 올렸어요' : '') + (s.agendaErr ? '\n안건은 못 올렸어요: ' + s.agendaErr + ' (모임 › 회의 열기에서 올려주세요)' : '') + (s.notify ? '\n' + notifyText(s.notify) : ''));
     setTimeout(function () { setMsg('cMsg', ''); closeModal('cModal'); }, s.notify && s.notify.failed.length ? 6000 : 1500);
     // 대상 인원·내 대상 여부는 서버 기준으로 다시
     refreshSessions();
@@ -2010,6 +2043,7 @@ function editSession() {
   setCCiItems(sessCiItems(s));
   $('cNotify').checked = false; $('cNotify').nextElementSibling.textContent = '바뀐 날짜·시간·장소를 대상자에게 알리기';
   if (s.closed_at) { $('cDate').disabled = true; $('cStart').disabled = true; setMsg('cMsg', '출결이 마감된 모임이라 날짜·시작 시간은 못 바꿔요'); }
+  cAgSync();
   openModal('cModal');
 }
 function saveSessEdit() {

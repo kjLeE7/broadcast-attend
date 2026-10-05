@@ -1544,3 +1544,11 @@ body.town-mode .act-fab, body.sky-mode .act-fab { display: none !important; }
   #profileView.split #lookArea { grid-template-columns: minmax(0, 1fr); } #profileView.split #lookArea .lk-prev { grid-row: auto; position: static; }
   #profileView.split #lookArea .lk-opts { grid-template-columns: minmax(0, 1fr); } #profileView.split #lookArea .lk-acts, #profileView.split #lookArea .msg { grid-column: 1; }
 }
+
+/* 모임 만들기: 회의 안건 */
+.c-agenda { margin-top: 4px; }
+.c-ag { padding: 10px 12px; margin-bottom: 8px; display: grid; gap: 6px; background: var(--card-soft); box-shadow: none; }
+.c-ag .b-input { margin: 0; }
+.c-ag-row { display: flex; gap: 6px; align-items: center; font-size: 13px; } .c-ag-row .select-wrap:first-child { flex: 0 0 80px; } .c-ag-row .select-wrap + span + .select-wrap { flex: 1; }
+.c-ag-x { margin-left: auto; border: none; background: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 4px 8px; }
+.c-ag-add { width: auto; margin: 0 0 12px; }
