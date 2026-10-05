@@ -5724,10 +5724,10 @@ function aprDues(id, ok) {
 // =====================================================================
 function openDashItem(src, id) {
   if (!src || !id || !S.team) return;
-  $('itemModalT').textContent = '불러오는 중...'; $('itemModalS').textContent = '';
-  $('itemBody').innerHTML = '<div class="b-wait">불러오는 중...</div>';
-  openModal('itemModal');
+  // 내용을 먼저 받아 두고 열어서 '불러오는 중 → 내용'으로 덜컥 바뀌지 않게. 늦으면(0.35초) 먼저 열어 둠
+  var shown = false, slow = setTimeout(function () { shown = true; $('itemModalT').textContent = '불러오는 중...'; $('itemModalS').textContent = ''; $('itemBody').innerHTML = '<div class="b-wait">불러오는 중...</div>'; openModal('itemModal'); }, 350);
   api('dashboard.item', { team_id: S.team.id, src: src, id: id }).then(function (d) {
+    clearTimeout(slow);
     var kc = kindCls(d.kind === '사회' || d.kind === '촬영' || d.kind === '음향편집' ? '사회·촬영·편집' : d.kind === '프로젝트' ? '기타' : d.kind);
     $('itemModalT').textContent = d.title;
     $('itemModalS').textContent = [d.team, d.type !== d.title ? d.type : ''].filter(Boolean).join(' · ');
@@ -5740,7 +5740,8 @@ function openDashItem(src, id) {
       (d.masked ? '<p class="di-lock">🔒 ' + esc(d.kind) + '의 자세한 내용(제목·사람·장소)은 교관 이상만 볼 수 있어요</p>' : '') + '</div>' +
       (d.open_session ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');inTeam(function(){goTab(\'attend\');refreshSessions().then(function(){openSession(\'' + d.open_session + '\')})})">모임 화면으로 ›</button>' : '') +
       (d.open_rec && recAllowed() ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');RC.pending=\'' + d.open_rec + '\';goTab(\'rec\')">녹음 요청 자세히 ›</button>' : '');
-    $('itemBody').innerHTML = h;
-  }).catch(function (err) { $('itemModalT').textContent = '열 수 없어요'; $('itemBody').innerHTML = '<p class="rec-none">' + esc(err.message) + '</p>'; });
+    $('itemBody').innerHTML = shown ? '<div class="di-in">' + h + '</div>' : h;
+    if (!shown) openModal('itemModal');
+  }).catch(function (err) { clearTimeout(slow); $('itemModalT').textContent = '열 수 없어요'; $('itemModalS').textContent = ''; $('itemBody').innerHTML = '<p class="rec-none">' + esc(err.message) + '</p>'; if (!shown) openModal('itemModal'); });
 }
 document.addEventListener('keydown', function (e) { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('dash-tap')) { e.preventDefault(); e.target.click(); } });
