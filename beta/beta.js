@@ -864,7 +864,11 @@ function renderHead() {
     (M.board && M.board.grace_min ? '<span class="chip">시작 후 ' + M.board.grace_min + '분까지 참석</span>' : '') +
     (sessCiItems(s).length ? '<span class="chip">⏰ 체크인 ' + sessCiItems(s).map(function (x) { return CI_EMOJI[x] + x; }).join('·') + '</span>' : '') + '</div>' +
     (s.description ? '<div class="card b-desc">' + esc(s.description) + '</div>' : '') + fileChips('session', s.id) +
-    (lead && nr ? '<div class="b-notify">📨 ' + esc(notifyText(nr)) + '</div>' : '') + '</div>';
+    (lead && nr ? '<div class="b-notify">📨 ' + esc(notifyText(nr)) + '</div>' : '') +
+    // 상세 안 버튼: 고치기(교관 이상) · 회의(이름에 '회의'면 누구나)
+    ((S.team.rank >= RANK.INSTRUCTOR && ph !== 'cancel') || /회의/.test(sessionName(s)) ? '<div class="b-dacts">' +
+      (S.team.rank >= RANK.INSTRUCTOR && ph !== 'cancel' ? '<button type="button" onclick="editSession()">✏️ 모임 고치기</button>' : '') +
+      (/회의/.test(sessionName(s)) ? '<button type="button" onclick="openMeeting(\'' + s.id + '\')">🗂 회의 열기 (안건·회의록)</button>' : '') + '</div>' : '') + '</div>';
 }
 
 function renderMine() {
@@ -2061,7 +2065,7 @@ function editSession() {
   setPlace(s.location || ''); $('cDesc').value = s.description || '';
   setCCiItems(sessCiItems(s));
   $('cNotify').checked = false; $('cNotify').nextElementSibling.textContent = '바뀐 날짜·시간·장소를 대상자에게 알리기';
-  if (s.closed_at) { $('cDate').disabled = true; $('cStart').disabled = true; setMsg('cMsg', '출결이 마감된 모임이라 날짜·시작 시간은 못 바꿔요'); }
+  if (s.closed_at) setMsg('cMsg', '출결이 마감된 모임이에요. 시작 시간을 바꾸면 도착 확인한 사람의 참석·지각을 새 시간으로 다시 매겨요');
   cAgSync();
   openModal('cModal');
 }
@@ -5002,16 +5006,13 @@ function actItems() {
   if (t === 'attend') {
     if (S.current) {
       var b = M.board;
-      add('list', '회의 열기 (안건·의견·회의록)', function () { openMeeting(S.current.id); });
       if (b && b.can_check) add('check', '출결 확인·마감·알림', mgToggle('sess', renderDetail), MG.sess);
-      if (lead && phaseOf(S.current) !== 'cancel') add('edit', '모임 고치기', editSession);
       if (lead && phaseOf(S.current) !== 'closed' && phaseOf(S.current) !== 'cancel') { add('x', '모임 취소 (대상자 알림)', cancelSess); add('x', '잘못 만들었어요 · 지우기', deleteSess); }
     } else if ($('reportView').style.display !== 'none') {
       if (R.data && R.data.scope === 'team') { add('list', '팀 전체 리포트', mgToggle('rp', renderReport), MG.rp); if (MG.rp) add('copy', '텍스트로 복사', copyReport); }
     } else {
       if (lead) add('plus', '모임 만들기', openSessModal);
       if (inst) add('plus', '체크인 만들기', openCiModal);
-      if (S.sessions && S.sessions.some(mtgPickable)) add('list', '회의 안건 올리기·회의 열기', pickMeeting);
       if (lead && C.list.length) add('eye', '체크인 현황', mgToggle('ci', renderCheckins), MG.ci);
     }
   }
@@ -5324,16 +5325,6 @@ function saveItem(id) {
   api('mtg.item', p).then(function () { haptic('success'); closeModal('itemModal'); loadMeeting(); }).catch(function (err) { $('imBtn').disabled = false; setMsg('imMsg', err.message, true); });
 }
 
-// 일정 탭 + 메뉴: 모임을 먼저 안 눌러도 회의를 고를 수 있게 (취소·마감 안 된 모임)
-function mtgPickable(x) { var ph = phaseOf(x); return ph === 'before' || ph === 'live'; }
-function pickMeeting() {
-  var list = S.sessions.filter(mtgPickable).sort(function (a, b) { return (a.session_date + (a.start_time || '')) < (b.session_date + (b.start_time || '')) ? -1 : 1; });
-  $('itemModalT').textContent = '어느 모임의 회의인가요';
-  $('itemBody').innerHTML = '<div class="mt-pick">' + list.map(function (x) {
-    return '<button type="button" class="card" onclick="closeModal(\'itemModal\');openMeeting(\'' + x.id + '\')"><b>' + esc(x.title || '모임') + '</b><small>' + shortD(x.session_date) + (x.start_time ? ' ' + String(x.start_time).slice(0, 5) : '') + (x.location ? ' · ' + esc(x.location) : '') + '</small></button>';
-  }).join('') + '</div>';
-  openModal('itemModal');
-}
 
 // =====================================================================
 // 작업 흐름: 업무 탭 위. 단계는 '앞 단계'로 이어지고, 열(단계 깊이)마다 나란히 그려짐

@@ -3236,14 +3236,22 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if ("title" in patch) patch.title = String(patch.title ?? "").trim().slice(0, 60) || null;
     if ("location" in patch) patch.location = String(patch.location ?? "").trim().slice(0, 40) || null;
     if ("description" in patch) patch.description = String(patch.description ?? "").trim().slice(0, 2000) || null;
-    if (before.closed_at && Object.keys(patch).some((k) => ["session_date", "start_time", "status"].includes(k))) {
-      throw new HttpError(400, "이미 출결이 마감된 모임이라 날짜·시간·상태는 바꿀 수 없어요");
-    }
+    if (before.closed_at && "status" in patch) throw new HttpError(400, "이미 출결이 마감된 모임이라 취소할 수 없어요");
     const t5 = (v: any) => String(v ?? "").slice(0, 5);
     if (["session_date", "start_time"].some((k) => k in patch && t5(patch[k]) !== t5(before[k]))) {
       patch.reminded_72h_at = null; patch.reminded_24h_at = null;   // 시간이 바뀌면 자동 알림을 새 시간 기준으로 다시
     }
     let s = must(await ctx.db.from("meeting_sessions").update(patch).eq("id", before.id).select(SESSION_COLS).single());
+    // 마감 뒤 날짜·시작을 고치면 도착 확인한 사람의 참석/지각을 새 시작 시간으로 다시 매김 (2026-10-06)
+    const st = sessionStart(s);
+    if (before.closed_at && st !== null && ["session_date", "start_time"].some((k) => k in patch && t5(patch[k]) !== t5(before[k]))) {
+      const grace = await lateGraceMs(ctx);
+      const rows: any[] = must(await ctx.db.from("attendance").select("id, status, arrived_at").eq("session_id", s.id).in("status", ["참석", "지각"]).not("arrived_at", "is", null)) ?? [];
+      for (const r of rows) {
+        const want = Date.parse(r.arrived_at) > st + grace ? "지각" : "참석";
+        if (want !== r.status) must(await ctx.db.from("attendance").update({ status: want }).eq("id", r.id));
+      }
+    }
     if (patch.status === "취소" && before.status !== "취소") {
       must(await ctx.db.from("checkins").delete().eq("session_id", s.id));
       s = { ...s, checkins: [] };

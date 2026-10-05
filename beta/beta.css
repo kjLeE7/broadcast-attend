@@ -1600,3 +1600,8 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .fw-chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; flex: 1; } .fw-chips small { color: var(--muted); font-size: 12px; } .fw-chips .b-pick { margin: 0; }
 .fw-psel { flex: 0 0 150px; } .fw-psel select { padding-top: 6px; padding-bottom: 6px; font-size: 13px; } .fw-date { max-width: 180px; }
 @media (min-width: 1000px) { .b-modal-box.b-modal-wide { max-width: 720px; } }
+
+/* 모임 상세 버튼 줄 */
+.b-dacts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.b-dacts button { border: 1.5px solid var(--line); background: var(--card); border-radius: 12px; font: inherit; font-size: 13.5px; font-weight: 700; padding: 9px 14px; cursor: pointer; color: var(--text); }
+.b-dacts button:hover { border-color: var(--accent); }
