@@ -5250,7 +5250,9 @@ function pplGroups(l) {
     g[k].push(m);
   });
   order.sort(function (a, b) { var r = function (k) { return k === '운영진' ? -1 : k === '조 없음' ? 99 : parseInt(k, 10) || 50; }; return r(a) - r(b); });
-  return order.map(function (k) { return [k, g[k]]; });
+  // 묶음 안은 직책 높은 순, 같은 직책이면 이름 가나다 순 (2026-10-07)
+  var byRank = function (a, b) { return (b.rank || 0) - (a.rank || 0) || a.name.localeCompare(b.name, 'ko'); };
+  return order.map(function (k) { return [k, g[k].sort(byRank)]; });
 }
 function pplRow(m) {
   var tags = [];
@@ -5274,7 +5276,7 @@ function renderPeople() {
     var flag = g[1].filter(function (m) { return m.fresh || m.followup || m.streak >= 2; }).length;
     return '<div class="card ppl-grp"><div class="ppl-gh"><b>' + esc(g[0]) + '</b><small>' + g[1].length + '명' + (flag ? ' · <span class="bad">살필 사람 ' + flag + '</span>' : '') + '</small><span class="ppl-gr">4주 출석</span></div>' + g[1].map(pplRow).join('') + '</div>';
   };
-  $('pplBoard').innerHTML = '<div class="ppl-top"><div class="section-head"><h2>' + esc(S.team.name) + '</h2><span class="section-count">' + (PPL.board || []).length + '명 · 묶음마다 신경 쓸 사람이 위로</span></div>' +
+  $('pplBoard').innerHTML = '<div class="ppl-top"><div class="section-head"><h2>' + esc(S.team.name) + '</h2><span class="section-count">' + (PPL.board || []).length + '명 · 직책 순 · 살필 사람은 빨간 줄</span></div>' +
     '<input type="search" class="b-input ppl-q" id="pplQ" placeholder="이름 찾기" value="' + esc(PPL.q || '') + '" oninput="pplFind(this.value)" oncompositionend="pplFind(this.value)"></div>' +
     (l.length ? '<div class="ppl-cols">' + cols.map(function (c) { return '<div class="ppl-col">' + c.map(card).join('') + '</div>'; }).join('') + '</div>' : '<div class="empty"><b>' + (q ? '「' + esc(q) + '」인 팀원이 없어요' : '팀원이 없어요') + '</b></div>');
   var qi = $('pplQ'); if (qi && PPL.qFocus) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }

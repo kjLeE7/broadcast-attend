@@ -1805,3 +1805,6 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .perm-ck { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; } .perm-ck input { width: 20px; height: 20px; accent-color: var(--accent); cursor: pointer; } .perm-ck span { display: none; font-size: 10.5px; color: var(--muted); }
 @media (max-width: 600px) { .perm-hd { display: none; } .perm-row { grid-template-columns: repeat(4, 1fr); } .perm-nm { grid-column: 1 / -1; margin-bottom: 4px; } .perm-ck span { display: block; } }
 .perm-note { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
+
+/* 팝업은 녹음 상세(가운데 팝업, z 72) 위로 — 스탯 주기·응답 팝업이 뒤로 숨지 않게 */
+.b-modal { z-index: 90; }
