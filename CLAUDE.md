@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -427,6 +427,12 @@
 - **교관 아래**는 `rec.list`가 녹음 제목·코드·상태·마감 + 확정(예정·완료) 회차의 시간·녹음자 이름만 보냄(`staff: false`). 표는 [녹음·상태·일시·녹음자]만, 달력·표를 누르면 `recBrief`(녹음·녹음자·시간) 팝업.
 - 동네지도 말풍선: 10~18초에 한 번 4초.
 - 구역 제목(`.section-head h2`): 17px + 살짝 두껍게(`-webkit-text-stroke`, 고운바탕은 700이 최대), `.b-gap` 36px.
+
+### 내 할 일 (2026-10-07, 함수 버전 63)
+- 개인 하위 메뉴 맨 위 **'내 할 일'**(`mytodoView`, `curTab` 'mytodo', 딥링크 `?go=mytodo`). 본인만 봄. 표 `personal_todos`(person_id, title 100자, memo, due_on, done_at, reminded_d1/d0_at), 마이그레이션 `supabase/migrations/20261007_personal_todos.sql`.
+- 위 입력 줄(할 일 + 날짜 + 추가) → 지난 것·오늘·이번 주·나중에·날짜 없음으로 묶어 보여 줌, 네모 눌러 체크, 글 누르면 고치기(메모·지우기), 끝낸 일은 2주 접어 둠.
+- 알림: `cronMyTodos` — 마감 **전날·당일 아침 9시 이후** 한 번씩 봇. '지금 할 일' kind `mytodo`(마감 사흘 안·지난 것).
+- 기능: `mytodo.list/save/done/delete`. 이강준 앞으로 'Anthropic AI 키 새로 만들기'(12/24 마감, 키 만료 12/31) 넣어 둠.
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)

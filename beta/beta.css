@@ -1630,3 +1630,17 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .section-head h2 { font-size: 17px; -webkit-text-stroke: .45px currentColor; letter-spacing: -0.01em; }
 .b-gap { margin-top: 36px; }
 .section-head { margin-bottom: 14px; }
+
+/* 내 할 일 */
+.mt-add { display: flex; gap: 8px; align-items: center; padding: 10px; margin-bottom: 6px; }
+.mt-add .b-input { margin: 0; } .mt-add #mtTitle { flex: 1; min-width: 0; } .mt-add #mtDue { flex: 0 0 160px; } .mt-add .btn-primary { width: auto; margin: 0; padding: 0 20px; height: 46px; }
+@media (max-width: 520px) { .mt-add { flex-wrap: wrap; } .mt-add #mtTitle { flex-basis: 100%; } .mt-add #mtDue { flex: 1; } }
+.my-list { padding: 4px 0; }
+.my-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); } .my-row:first-child { border-top: 0; }
+.my-chk { flex: none; width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--line); background: var(--card); color: #fff; font-weight: 900; font-size: 14px; cursor: pointer; padding: 0; line-height: 1; }
+.my-chk:hover { border-color: var(--accent); }
+.my-row.done .my-chk { background: var(--ok); border-color: var(--ok); }
+.my-body { flex: 1; min-width: 0; cursor: pointer; } .my-body b { display: block; font-size: 14.5px; font-weight: 600; } .my-body small { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; white-space: pre-wrap; }
+.my-row.done .my-body b { text-decoration: line-through; color: var(--muted); }
+.my-due { flex: none; font-style: normal; font-size: 12px; font-weight: 700; color: var(--muted); } .my-due.soon { color: var(--warn); } .my-due.late { color: var(--bad); }
+.my-del { margin-top: 8px; color: var(--bad); }

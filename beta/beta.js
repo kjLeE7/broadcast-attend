@@ -108,7 +108,7 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'rec'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'rec', 'mytodo'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -1293,7 +1293,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1313,7 +1313,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { return t === 'flow' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { return t === 'flow' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1371,7 +1371,7 @@ function setTabUI(t) {
   togglePfSub(!pfFloating() && pt === 'rec', 'recSub');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'mytodo' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
   setTimeout(renderAct, 0);
@@ -1394,6 +1394,7 @@ function refreshTab() {
   else if (curTab === 'people') loadPeople();
   else if (curTab === 'mtg') loadMeeting();
   else if (curTab === 'flow') loadFlows();
+  else if (curTab === 'mytodo') loadMyTodos();
   else if (curTab === 'pmonth') { if (!P.month) P.month = curMonth(); loadPfReport(); }
 }
 
@@ -3907,6 +3908,7 @@ function renderTodos() {
       if (t.kind === 'task') return row(i, '📝', '과제 제출 · ' + t.name, t.due ? '마감 ' + dtLabel(t.due) : '마감 없음', t.urgent);
       if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
       if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
+      if (t.kind === 'mytodo') return row(i, '✅', t.name, (t.due < todayStr() ? '마감 지남 · ' : t.due === todayStr() ? '오늘까지 · ' : t.due.slice(5).replace('-', '/') + '까지 · ') + '내 할 일', t.urgent);
       if (t.kind === 'flowstep') return row(i, '🧩', t.flow + ' · ' + t.name, (t.state === '막힘' ? '막힘 · ' : t.state === '시작' ? '하는 중 · ' : '내 차례 · ') + (t.due ? t.due.slice(5).replace('-', '/') + '까지 · ' : '') + '눌러서 보고', t.urgent);
       if (t.kind === 'mtgaction') return row(i, '📋', '회의에서 맡은 일 · ' + t.name, t.due ? t.due.slice(5).replace('-', '/') + '까지 · 눌러서 완료' : '눌러서 완료', t.urgent);
       if (t.kind === 'mtgprep') return row(i, '🗂', '회의 안건 의견 · ' + t.name, shortD(t.date) + ' 회의 · 안건 ' + t.left + '개 남음', t.urgent);
@@ -3927,6 +3929,7 @@ function openTodo(i) {
   };
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
   if (t.kind === 'recask' || t.kind === 'recarrive' || t.kind === 'recrun') { openAsk(t.id); return; }
+  if (t.kind === 'mytodo') { goTab('mytodo'); return; }
   if (t.kind === 'flowstep') { FW.pending = t.id; if (curTab === 'flow') loadFlows(); else goTab('flow'); return; }
   if (t.kind === 'mtgaction') { if (confirm('「' + t.name + '」 끝냈나요?')) api('mtg.actionDone', { id: t.id }).then(function () { haptic('success'); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); return; }
   if (t.kind === 'mtgprep') { inTeam(function () { openMeeting(t.id); }); return; }
@@ -5587,4 +5590,60 @@ function fwParseRules(text) {
   if (!$('fwTitle').value.trim()) $('fwTitle').value = out[0].title.slice(0, 30);
   FWF.steps = out; renderFwSteps();
   setMsg('fwMsg', out.length + '단계를 뽑았어요. 담당·마감·앞 단계가 맞는지 확인해 주세요');
+}
+
+// =====================================================================
+// 내 할 일 (개인 › 내 할 일): 본인만 봄. 마감 전날·당일 아침 9시 봇 알림, 사흘 안이면 '지금 할 일'에도
+// =====================================================================
+var MY = { list: null };
+function loadMyTodos() {
+  api('mytodo.list').then(function (l) { MY.list = l; renderMyTodos(); })
+    .catch(function (err) { $('mytodoArea').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function myDueText(d) {
+  if (!d) return '';
+  var n = dayDiff(parseDate(d).getTime());
+  return '<em class="my-due' + (n < 0 ? ' late' : n <= 1 ? ' soon' : '') + '">' + shortD(d) + (n < 0 ? ' · ' + (-n) + '일 지남' : n === 0 ? ' · 오늘' : n === 1 ? ' · 내일' : ' · D-' + n) + '</em>';
+}
+function renderMyTodos() {
+  var open = MY.list.filter(function (t) { return !t.done_at; }), done = MY.list.filter(function (t) { return t.done_at; });
+  var today = todayStr(), wk = addDays(7);
+  var groups = [['지난 것', function (t) { return t.due_on && t.due_on < today; }], ['오늘', function (t) { return t.due_on === today; }],
+    ['이번 주', function (t) { return t.due_on > today && t.due_on <= wk; }], ['나중에', function (t) { return t.due_on > wk; }], ['날짜 없음', function (t) { return !t.due_on; }]];
+  var row = function (t) {
+    return '<div class="my-row' + (t.done_at ? ' done' : '') + '"><button type="button" class="my-chk" onclick="toggleMyTodo(\'' + t.id + '\',' + !t.done_at + ')" aria-label="' + (t.done_at ? '안 한 걸로' : '했어요') + '">' + (t.done_at ? '✓' : '') + '</button>' +
+      '<div class="my-body" onclick="editMyTodo(\'' + t.id + '\')"><b>' + esc(t.title) + '</b>' + (t.memo ? '<small>' + esc(t.memo) + '</small>' : '') + '</div>' + (t.done_at ? '' : myDueText(t.due_on)) + '</div>';
+  };
+  var h = open.length ? groups.map(function (g) {
+    var l = open.filter(g[1]); if (!l.length) return '';
+    return '<div class="section-head b-gap"><h2>' + g[0] + '</h2><span class="section-count">' + l.length + '</span></div><div class="card my-list">' + l.map(row).join('') + '</div>';
+  }).join('') : '<div class="empty"><b>할 일이 없어요</b>위 칸에 적고 날짜를 고르면 그날 전에 알려 드려요</div>';
+  if (done.length) h += '<details class="rm-past"><summary>끝낸 일 ' + done.length + '개 (2주)</summary><div class="card my-list">' + done.map(row).join('') + '</div></details>';
+  $('mytodoArea').innerHTML = h;
+}
+function addMyTodo() {
+  var t = $('mtTitle').value.trim(); if (!t) { setMsg('mtAddMsg', '할 일을 적어주세요', true); return; }
+  api('mytodo.save', { title: t, due_on: $('mtDue').value || null }).then(function () {
+    haptic('success'); $('mtTitle').value = ''; $('mtDue').value = ''; setMsg('mtAddMsg', ''); loadMyTodos(); refreshTodos(true);
+  }).catch(function (err) { setMsg('mtAddMsg', err.message, true); });
+}
+function toggleMyTodo(id, done) {
+  api('mytodo.done', { id: id, done: done }).then(function () { haptic('success'); loadMyTodos(); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); });
+}
+function editMyTodo(id) {
+  var t = MY.list.filter(function (x) { return x.id === id; })[0]; if (!t) return;
+  $('itemModalT').textContent = '할 일 고치기'; $('itemModalS').textContent = '나만 볼 수 있어요';
+  $('itemBody').innerHTML = '<label class="field-label" for="myT">할 일</label><input type="text" id="myT" class="b-input" maxlength="100" value="' + esc(t.title) + '">' +
+    '<label class="field-label" for="myD">언제까지</label><input type="date" id="myD" class="b-input" value="' + esc(t.due_on || '') + '">' +
+    '<label class="field-label" for="myM">메모 <span class="hint">선택</span></label><textarea id="myM" rows="3" maxlength="500">' + esc(t.memo || '') + '</textarea>' +
+    '<button class="btn-primary" onclick="saveMyTodo(\'' + id + '\')">저장</button><button class="ghost-btn my-del" onclick="delMyTodo(\'' + id + '\')">지우기</button><div class="msg" id="myMsg"></div>';
+  openModal('itemModal');
+}
+function saveMyTodo(id) {
+  api('mytodo.save', { id: id, title: $('myT').value, due_on: $('myD').value || null, memo: $('myM').value }).then(function () { haptic('success'); closeModal('itemModal'); loadMyTodos(); refreshTodos(true); })
+    .catch(function (err) { setMsg('myMsg', err.message, true); });
+}
+function delMyTodo(id) {
+  if (!confirm('이 할 일을 지울까요?')) return;
+  api('mytodo.delete', { id: id }).then(function () { closeModal('itemModal'); loadMyTodos(); refreshTodos(true); }).catch(function (err) { setMsg('myMsg', err.message, true); });
 }

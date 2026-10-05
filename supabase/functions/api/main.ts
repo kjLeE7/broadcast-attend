@@ -1195,6 +1195,7 @@ async function cronReminders(db: any) {
   let meetings = null, flows = null;
   try { meetings = await cronMeetings(ctx); } catch (e) { console.error("meetings", e); }
   try { flows = await cronFlows(ctx); } catch (e) { console.error("flows", e); }
+  try { await cronMyTodos(ctx); } catch (e) { console.error("my todos", e); }
   return { sessions: out, weekly, polls, dues, files, meetings, flows };
 }
 
@@ -1765,6 +1766,21 @@ async function cronFlows(ctx: Ctx) {
     late ? over++ : d1++;
   }
   return { d1, over };
+}
+
+// 내 할 일: 마감 전날·당일 아침 9시 이후 한 번씩 본인에게 봇 알림
+async function cronMyTodos(ctx: Ctx) {
+  if (new Date(Date.now() + 9 * HOUR).getUTCHours() < 9) return;
+  const today = kstToday(), tomorrow = addDaysStr(today, 1);
+  const rows: any[] = must(await ctx.db.from("personal_todos").select("id, person_id, title, due_on, reminded_d1_at, reminded_d0_at")
+    .is("done_at", null).in("due_on", [today, tomorrow])) ?? [];
+  for (const t of rows) {
+    const d0 = t.due_on === today;
+    if (d0 ? t.reminded_d0_at : t.reminded_d1_at) continue;
+    const who = await withTelegram(ctx, [t.person_id]);
+    if (who.length) await sendToMembers(who, `${d0 ? "📌 <b>오늘까지 할 일</b>" : "🗓 <b>내일까지 할 일</b>"}\n${escHtml(t.title)}`, appButton("내 할 일 보기", "?go=mytodo"));
+    must(await ctx.db.from("personal_todos").update(d0 ? { reminded_d0_at: new Date().toISOString() } : { reminded_d1_at: new Date().toISOString() }).eq("id", t.id));
+  }
 }
 
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
@@ -2633,6 +2649,42 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // ----- 회의 모드 -----
   // 열기 { session_id } → 없으면 만듦(진행자 = 모임 만든 사람). 안건·의견·주차장·할 일·참석자(의견 준비 여부)·내 역할
   // ----- 작업 흐름 -----
+  // ----- 내 할 일 (본인만) -----
+  async "mytodo.list"(ctx) {
+    const old = new Date(Date.now() - 14 * 86400000).toISOString();
+    const rows: any[] = must(await ctx.db.from("personal_todos").select("id, title, memo, due_on, done_at, created_at")
+      .eq("person_id", ctx.me.id).or(`done_at.is.null,done_at.gte.${old}`).order("due_on", { ascending: true, nullsFirst: false }).order("created_at")) ?? [];
+    return rows;
+  },
+  async "mytodo.save"(ctx) {
+    const p = ctx.payload ?? {};
+    const title = String(p.title ?? "").trim().slice(0, 100); if (!title) throw new HttpError(400, "할 일을 적어주세요");
+    if (p.due_on && !isDate(p.due_on)) throw new HttpError(400, "날짜가 이상해요");
+    const row: any = { title, memo: String(p.memo ?? "").trim().slice(0, 500) || null, due_on: p.due_on || null };
+    if (p.id) {
+      if (!UUID_RE.test(String(p.id))) throw new HttpError(400, "잘못된 요청이에요");
+      const cur = must(await ctx.db.from("personal_todos").select("person_id, due_on").eq("id", p.id).maybeSingle());
+      if (!cur || cur.person_id !== ctx.me.id) throw new HttpError(404, "없는 할 일이에요");
+      if (cur.due_on !== row.due_on) { row.reminded_d1_at = null; row.reminded_d0_at = null; }
+      return must(await ctx.db.from("personal_todos").update(row).eq("id", p.id).select().single());
+    }
+    const { count } = await ctx.db.from("personal_todos").select("id", { count: "exact", head: true }).eq("person_id", ctx.me.id).is("done_at", null);
+    if ((count ?? 0) >= 100) throw new HttpError(400, "안 끝난 할 일이 100개예요. 정리하고 더 적어주세요");
+    return must(await ctx.db.from("personal_todos").insert({ ...row, person_id: ctx.me.id }).select().single());
+  },
+  async "mytodo.done"(ctx) {
+    const p = ctx.payload ?? {};
+    if (!UUID_RE.test(String(p.id))) throw new HttpError(400, "잘못된 요청이에요");
+    const r = must(await ctx.db.from("personal_todos").update({ done_at: p.done === false ? null : new Date().toISOString() }).eq("id", p.id).eq("person_id", ctx.me.id).select("id").maybeSingle());
+    if (!r) throw new HttpError(404, "없는 할 일이에요");
+    return { ok: true };
+  },
+  async "mytodo.delete"(ctx) {
+    if (!UUID_RE.test(String(ctx.payload?.id))) throw new HttpError(400, "잘못된 요청이에요");
+    must(await ctx.db.from("personal_todos").delete().eq("id", ctx.payload.id).eq("person_id", ctx.me.id));
+    return { ok: true };
+  },
+
   async "flow.list"(ctx) {
     await requireRank(ctx, ctx.payload.team_id, RANK.MEMBER);
     const sec = await sectionOf(ctx, ctx.payload.team_id);
@@ -3281,6 +3333,9 @@ ${text}`;
       if (a.role === "엔지니어") items.push({ kind: "recrun", id: a.id, name, step: rs.started_at ? "end" : "start", start: st, place: rs.location ?? "", urgent: true });
       else if (!a.arrived_at) items.push({ kind: "recarrive", id: a.id, name, start: st, place: rs.location ?? "", urgent: true });
     }
+    // 내 할 일: 마감이 사흘 안이거나 지난 것
+    const mine: any[] = must(await ctx.db.from("personal_todos").select("id, title, due_on").eq("person_id", me).is("done_at", null).not("due_on", "is", null).lte("due_on", addDaysStr(kstToday(), 3)).order("due_on")) ?? [];
+    for (const t of mine) items.push({ kind: "mytodo", id: t.id, name: t.title, due: t.due_on, urgent: t.due_on <= addDaysStr(kstToday(), 1) });
     // 회의에서 맡은 일 (안 끝난 것)
     const macts: any[] = must(await ctx.db.from("meeting_actions").select("id, task, due_on").eq("assignee_id", me).is("done_at", null).order("due_on")) ?? [];
     for (const a of macts) items.push({ kind: "mtgaction", id: a.id, name: a.task, due: a.due_on, urgent: !!a.due_on && a.due_on <= addDaysStr(kstToday(), 1) });

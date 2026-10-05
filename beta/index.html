@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006y">
+  <link rel="stylesheet" href="beta.css?v=20261007b">
 </head>
 <body>
   <div class="app">
@@ -450,6 +450,19 @@
       <div id="placeArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
 
+    <!-- ===== 개인 › 내 할 일 (본인만, 마감 전날·당일 아침 봇 알림) ===== -->
+    <section id="mytodoView" style="display:none;">
+      <h1 class="page-title">내 할 일</h1>
+      <p class="page-desc">언제까지 해야 하는 일을 적어 두면, 마감 전날과 당일 아침에 텔레그램으로 알려 드려요. 나만 볼 수 있어요</p>
+      <div class="card mt-add">
+        <input type="text" id="mtTitle" class="b-input" maxlength="100" placeholder="예) AI 키 새로 만들기" onkeydown="if(event.key==='Enter')addMyTodo()">
+        <input type="date" id="mtDue" class="b-input">
+        <button type="button" class="btn-primary" onclick="addMyTodo()">추가</button>
+      </div>
+      <div class="msg" id="mtAddMsg"></div>
+      <div id="mytodoArea"><div class="b-wait">불러오는 중...</div></div>
+    </section>
+
     <!-- ===== 업무 › 프로젝트: 작업 흐름 (누구나 봄, 교관 이상이 만듦) ===== -->
     <section id="flowView" style="display:none;">
       <h1 class="page-title">함께 만드는 일</h1>
@@ -597,6 +610,7 @@
     </button>
     <!-- '개인'을 누르면 펼쳐지는 하위 메뉴 (PC 펼친 메뉴: 아래로 펼침 / 폰·접힌 메뉴: 떠 있는 상자) -->
     <div class="b-pfsub" id="pfSub">
+      <button type="button" data-t="mytodo" onclick="pfGo('mytodo')">내 할 일</button>
       <button type="button" data-t="profile" onclick="pfGo('profile')">프로필</button>
       <button type="button" data-t="pmonth" onclick="pfGo('pmonth')">월간 리포트</button>
       <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
@@ -1000,6 +1014,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006c"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007a"></script>
+  <script src="beta.js?v=20261007b"></script>
 </body>
 </html>
