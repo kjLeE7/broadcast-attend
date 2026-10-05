@@ -1992,3 +1992,4 @@ html.dark .ci-eta-q button { background: rgba(0,0,0,.28); color: #fff; }
 body.ez-staff #recSub button:not(.pf-more) { display: none; }
 .sub-n { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 99px; background: var(--bad); color: #fff; font-size: 11px; line-height: 18px; text-align: center; vertical-align: 1px; }
 body.ez-staff #recSub .pf-more { border-top: none !important; }
+[data-photo] { background-size: cover !important; background-position: center; color: transparent !important; font-size: 0 !important; }

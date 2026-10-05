@@ -133,6 +133,7 @@ function boot() {
     S.me = me;
     var name = me.profile.name;
     $('avatar').textContent = String(name).slice(-2);
+    if (me.profile.photo_url) { $('avatar').style.backgroundImage = 'url("' + me.profile.photo_url + '")'; $('avatar').classList.add('has-photo'); }
     var top = me.positions.slice().sort(function (a, b) { return (b.rank || 0) - (a.rank || 0); })[0];
     $('who').textContent = name + '님' + (top ? ' · ' + top.unit + ' ' + top.position : '');
     if (!me.teams.length) { showState('아직 소속 팀이 없어요', '팀장님께 팀 배정을 요청해주세요'); return; }
@@ -4246,7 +4247,7 @@ function renderPfCard() {
   var empty = rows.filter(function (r) { return !r[1]; }).length + (belong ? 0 : 1);
   $('pfCard').innerHTML =
     '<div class="pf-top">' +
-      '<div class="pf-avatar">' + esc(String(p.name).slice(-2)) + '</div>' +
+      '<div class="pf-avatar"' + photoBg(S.me.profile.photo_url) + '>' + esc(String(p.name).slice(-2)) + '</div>' +
       '<div class="pf-who"><b>' + esc(p.name) + '</b>' +
         '<div class="b-chips">' + d.positions.map(function (x) { return '<span class="chip dark">' + esc(x.unit + ' ' + x.position) + '</span>'; }).join('') +
           d.external.map(function (x) { return '<span class="chip">' + esc((x.affiliation ? x.affiliation + ' ' : '') + x.role_name) + '</span>'; }).join('') + '</div>' +
@@ -5305,7 +5306,7 @@ function pplRow(m) {
   if (m.streak >= 2) tags.push(['bad', m.streak + '연속 불참']);
   if (m.open) tags.push(['', '진행 ' + m.open]);
   return '<button type="button" class="ppl-it' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + (tags.length ? ' flag' : '') + '" onclick="openPerson(\'' + m.id + '\')">' +
-    '<span class="ppl-av">' + esc(m.name.slice(-2)) + '</span>' +
+    '<span class="ppl-av"' + photoBg(m.photo) + '>' + esc(m.name.slice(-2)) + '</span>' +
     '<span class="ppl-nm"><b>' + esc(m.name) + '<i class="ppl-pos">' + esc(m.position || '') + '</i></b><small>' + (m.latest ? '📝 ' + esc(m.latest) : '') + '</small>' +
       (m.last_rec || m.last_grant ? '<span class="ppl-work">' + (m.last_rec ? '<span>🎙 ' + esc(m.last_rec.title) + ' <em>' + shortD(ymd(new Date(m.last_rec.at))) + '</em></span>' : '') +
         (m.last_grant ? '<span>⭐ ' + (m.last_grant.total ? '+' + m.last_grant.total + ' ' : '') + '“' + esc(m.last_grant.comment) + '”</span>' : '') + '</span>' : '') + '</span>' +
@@ -6239,3 +6240,6 @@ function renderPractice() {
     }).join('') + '</div>';
   }).join('');
 }
+
+// 텔레그램 프로필 사진(서버가 avatars 보관함에 둔 작은 사진)을 동그라미 배경으로. 없으면 이름 두 글자 그대로
+function photoBg(url) { return url && /^https:\/\//.test(url) ? ' style="background-image:url(&quot;' + esc(url) + '&quot;)" data-photo="1"' : ''; }

@@ -1278,6 +1278,24 @@ const BOT_COMMANDS = [
   { command: "depart", description: "출발 보고" },
   { command: "arrive", description: "도착 보고" },
 ];
+// 텔레그램 프로필 사진 → avatars/<사람id>.jpg (가장 작은 160px). 사진이 그대로면 다시 안 올림, 숨겼거나 없으면 비움
+async function syncPhoto(db: any, me: any, tgId: number) {
+  const now = new Date().toISOString();
+  const r = await tgCall("getUserProfilePhotos", { user_id: tgId, limit: 1 });
+  const sizes: any[] = r?.ok ? r.result?.photos?.[0] ?? [] : [];
+  const pick = sizes.find((x) => x.width >= 150) ?? sizes[sizes.length - 1];
+  if (!pick) { await db.from("people").update({ photo_url: null, photo_checked_at: now }).eq("id", me.id); return; }
+  if (me.photo_url && me.photo_url.endsWith("?v=" + pick.file_unique_id)) { await db.from("people").update({ photo_checked_at: now }).eq("id", me.id); return; }
+  const f = await tgCall("getFile", { file_id: pick.file_id });
+  if (!f?.ok || !f.result?.file_path || (f.result.file_size ?? 0) > 200000) return;
+  const img = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${f.result.file_path}`).then((x) => x.ok ? x.arrayBuffer() : null).catch(() => null);
+  if (!img) return;
+  const path = `${me.id}.jpg`;
+  const up = await db.storage.from("avatars").upload(path, img, { contentType: "image/jpeg", upsert: true, cacheControl: "604800" });
+  if (up.error) { console.error("photo upload", up.error.message); return; }
+  const url = db.storage.from("avatars").getPublicUrl(path).data.publicUrl + "?v=" + pick.file_unique_id;
+  await db.from("people").update({ photo_url: url, photo_checked_at: now }).eq("id", me.id);
+}
 async function tgCall(method: string, payload: unknown) {
   try {
     const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
@@ -1896,7 +1914,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const { teams, positions, unitById } = await myTeams(ctx);
 
     const profile = must(await ctx.db.from("people")
-      .select("id,name,gender,birth_date,phone,association,pin_hash")
+      .select("id,name,gender,birth_date,phone,association,pin_hash,photo_url")
       .eq("id", ctx.me.id).single());
     const hasPin = !!profile.pin_hash;
     delete profile.pin_hash;
@@ -2694,6 +2712,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const att: any[] = sids.length ? must(await ctx.db.from("attendance").select("session_id, person_id, status").in("session_id", sids)) ?? [] : [];
     const week = Date.now() - 7 * 24 * HOUR;
     const work = await pplWork(ctx, ids, team_id, 1).catch((e) => { console.error("ppl work", e); return { recs: new Map(), grants: new Map() }; });
+    const photos = new Map<string, string>((ids.length ? must(await ctx.db.from("people").select("id, photo_url").in("id", ids).not("photo_url", "is", null)) ?? [] : []).map((x: any) => [x.id, x.photo_url]));
     const out = members.map((m: any) => {
       const ns = (notes as any[]).filter((n) => n.person_id === m.id);
       const open = ns.filter((n) => n.status === "진행 중"), due = ns.filter((n) => n.followup !== "없음" && !n.followup_done_at);
@@ -2701,7 +2720,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       const came = a.filter((x) => ["참석", "지각", "조퇴"].includes(x.status)).length;
       let streak = 0; for (let i = a.length - 1; i >= 0 && a[i].status === "불참"; i--) streak++;
       const fresh = ns.filter((n) => Date.parse(n.created_at) > week).length;
-      return { id: m.id, name: m.name, position: m.position, rank: m.rank ?? 0, group: m.group, open: open.length, latest: open.sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0]?.title ?? null,
+      return { id: m.id, name: m.name, photo: photos.get(m.id) ?? null, position: m.position, rank: m.rank ?? 0, group: m.group, open: open.length, latest: open.sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0]?.title ?? null,
         followup: due.length, fresh, rate: a.length ? Math.round(came / a.length * 100) : null, sessions: a.length, streak,
         last_rec: (work.recs.get(m.id) ?? [])[0] ?? null, last_grant: (work.grants.get(m.id) ?? [])[0] ?? null,
         score: fresh * 3 + due.length * 2 + open.length + (streak >= 2 ? 3 : 0) + (a.length && came / a.length < .6 ? 2 : 0) };
@@ -5615,7 +5634,7 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
     const me = must(await admin.from("people")
-      .select("id, name, is_active, bot_menu_url")
+      .select("id, name, is_active, bot_menu_url, photo_url, photo_checked_at")
       .eq("telegram_user_id", tgUser.id)
       .maybeSingle());
     // 등록 안 된 사람: 본인 텔레그램 번호를 돌려줘서 화면에 띄움 (본인 번호라 비밀 아님) → 캡처해서 팀장에게 보내면 등록
@@ -5625,6 +5644,11 @@ Deno.serve(async (req) => {
     if (!me.is_active) throw new HttpError(403, "비활성화된 계정입니다. 관리자에게 문의하세요");
     // 앱을 켤 때(me) 한 번: 이 사람 채팅의 왼쪽 아래 메뉴 버튼을 베타로 (이미 했으면 건너뜀)
     if (body.action === "me") await ensureBetaMenu(admin, me, tgUser.id).catch((e) => console.error("menu", e));
+    // 프로필 사진: 사흘에 한 번 텔레그램에서 다시 가져옴 (응답은 기다리지 않음)
+    if (body.action === "me" && (!me.photo_checked_at || Date.now() - Date.parse(me.photo_checked_at) > 3 * 86400000)) {
+      const job = syncPhoto(admin, me, tgUser.id).catch((e) => console.error("photo", e?.message ?? e));
+      try { (globalThis as any).EdgeRuntime?.waitUntil(job); } catch { /* 없으면 그냥 흘려보냄 */ }
+    }
 
     // 수정 이력에 '누가'를 남기기 위해 요청 헤더에 행위자 id를 실어 보냄
     const db = createClient(SUPABASE_URL, SERVICE_KEY, {
