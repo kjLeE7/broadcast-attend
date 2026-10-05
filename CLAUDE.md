@@ -157,7 +157,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `9dfda54`의 main.ts (함수 버전 63, 내 할 일). 배포 전 `npx esbuild main.ts`로 문법 확인 (2026-10-05 변수 겹침으로 함수가 안 켜진 적 있음). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `9dfda54`의 main.ts (함수 버전 64, 내 할 일). 배포 전 `npx esbuild main.ts`로 문법 확인 (2026-10-05 변수 겹침으로 함수가 안 켜진 적 있음). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -428,7 +428,7 @@
 - 동네지도 말풍선: 10~18초에 한 번 4초.
 - 구역 제목(`.section-head h2`): 17px + 살짝 두껍게(`-webkit-text-stroke`, 고운바탕은 700이 최대), `.b-gap` 36px.
 
-### 내 할 일 (2026-10-07, 함수 버전 63)
+### 내 할 일 (2026-10-07, 함수 버전 64)
 - 개인 하위 메뉴 맨 위 **'내 할 일'**(`mytodoView`, `curTab` 'mytodo', 딥링크 `?go=mytodo`). 본인만 봄. 표 `personal_todos`(person_id, title 100자, memo, due_on, done_at, reminded_d1/d0_at), 마이그레이션 `supabase/migrations/20261007_personal_todos.sql`.
 - 위 입력 줄(할 일 + 날짜 + 추가) → 지난 것·오늘·이번 주·나중에·날짜 없음으로 묶어 보여 줌, 네모 눌러 체크, 글 누르면 고치기(메모·지우기), 끝낸 일은 2주 접어 둠.
 - 알림: `cronMyTodos` — 마감 **전날·당일 아침 9시 이후** 한 번씩 봇. '지금 할 일' kind `mytodo`(마감 사흘 안·지난 것).
