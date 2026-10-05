@@ -157,7 +157,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `f29808f`의 main.ts (함수 버전 75, 인원 녹음·스탯). 배포 전 `npx esbuild main.ts`로 문법 확인 (2026-10-05 변수 겹침으로 함수가 안 켜진 적 있음). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `2a8af75`의 main.ts (함수 버전 76, 연습 기록). 배포 전 `npx esbuild main.ts`로 문법 확인 (2026-10-05 변수 겹침으로 함수가 안 켜진 적 있음). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
