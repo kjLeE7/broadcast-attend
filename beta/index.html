@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006j">
+  <link rel="stylesheet" href="beta.css?v=20261006l">
 </head>
 <body>
   <div class="app">
@@ -139,7 +139,7 @@
     <section id="listView" style="display:none;">
       <h1 class="page-title">함께한 자리</h1>
       <p class="page-desc">모임을 눌러 오늘의 자리를 남겨주세요</p>
-      <div class="b-attseg"><button class="wkchip active" onclick="showList()">모임</button><button class="wkchip" onclick="showReport()">월간 리포트</button><button class="wkchip" onclick="goTab('poll')">시간취합</button></div>
+      <div class="b-attseg"><button class="wkchip active" onclick="showList()">모임</button><button class="wkchip" onclick="showReport()">월간 리포트</button><button class="wkchip" onclick="goTab('poll')">시간취합</button><button class="wkchip" onclick="goTab('place')">장소 신청</button></div>
 
       <!-- 사유 입력·사전 체크가 필요한 모임 -->
       <div id="needArea"></div>
@@ -197,7 +197,7 @@
     <section id="reportView" style="display:none;">
       <h1 class="page-title">한 달의 발자취</h1>
       <p class="page-desc" id="rpDesc">한 달 동안의 출결을 사람마다 모아봐요</p>
-      <div class="b-attseg"><button class="wkchip" onclick="showList()">모임</button><button class="wkchip active" onclick="showReport()">월간 리포트</button><button class="wkchip" onclick="goTab('poll')">시간취합</button></div>
+      <div class="b-attseg"><button class="wkchip" onclick="showList()">모임</button><button class="wkchip active" onclick="showReport()">월간 리포트</button><button class="wkchip" onclick="goTab('poll')">시간취합</button><button class="wkchip" onclick="goTab('place')">장소 신청</button></div>
       <div class="b-month">
         <button type="button" onclick="moveMonth(-1)">‹</button>
         <b id="rpMonth"></b>
@@ -448,6 +448,22 @@
 
     <!-- ===== 시간취합 (가능시간 투표: 누구나 만들고 대상자가 칸을 칠함) ===== -->
 
+    <!-- ===== 장소 신청 (일정 › 장소 신청) ===== -->
+    <section id="placeView" style="display:none;">
+      <h1 class="page-title">자리 맡기</h1>
+      <p class="page-desc">스담 방은 먼저 신청한 사람이 써요. 녹음실은 엔지니어팀장님, 총회 대회의실·과천 성전 10층은 과장·부과장님이 승인해요</p>
+      <div class="b-attseg"><button class="wkchip" onclick="goTab('attend')">모임</button><button class="wkchip" onclick="goTab('attend');showReport()">월간 리포트</button><button class="wkchip" onclick="goTab('poll')">시간취합</button><button class="wkchip active">장소 신청</button></div>
+      <div class="b-fab" id="placeFab"><button class="fab" type="button" onclick="openPlaceModal()" aria-label="장소 신청" title="장소 신청"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></div>
+      <div id="placeArea"><div class="b-wait">불러오는 중...</div></div>
+    </section>
+
+    <!-- ===== 관리자 페이지 (관리자 명단만) ===== -->
+    <section id="adminView" style="display:none;">
+      <h1 class="page-title">관리자</h1>
+      <p class="page-desc">앱 운영 설정이에요. 관리자 명단에 있는 사람만 볼 수 있어요</p>
+      <div id="adminArea"><div class="b-wait">불러오는 중...</div></div>
+    </section>
+
     <!-- ===== 회비·후원 (개인 › 회비) ===== -->
     <section id="duesView" style="display:none;">
       <h1 class="page-title">마음을 보태는 일</h1>
@@ -459,7 +475,7 @@
       <div id="pollList">
         <h1 class="page-title">함께할 시간 찾기</h1>
         <p class="page-desc">모일 사람을 고르고 후보 날짜를 정하면, 각자 되는 시간을 칠해서 다 같이 되는 때를 찾아요</p>
-        <div class="b-attseg"><button class="wkchip" onclick="goTab('attend')">모임</button><button class="wkchip" onclick="goTab('attend');showReport()">월간 리포트</button><button class="wkchip active">시간취합</button></div>
+        <div class="b-attseg"><button class="wkchip" onclick="goTab('attend')">모임</button><button class="wkchip" onclick="goTab('attend');showReport()">월간 리포트</button><button class="wkchip active">시간취합</button><button class="wkchip" onclick="goTab('place')">장소 신청</button></div>
         <div class="b-fab" id="pollFab">
           <button class="fab" type="button" onclick="openTpModal()" aria-label="시간취합 만들기" title="시간취합 만들기"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
@@ -542,6 +558,10 @@
     <button class="tab" data-tab="sky" title="하늘방송국" id="skyTab" onclick="goTab('sky')" style="display:none;">
       <svg viewBox="0 0 24 24"><path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-5h6v5"/><path d="M12 4V1.5M9.5 2.5l5 0"/><path d="M8 11h2M14 11h2"/></svg>
       <span>하늘방송국</span>
+    </button>
+    <button class="tab" data-tab="admin" title="관리자" id="adminTab" onclick="goTab('admin')" style="display:none;">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      <span>관리자</span>
     </button>
   </nav>
 
@@ -691,6 +711,27 @@
         <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
       </div>
       <div class="b-modal-body" id="bdayBody"></div>
+    </div>
+  </div>
+  <div class="b-modal" id="placeModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="placeModalT">
+      <div class="b-modal-head">
+        <div><h1 id="placeModalT">장소 신청</h1><p id="placeRule">장소를 고르면 승인 방법이 보여요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body">
+        <label class="field-label" for="plPlace">장소</label>
+        <div class="select-wrap"><select id="plPlace" onchange="placeRuleText()"></select></div>
+        <label class="field-label" for="plDate">날짜</label>
+        <input type="date" id="plDate">
+        <label class="field-label">시간</label>
+        <div class="tp-row"><input type="time" id="plFrom" step="1800"><span>~</span><input type="time" id="plTo" step="1800"></div>
+        <label class="field-label" for="plPurpose">무엇에 쓰나요</label>
+        <input type="text" id="plPurpose" class="b-input" maxlength="100" placeholder="예) 2조 스터디, 웹드라마 녹음">
+        <button class="btn-primary" id="plBtn" onclick="bookPlace()">신청하기</button>
+        <div class="msg" id="plMsg"></div>
+      </div>
     </div>
   </div>
   <div class="b-modal" id="guestModal" aria-hidden="true">
@@ -859,6 +900,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006j"></script>
+  <script src="beta.js?v=20261006k"></script>
 </body>
 </html>

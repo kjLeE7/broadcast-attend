@@ -161,7 +161,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -364,6 +364,16 @@
 - 업무 탭 맨 위 **'내가 맡은 녹음'**(`#recMine`, `rec.mine` = 내가 들어간 회차, 미선정·취소 빼고 지난 14일~앞으로, 누르면 `openAsk`). 교관 아래(`!recAllowed()`)는 이것과 [업무가능 시간] 칩만, 녹음 요청 관리·한눈에·2주 모아보기는 교관 이상.
 - 다음 할 일: 일정 탭에 [장소 신청] 칩 (녹음실 = 엔지니어팀장 승인, 총회 대회의실·과천 성전 10층 = 과장·부과장 승인, 스담 = 승인 없이 먼저 신청한 사람).
 
+### 장소 신청 · 관리자 페이지 (2026-10-06, 함수 버전 51)
+- **장소 신청**: 일정 탭 [모임 | 월간 리포트 | 시간취합 | 장소 신청] → `placeView`(화면 제목 '자리 맡기', 딥링크 `?go=place`). 날짜별 장소 하루 시간표(8~24시, 확정 진하게·대기 점선), 내 신청, (승인자면) 승인할 신청. FAB → `#placeModal`.
+  마이그레이션 `supabase/migrations/20261006_place_bookings.sql`: `places.approval`(none·recording·external), 표 `place_bookings`(place_code, starts_at, ends_at, purpose, team_id, person_id, status 대기|승인|반려|취소, decided_by/at, reason).
+  규칙(사용자 결정): 스담 등 `none` = 바로 확정(먼저 신청한 사람), 녹음실 `recording` = 녹음실 승인자, 총회·성전 `external` = 과장·부과장(다른 부서와 조율). 대기·승인과 겹치면 409.
+  승인자 = 설정값 `place_approvers {recording, external}`, 비면 녹음실 = 엔지니어팀 팀장 이상, 외부 = 과 부과장(50) 이상(`placeApprovers`). 신청 → 승인자 봇 알림, 승인·반려 → 신청자 알림.
+  기능: `place.list { team_id, date }` / `place.book` / `place.decide { id, ok, reason }`(승인자만) / `place.cancel`(신청자).
+- **관리자 페이지**: 탭 '관리자'(`adminView`, `#adminTab`, `me.is_admin`일 때만). `admin.get` / `admin.set { key, value }`(관리자 명단만, 키는 admins·treasurers·place_approvers·recap_enabled·recap_open만, 사람은 과원 중에서, 나 자신은 관리자에서 못 뺌).
+  회비 화면의 회계 지정과 결산 카드의 켜기·공개일 버튼은 여기로 옮김(중복 제거).
+- 다음 할 일(사용자 제안): 모두가 보는 기본 화면은 그대로 두고, 권한에 따라 다른 관리 기능(출결 확인·체크인 현황·과제 제출 현황·스탯 주기·녹음 관리 등)을 FAB 메뉴로 모으기 — 대상 목록 정리 후 진행.
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -500,6 +510,8 @@
 - 녹음 관계자: 성우팀 교관(30) 이상, 엔지니어팀 팀장(40) 이상은 두 팀의 녹음 관련 데이터(가능시간 모아보기 등)를 다 봐요.
 - 구역장 정보는 팀장 이상만 봐요.
 - 공지: 팀 공지는 교관 이상, 과 공지는 팀장 이상이 써요. 다른 팀 사람을 함께 고르는 건 만드는 팀에서 그 서열이면 돼요(2026-10-05).
+- 장소 신청: 신청·취소는 과원 누구나(취소는 본인). 승인·반려는 그 장소 승인자만(관리자 페이지 지정, 기본 녹음실=엔지니어팀장, 총회·성전=부과장 이상).
+- 관리자 페이지: 관리자 명단(`admins`)만. 관리자·회계·장소 승인자 지정, 결산 켜기·공개일.
 - 첨부 대본: 올리기·지우기 = 그 글 쓴 사람·관리자(공지 팀 교관/과 팀장, 과제 교관 이상). 열기 = 쓴 사람·관리자·받는 사람, 5분 주소, 열람 기록. 14일 뒤 자동 삭제. 우리 교회 대본은 올리지 않음(NAS).
 - 하늘방송국 방명록: 쓴 사람과 사무실 주인만 봄. 지우기도 이 둘만.
 - 회비(🔴 성격): 본인과 회계 명단만 봄. 회계 명단은 관리자가 지정. 계좌번호는 앱에 안 둠.

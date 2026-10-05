@@ -1613,6 +1613,20 @@ async function cronFiles(ctx: Ctx) {
   return { deleted: all.length };
 }
 
+// ----- 장소 신청 -----
+// 승인자: 설정값 place_approvers {recording, external}. 비면 녹음실 = 엔지니어팀 팀장 이상, 외부(총회·성전) = 과 부과장 이상
+async function placeApprovers(ctx: Ctx, kind: string, sectionId: string) {
+  const r = must(await ctx.db.from("app_settings").select("value").eq("key", "place_approvers").maybeSingle());
+  const list: string[] = Array.isArray(r?.value?.[kind]) ? r.value[kind] : [];
+  if (list.length) return list;
+  if (kind === "recording") {
+    const eng = must(await ctx.db.from("org_units").select("id").eq("parent_id", sectionId).eq("name", "엔지니어팀").maybeSingle());
+    return eng ? (await unitAudience(ctx, eng.id)).filter((m: any) => m.rank >= RANK.TEAM_LEADER).map((m: any) => m.id) : [];
+  }
+  return (await unitAudience(ctx, sectionId)).filter((m: any) => m.rank >= 50).map((m: any) => m.id);
+}
+const PLACE_KIND: Record<string, string> = { recording: "녹음실 (엔지니어팀장 승인)", external: "다른 부서도 쓰는 곳 (과장·부과장 승인)", none: "먼저 신청한 사람이 써요" };
+
 const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
 
   // 내 정보 + 내가 접근할 수 있는 팀 목록(팀 선택 탭용)
@@ -1634,6 +1648,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
         rank: p.positions?.rank,
       })),
       teams,
+      is_admin: await isAdmin(ctx),
     };
   },
 
@@ -2255,6 +2270,107 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     await ctx.db.storage.from("scripts").remove([f.path]);
     must(await ctx.db.from("content_files").update({ deleted_at: new Date().toISOString() }).eq("id", f.id));
     return { ok: true };
+  },
+
+  // ----- 장소 신청 -----
+  // { team_id, date: "YYYY-MM-DD" } → 장소 목록 + 그날 신청(대기·승인) + 내 신청(앞으로) + 내가 승인할 것
+  async "place.list"(ctx) {
+    const { team_id } = ctx.payload ?? {};
+    await requireRank(ctx, team_id, RANK.MEMBER);
+    const date = isDate(ctx.payload?.date) ? ctx.payload.date : kstToday();
+    const sec = (await sectionUnits(ctx, team_id))[0];
+    const day = [new Date(kstMs(date)).toISOString(), new Date(kstMs(date) + 24 * HOUR).toISOString()];
+    const [plc, books, mine] = await Promise.all([
+      ctx.db.from("places").select("code, name, area, approval").eq("is_active", true).order("area").order("code").then(must),
+      ctx.db.from("place_bookings").select("id, place_code, starts_at, ends_at, purpose, person_id, status").in("status", ["대기", "승인"]).lt("starts_at", day[1]).gt("ends_at", day[0]).then(must),
+      ctx.db.from("place_bookings").select("id, place_code, starts_at, ends_at, purpose, status, reason").eq("person_id", ctx.me.id).gte("ends_at", new Date(Date.now() - 24 * HOUR).toISOString()).neq("status", "취소").order("starts_at").limit(30).then(must),
+    ]);
+    const approve: any[] = [];
+    for (const k of ["recording", "external"]) {
+      if (!(await placeApprovers(ctx, k, sec)).includes(ctx.me.id)) continue;
+      const codes = (plc ?? []).filter((p: any) => p.approval === k).map((p: any) => p.code);
+      if (codes.length) approve.push(...(must(await ctx.db.from("place_bookings").select("id, place_code, starts_at, ends_at, purpose, person_id, status").eq("status", "대기").in("place_code", codes).order("starts_at")) ?? []));
+    }
+    const names = await nameMap(ctx, [...(books ?? []), ...approve].map((b: any) => b.person_id));
+    const nm = (b: any) => ({ ...b, name: names.get(b.person_id) ?? "", mine: b.person_id === ctx.me.id });
+    return { date, places: (plc ?? []).map((p: any) => ({ ...p, rule: PLACE_KIND[p.approval] })), bookings: (books ?? []).map(nm), mine: mine ?? [], approve: approve.map(nm) };
+  },
+  // 신청 { team_id, place_code, date, from: "HH:MM", to: "HH:MM", purpose } → 스담 등은 바로 승인, 녹음실·외부는 대기 + 승인자 알림
+  async "place.book"(ctx) {
+    const p = ctx.payload ?? {};
+    await requireRank(ctx, p.team_id, RANK.MEMBER);
+    const pl = must(await ctx.db.from("places").select("code, name, approval").eq("code", p.place_code).eq("is_active", true).maybeSingle());
+    if (!pl) throw new HttpError(400, "장소를 다시 골라주세요");
+    if (!isDate(p.date) || !parseHm(String(p.from)) || !parseHm(String(p.to))) throw new HttpError(400, "날짜와 시간을 골라주세요");
+    const st = kstMs(p.date, parseHm(String(p.from)) + ":00"), en = kstMs(p.date, parseHm(String(p.to)) + ":00");
+    if (en <= st) throw new HttpError(400, "끝나는 시간이 시작보다 늦어야 해요");
+    if (st < Date.now() - 30 * 60000) throw new HttpError(400, "지난 시간은 신청할 수 없어요");
+    const purpose = String(p.purpose ?? "").trim().slice(0, 100);
+    if (!purpose) throw new HttpError(400, "무엇에 쓰는지 적어주세요");
+    const clash: any[] = must(await ctx.db.from("place_bookings").select("id, starts_at, ends_at, status").eq("place_code", pl.code).in("status", ["대기", "승인"])
+      .lt("starts_at", new Date(en).toISOString()).gt("ends_at", new Date(st).toISOString()).limit(1)) ?? [];
+    if (clash.length) throw new HttpError(409, `그 시간엔 이미 ${clash[0].status === "승인" ? "예약" : "신청"}이 있어요 (${kstHm(Date.parse(clash[0].starts_at))}~${kstHm(Date.parse(clash[0].ends_at))})`);
+    await rateLimit(ctx, "place_book", 20, 60);
+    const auto = pl.approval === "none";
+    const row = must(await ctx.db.from("place_bookings").insert({ place_code: pl.code, starts_at: new Date(st).toISOString(), ends_at: new Date(en).toISOString(), purpose,
+      team_id: p.team_id, person_id: ctx.me.id, status: auto ? "승인" : "대기", decided_at: auto ? new Date().toISOString() : null }).select("id, status").single());
+    let notify = null;
+    if (!auto) {
+      const sec = (await sectionUnits(ctx, p.team_id))[0];
+      const ids = (await placeApprovers(ctx, pl.approval, sec)).filter((x) => x !== ctx.me.id);
+      notify = await sendToMembers(await withTelegram(ctx, ids), `🏢 <b>장소 사용 신청</b>\n${escHtml(pl.name)} · ${msLabel(st)}~${kstHm(en)}\n${escHtml(ctx.me.name)} · ${escHtml(purpose)}`,
+        appButton("승인하러 가기", "?go=place"));
+    }
+    return { id: row.id, status: row.status, notify };
+  },
+  // 승인·반려 { id, ok, reason? } — 그 장소 승인자만. 신청자에게 알림
+  async "place.decide"(ctx) {
+    const b = must(await ctx.db.from("place_bookings").select("id, place_code, starts_at, ends_at, person_id, status, team_id, places(name, approval)").eq("id", ctx.payload?.id).maybeSingle());
+    if (!b || b.status !== "대기") throw new HttpError(400, "이미 처리됐거나 없는 신청이에요");
+    const sec = (await sectionUnits(ctx, b.team_id))[0];
+    if (!(await placeApprovers(ctx, b.places.approval, sec)).includes(ctx.me.id)) throw new HttpError(403, "이 장소 승인자만 할 수 있어요");
+    const ok = ctx.payload?.ok === true, reason = String(ctx.payload?.reason ?? "").trim().slice(0, 200);
+    if (!ok && !reason) throw new HttpError(400, "반려 사유를 적어주세요");
+    must(await ctx.db.from("place_bookings").update({ status: ok ? "승인" : "반려", decided_by: ctx.me.id, decided_at: new Date().toISOString(), reason: ok ? null : reason }).eq("id", b.id));
+    await sendToMembers(await withTelegram(ctx, [b.person_id]), `${ok ? "✅" : "↩️"} <b>${escHtml(b.places.name)}</b> 사용 신청이 ${ok ? "승인됐어요" : "반려됐어요"}\n${msLabel(Date.parse(b.starts_at))}~${kstHm(Date.parse(b.ends_at))}${ok ? "" : "\n사유: " + escHtml(reason)}`,
+      appButton("장소 신청 보기", "?go=place"));
+    return { ok: true };
+  },
+  // 취소 { id } — 신청한 사람
+  async "place.cancel"(ctx) {
+    const b = must(await ctx.db.from("place_bookings").select("id, person_id, status").eq("id", ctx.payload?.id).maybeSingle());
+    if (!b || b.person_id !== ctx.me.id) throw new HttpError(404, "없는 신청이에요");
+    if (!["대기", "승인"].includes(b.status)) throw new HttpError(400, "이미 끝난 신청이에요");
+    must(await ctx.db.from("place_bookings").update({ status: "취소" }).eq("id", b.id));
+    return { ok: true };
+  },
+
+  // ----- 관리자 페이지 (관리자 명단 admins만) -----
+  async "admin.get"(ctx) {
+    if (!(await isAdmin(ctx))) throw new HttpError(403, "관리자만 볼 수 있어요");
+    const keys = ["admins", "treasurers", "place_approvers", "recap_enabled", "recap_open"];
+    const rows: any[] = must(await ctx.db.from("app_settings").select("key, value").in("key", keys)) ?? [];
+    const v = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    const { teams } = await myTeams(ctx);
+    const people = teams.length ? (await unitAudience(ctx, (await sectionUnits(ctx, teams[0].id))[0])).map((m: any) => ({ id: m.id, name: m.name, position: m.position, unit: m.unit })) : [];
+    return { settings: v, people };
+  },
+  // { key, value } — 정해진 것만, 사람 id는 과원 중에서
+  async "admin.set"(ctx) {
+    if (!(await isAdmin(ctx))) throw new HttpError(403, "관리자만 바꿀 수 있어요");
+    const { key, value } = ctx.payload ?? {};
+    const { teams } = await myTeams(ctx);
+    const ids = new Set(teams.length ? (await unitAudience(ctx, (await sectionUnits(ctx, teams[0].id))[0])).map((m: any) => m.id) : []);
+    const idList = (x: any) => { const a = [...new Set((Array.isArray(x) ? x : []).map(String))] as string[]; if (a.length > 10 || a.some((i) => !ids.has(i))) throw new HttpError(400, "과원 중에서 골라주세요"); return a; };
+    let val: any;
+    if (key === "admins") { val = idList(value); if (!val.includes(ctx.me.id)) throw new HttpError(400, "나 자신은 관리자 명단에서 뺄 수 없어요"); }
+    else if (key === "treasurers") val = idList(value);
+    else if (key === "place_approvers") val = { recording: idList(value?.recording), external: idList(value?.external) };
+    else if (key === "recap_enabled") val = value === true;
+    else if (key === "recap_open") { if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(value))) throw new HttpError(400, "날짜를 다시 골라주세요"); val = String(value); }
+    else throw new HttpError(400, "바꿀 수 없는 설정이에요");
+    must(await ctx.db.from("app_settings").upsert({ key, value: val, updated_by: ctx.me.id, updated_at: new Date().toISOString() }));
+    return { key, value: val };
   },
 
   // 내 한 달 활동: { month: "YYYY-MM" }

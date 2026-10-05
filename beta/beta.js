@@ -108,7 +108,7 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -138,6 +138,7 @@ function boot() {
     if (!me.teams.length) { showState('아직 소속 팀이 없어요', '팀장님께 팀 배정을 요청해주세요'); return; }
     $('tabbar').classList.remove('b-off');
     setupRecTab();
+    $('adminTab').style.display = me.is_admin ? '' : 'none';   // 관리자 탭은 관리자 명단만
     setupTownTab();
     document.body.classList.add('b-nav');
     renderTeamTabs();
@@ -1233,7 +1234,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView' };
+var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1252,7 +1253,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { return t === 'weekly' ? 'rec' : t === 'poll' ? 'attend' : t === 'dues' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { return t === 'weekly' ? 'rec' : t === 'poll' || t === 'place' ? 'attend' : t === 'dues' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1302,7 +1303,7 @@ function setTabUI(t) {
   togglePfSub(!pfFloating() && pt === 'profile');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
 }
@@ -1319,6 +1320,8 @@ function refreshTab() {
   else if (curTab === 'poll') loadPolls();
   else if (curTab === 'dues') loadDues();
   else if (curTab === 'sky') startSky();
+  else if (curTab === 'place') loadPlace();
+  else if (curTab === 'admin') loadAdmin();
 }
 
 // =====================================================================
@@ -4374,17 +4377,13 @@ function loadRecapStatus() {
   api('recap.status').then(function (st) { RP.st = st; renderRecapCard(); }).catch(function () { $('recapArea').innerHTML = ''; });
 }
 function renderRecapCard() {
-  var st = RP.st; if (!st || (!st.admin && (!st.enabled || (!st.open && !st.preview)))) { $('recapArea').innerHTML = ''; return; }
-  if (!st.enabled) { $('recapArea').innerHTML = '<div class="card rp-entry"><div class="rp-off"><span>🎁 <b>올해의 성우 리포트</b> · 꺼져 있어요 (관리자만 보여요)</span>' +
-    '<button type="button" class="ghost-btn rp-save" onclick="setRecapOn(true)">켜기</button></div><div class="msg" id="rpOnMsg"></div></div>'; return; }
+  // 켜기·공개일은 관리자 페이지에서 (2026-10-06)
+  var st = RP.st; if (!st || !st.enabled || (!st.open && !st.preview)) { $('recapArea').innerHTML = ''; return; }
   var md = st.open_md.split('-'), when = (+md[0]) + '월 ' + (+md[1]) + '일';
   var h = '<div class="card rp-entry"><button type="button" class="rp-go" onclick="openRecap()"><span class="rp-gift">🎁</span><span><b>' + st.year + ' 올해의 성우 리포트</b>' +
     '<small>' + (st.open ? '한 해 동안 걸어온 길을 한 장씩 넘겨 봐요' : '미리보기 · 모두에게는 ' + when + '에 열려요') + '</small></span><span class="rp-arrow">›</span></button>';
   if (st.preview) h += '<details class="rp-opts"><summary>기간 바꿔 보기 (테스트용)</summary><div class="tp-row"><input type="date" id="rpFrom" value="' + esc(RP.from) + '"><span>~</span><input type="date" id="rpTo" value="' + esc(RP.to) + '"></div>' +
     '<small>비우면 ' + st.year + '년 한 해 전체예요</small></details>';
-  if (st.admin) h += '<details class="rp-opts"><summary>리포트 끄기 (관리자)</summary><button type="button" class="ghost-btn rp-save" onclick="setRecapOn(false)">리포트 끄기</button><small>끄면 관리자 말고는 아무에게도 안 보여요</small><div class="msg" id="rpOnMsg"></div></details>';
-  if (st.admin) h += '<details class="rp-opts"><summary>공개일 바꾸기 (관리자)</summary><div class="tp-row"><input type="date" id="rpOpen" value="' + st.year + '-' + esc(st.open_md) + '">' +
-    '<button type="button" class="ghost-btn rp-save" onclick="saveRecapOpen()">저장</button></div><small>해마다 이 날짜에 모두에게 열려요</small><div class="msg" id="rpOpenMsg"></div></details>';
   $('recapArea').innerHTML = h + '</div>';
 }
 function setRecapOn(on) {
@@ -4508,7 +4507,6 @@ function renderDues() {
     '<div class="du-acts"><button class="btn-primary" onclick="openDuesModal(\'회비\')">💰 납부 확인 요청</button><button class="ghost-btn du-item" onclick="openDuesModal(\'물품\')">🎁 후원물품 올리기</button></div>';
   if (d.entries.length) h += '<div class="section-head b-gap"><h2>내가 올린 것</h2></div><div class="du-list">' + d.entries.map(duEntry).join('') + '</div>';
   if (d.treasurer) h += renderDuesBoard();
-  if (d.admin) h += renderTreasurerPick();
   $('duesArea').innerHTML = h;
 }
 function duEntry(e, board) {
@@ -4790,4 +4788,108 @@ function loadRecMine() {
       (up.length ? up.map(row).join('') : '<p class="rec-none">지금 맡은 녹음이 없어요. 요청이 오면 알림으로 알려 드려요</p>') +
       (past.length ? '<details class="rm-past"><summary>지난 2주 ' + past.length + '건</summary>' + past.map(row).join('') + '</details>' : '');
   }).catch(function (err) { $('recMine').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+
+// =====================================================================
+// 장소 신청 (일정 › 장소 신청): 날짜별 장소 시간표 + 내 신청 + (승인자면) 승인할 것
+// =====================================================================
+var PLC = { date: null, d: null };
+function loadPlace() {
+  if (!PLC.date) PLC.date = todayStr();
+  api('place.list', { team_id: S.team.id, date: PLC.date }).then(function (d) { PLC.d = d; renderPlace(); })
+    .catch(function (err) { $('placeArea').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+var PL_ST = { '대기': ['승인 기다리는 중', 'st-지각'], '승인': ['확정', 'st-참석'], '반려': ['반려', 'st-불참'] };
+function plTime(b) { return mdw(Date.parse(b.starts_at)) + ' ' + hmMs(Date.parse(b.starts_at)) + '~' + hmMs(Date.parse(b.ends_at)); }
+function plName(code) { var p = (PLC.d.places || []).filter(function (x) { return x.code === code; })[0]; return p ? p.name : code; }
+function renderPlace() {
+  var d = PLC.d, h = '';
+  if (d.approve.length) h += '<div class="section-head"><h2>승인할 신청</h2><span class="section-count">' + d.approve.length + '건</span></div>' + d.approve.map(function (b) {
+    return '<div class="card pl-row"><div><b>' + esc(plName(b.place_code)) + '</b> · ' + plTime(b) + '<small>' + esc(b.name) + ' · ' + esc(b.purpose) + '</small></div>' +
+      '<div class="du-btns"><button class="du-ok" onclick="decidePlace(\'' + b.id + '\',true)">승인</button><button class="du-no" onclick="decidePlace(\'' + b.id + '\',false)">반려</button></div></div>';
+  }).join('');
+  // 날짜 고르기 + 장소별 하루 시간표 (8~24시)
+  h += '<div class="section-head' + (d.approve.length ? ' b-gap' : '') + '"><h2>장소 현황</h2></div><div class="b-month"><button type="button" onclick="plMove(-1)">‹</button><b>' + mdw(parseDate(PLC.date).getTime()) + '</b><button type="button" onclick="plMove(1)">›</button></div>';
+  var H0 = 8, H1 = 24, pct = function (ms) { var dd = new Date(ms); return Math.max(0, Math.min(100, ((dd.getHours() + dd.getMinutes() / 60) - H0) / (H1 - H0) * 100)); };
+  h += '<div class="card pl-grid"><div class="pl-axis"><span></span><div>' + [8, 10, 12, 14, 16, 18, 20, 22].map(function (x) { return '<i style="left:' + ((x - H0) / (H1 - H0) * 100) + '%">' + x + '</i>'; }).join('') + '</div></div>' +
+    d.places.map(function (p) {
+      var bs = d.bookings.filter(function (b) { return b.place_code === p.code; });
+      return '<div class="pl-line" onclick="openPlaceModal(\'' + p.code + '\')"><span class="pl-name"><b>' + esc(p.name) + '</b><small>' + (p.approval === 'none' ? '바로 확정' : p.approval === 'recording' ? '엔지니어팀장 승인' : '과장·부과장 승인') + '</small></span><div class="pl-bar">' +
+        bs.map(function (b) { var a = pct(Date.parse(b.starts_at)), z = pct(Date.parse(b.ends_at));
+          return '<i class="' + (b.status === '승인' ? 'ok' : 'wait') + (b.mine ? ' mine' : '') + '" style="left:' + a + '%;width:' + Math.max(2, z - a) + '%" title="' + esc(hmMs(Date.parse(b.starts_at)) + '~' + hmMs(Date.parse(b.ends_at)) + ' ' + b.name + ' · ' + b.purpose) + '">' + esc(b.name) + '</i>'; }).join('') + '</div></div>';
+    }).join('') + '<small class="pl-hint">줄을 누르면 그 장소로 신청해요 · 진한 칸 = 확정, 점선 = 승인 기다리는 중</small></div>';
+  h += '<div class="section-head b-gap"><h2>내 신청</h2></div>' + (d.mine.length ? d.mine.map(function (b) {
+    var st = PL_ST[b.status] || [b.status, 'st-none'];
+    return '<div class="card pl-row"><div><b>' + esc(plName(b.place_code)) + '</b> · ' + plTime(b) + '<small>' + esc(b.purpose) + (b.reason ? ' · 사유: ' + esc(b.reason) : '') + '</small></div>' +
+      '<span class="st ' + st[1] + '">' + st[0] + '</span>' + (b.status !== '반려' ? '<button class="gb-x" onclick="cancelPlace(\'' + b.id + '\')" title="신청 취소">✕</button>' : '') + '</div>';
+  }).join('') : '<p class="rec-none">신청한 장소가 없어요. 오른쪽 아래 + 로 신청해요</p>');
+  $('placeArea').innerHTML = h;
+}
+function plMove(k) { var dd = parseDate(PLC.date); dd.setDate(dd.getDate() + k); PLC.date = ymd(dd); loadPlace(); }
+function openPlaceModal(code) {
+  var d = PLC.d; if (!d) return;
+  $('plPlace').innerHTML = d.places.map(function (p) { return '<option value="' + p.code + '">' + esc(p.name) + '</option>'; }).join('');
+  if (code) $('plPlace').value = code;
+  if (!$('plDate').value) $('plDate').value = PLC.date; $('plDate').min = todayStr();
+  placeRuleText(); setMsg('plMsg', ''); openModal('placeModal');
+}
+function placeRuleText() { var p = PLC.d.places.filter(function (x) { return x.code === $('plPlace').value; })[0]; $('placeRule').textContent = p ? p.rule : ''; }
+function bookPlace() {
+  var p = { team_id: S.team.id, place_code: $('plPlace').value, date: $('plDate').value, from: $('plFrom').value, to: $('plTo').value, purpose: $('plPurpose').value.trim() };
+  if (!p.date || !p.from || !p.to) { setMsg('plMsg', '날짜와 시간을 골라주세요', true); return; }
+  if (!p.purpose) { setMsg('plMsg', '무엇에 쓰는지 적어주세요', true); return; }
+  var btn = $('plBtn'); btn.disabled = true; setMsg('plMsg', '신청하는 중...');
+  api('place.book', p).then(function (r) {
+    btn.disabled = false; haptic('success');
+    setMsg('plMsg', r.status === '승인' ? '확정됐어요! 그 시간은 이제 내 자리예요' : '신청했어요. 승인되면 알려드려요' + (r.notify && !r.notify.sent ? ' (승인자가 아직 정해지지 않았거나 알림을 못 받았어요)' : ''));
+    $('plPurpose').value = ''; PLC.date = p.date; loadPlace();
+    setTimeout(function () { closeModal('placeModal'); }, 1300);
+  }).catch(function (err) { btn.disabled = false; setMsg('plMsg', err.message, true); });
+}
+function decidePlace(id, ok) {
+  var reason = ''; if (!ok) { reason = prompt('반려 사유를 적어주세요 (신청한 사람에게 보여요)') || ''; if (!reason.trim()) return; }
+  api('place.decide', { id: id, ok: ok, reason: reason }).then(function () { haptic('success'); loadPlace(); }).catch(function (err) { alertMsg(err.message); });
+}
+function cancelPlace(id) {
+  if (!confirm('이 신청을 취소할까요?')) return;
+  api('place.cancel', { id: id }).then(loadPlace).catch(function (err) { alertMsg(err.message); });
+}
+
+// =====================================================================
+// 관리자 페이지 (관리자 명단만): 관리자 · 회계담당자 · 장소 승인자 · 연말 결산 켜기/공개일
+// =====================================================================
+var ADM = null;
+function loadAdmin() {
+  api('admin.get').then(function (d) { ADM = d; ADM.edit = JSON.parse(JSON.stringify(d.settings)); renderAdmin(); })
+    .catch(function (err) { $('adminArea').innerHTML = '<div class="empty"><b>열 수 없어요</b>' + esc(err.message) + '</div>'; });
+}
+function admPick(key, sub, title, desc) {
+  var cur = sub ? ((ADM.edit[key] || {})[sub] || []) : (ADM.edit[key] || []);
+  return '<div class="card adm-box"><div class="adm-h"><b>' + title + '</b><small>' + desc + '</small></div><div class="b-chips">' + ADM.people.map(function (p) {
+    return '<button type="button" class="b-pick' + (cur.indexOf(p.id) !== -1 ? ' on' : '') + '" onclick="admToggle(\'' + key + '\',\'' + (sub || '') + '\',\'' + p.id + '\')">' + esc(p.name) + '<small> ' + esc(p.unit + ' ' + p.position) + '</small></button>';
+  }).join('') + '</div><button class="btn-primary adm-save" onclick="admSave(\'' + key + '\')">저장</button><div class="msg" id="admMsg-' + key + '"></div></div>';
+}
+function renderAdmin() {
+  var e = ADM.edit, md = String(e.recap_open || '12-22');
+  $('adminArea').innerHTML =
+    admPick('admins', '', '관리자', '이 페이지를 볼 수 있는 사람이에요. 나 자신은 뺄 수 없어요') +
+    admPick('treasurers', '', '회계담당자', '회비 확인 요청을 받고 확인·반려해요') +
+    admPick('place_approvers', 'recording', '녹음실 승인자 (코드원·SMC)', '비워 두면 엔지니어팀 팀장 이상이 승인해요') +
+    admPick('place_approvers', 'external', '총회 대회의실·과천 성전 10층 승인자', '비워 두면 부과장 이상이 승인해요') +
+    '<div class="card adm-box"><div class="adm-h"><b>올해의 성우 리포트</b><small>켜면 공개일 전엔 교관 이상 미리보기, 공개일부터 모두에게 보여요</small></div>' +
+      '<label class="adm-sw"><input type="checkbox" ' + (e.recap_enabled === true ? 'checked' : '') + ' onchange="admSetNow(\'recap_enabled\', this.checked)"> 리포트 켜기</label>' +
+      '<div class="tp-row"><span>공개일</span><input type="date" id="admRecap" value="' + new Date().getFullYear() + '-' + esc(md) + '"><button class="ghost-btn rp-save" onclick="admSetNow(\'recap_open\', $(\'admRecap\').value.slice(5))">저장</button></div>' +
+      '<div class="msg" id="admMsg-recap"></div></div>';
+}
+function admToggle(key, sub, id) {
+  var arr = sub ? ((ADM.edit[key] = ADM.edit[key] || {})[sub] = (ADM.edit[key][sub] || [])) : (ADM.edit[key] = ADM.edit[key] || []);
+  var i = arr.indexOf(id); if (i === -1) arr.push(id); else arr.splice(i, 1); renderAdmin();
+}
+function admSave(key) {
+  api('admin.set', { key: key, value: ADM.edit[key] }).then(function (r) { haptic('success'); ADM.settings[key] = r.value; setMsg('admMsg-' + key, '저장했어요'); })
+    .catch(function (err) { setMsg('admMsg-' + key, err.message, true); });
+}
+function admSetNow(key, value) {
+  api('admin.set', { key: key, value: value }).then(function (r) { haptic('success'); ADM.edit[key] = ADM.settings[key] = r.value; setMsg('admMsg-recap', '저장했어요'); RP.st = null; })
+    .catch(function (err) { setMsg('admMsg-recap', err.message, true); });
 }
