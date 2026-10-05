@@ -3912,7 +3912,7 @@ function renderTodos() {
       if (t.kind === 'notice') return row(i, '📢', '안 읽은 공지 · ' + t.name, mdOf(t.at) + (t.pinned ? ' · 📌 고정' : ''), false);
       if (t.kind === 'checkin') return row(i, '⏰', '오늘 체크인 · ' + t.name, t.left.join('·') + ' 남았어요', true);
       if (t.kind === 'approve') return row(i, '🗳', '승인할 신청 ' + t.n + '건', t.name + ' · 승인함에서 확인', true);
-      if (t.kind === 'mytodo') return row(i, '✅', t.name, (t.due < todayStr() ? '마감 지남 · ' : t.due === todayStr() ? '오늘까지 · ' : t.due.slice(5).replace('-', '/') + '까지 · ') + '내 할 일', t.urgent);
+      if (t.kind === 'mytodo') return row(i, '✅', t.name, (t.due < todayStr() ? '마감 지남 · ' : t.due === todayStr() ? '오늘까지 · ' : t.due.slice(5).replace('-', '/') + '까지 · ') + '할 일', t.urgent);
       if (t.kind === 'flowstep') return row(i, '🧩', t.flow + ' · ' + t.name, (t.state === '막힘' ? '막힘 · ' : t.state === '시작' ? '하는 중 · ' : '내 차례 · ') + (t.due ? t.due.slice(5).replace('-', '/') + '까지 · ' : '') + '눌러서 보고', t.urgent);
       if (t.kind === 'mtgaction') return row(i, '📋', '회의에서 맡은 일 · ' + t.name, t.due ? t.due.slice(5).replace('-', '/') + '까지 · 눌러서 완료' : '눌러서 완료', t.urgent);
       if (t.kind === 'mtgprep') return row(i, '🗂', '회의 안건 의견 · ' + t.name, shortD(t.date) + ' 회의 · 안건 ' + t.left + '개 남음', t.urgent);

@@ -1797,7 +1797,7 @@ async function cronMyTodos(ctx: Ctx) {
     const d0 = t.due_on === today;
     if (d0 ? t.reminded_d0_at : t.reminded_d1_at) continue;
     const who = await withTelegram(ctx, [t.person_id]);
-    if (who.length) await sendToMembers(who, `${d0 ? "📌 <b>오늘까지 할 일</b>" : "🗓 <b>내일까지 할 일</b>"}\n${escHtml(t.title)}`, appButton("내 할 일 보기", "?go=mytodo"));
+    if (who.length) await sendToMembers(who, `${d0 ? "📌 <b>오늘까지 할 일</b>" : "🗓 <b>내일까지 할 일</b>"}\n${escHtml(t.title)}`, appButton("할 일 보기", "?go=mytodo"));
     must(await ctx.db.from("personal_todos").update(d0 ? { reminded_d0_at: new Date().toISOString() } : { reminded_d1_at: new Date().toISOString() }).eq("id", t.id));
   }
 }

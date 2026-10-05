@@ -459,7 +459,7 @@
 
     <!-- ===== 개인 › 내 할 일 (본인만, 마감 전날·당일 아침 봇 알림) ===== -->
     <section id="mytodoView" style="display:none;">
-      <h1 class="page-title">내 할 일</h1>
+      <h1 class="page-title">할 일</h1>
       <p class="page-desc">언제까지 해야 하는 일을 적어 두면, 마감 전날과 당일 아침에 텔레그램으로 알려 드려요. 나만 볼 수 있어요</p>
       <div class="card mt-add">
         <input type="text" id="mtTitle" class="b-input" maxlength="100" placeholder="예) AI 키 새로 만들기" onkeydown="if(event.key==='Enter')addMyTodo()">
@@ -617,8 +617,8 @@
     </button>
     <!-- '개인'을 누르면 펼쳐지는 하위 메뉴 (PC 펼친 메뉴: 아래로 펼침 / 폰·접힌 메뉴: 떠 있는 상자) -->
     <div class="b-pfsub" id="pfSub">
-      <button type="button" data-t="mytodo" onclick="pfGo('mytodo')">내 할 일</button>
       <button type="button" data-t="profile" onclick="pfGo('profile')">프로필</button>
+      <button type="button" data-t="mytodo" onclick="pfGo('mytodo')">할 일</button>
       <button type="button" data-t="pmonth" onclick="pfGo('pmonth')">월간 리포트</button>
       <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
       <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
@@ -1025,6 +1025,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006c"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007c"></script>
+  <script src="beta.js?v=20261007d"></script>
 </body>
 </html>
