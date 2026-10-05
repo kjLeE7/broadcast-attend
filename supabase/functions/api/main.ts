@@ -3509,7 +3509,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // → { dates, hours, teams, mine:[내 팀 이름], weeks:[월요일…], people:[{ id, name, teams, group, slots:{날짜번호:[칸]}, weeks:{월요일: 낸 여부}, memo:{월요일: 특이사항} }] }
   async "weekly.overview"(ctx) {
     const teams = await boardTeams(ctx);
-    if (!teams.length) throw new HttpError(403, "권한이 없습니다");
+    // 업무가능 2주 모아보기는 교관 이상만 (2026-10-06)
+    if (!teams.length || !(await myTeams(ctx)).teams.some((t: any) => t.rank >= RANK.INSTRUCTOR)) throw new HttpError(403, "업무가능 모아보기는 교관 이상만 볼 수 있어요");
     const teamIds = teams.map((t) => t.id);
     const today = kstToday();
     const dates = Array.from({ length: 14 }, (_, i) => addDaysStr(today, i));
@@ -4152,15 +4153,12 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // ----- 녹음 요청 (세 팀 교관 이상이 함께 봄) -----
   // { team_id } → 과의 녹음 요청 (진행 중 전부 + 지난 60일) + 배역 + 회차(사람·응답)
   async "rec.list"(ctx) {
-    const sec = await recSection(ctx, ctx.payload.team_id);
-    // 내 소속팀의 업무만 (2026-10-05): 내 팀이 올린 요청 + 내가 올렸거나 사람으로 들어간 요청
-    const myTeamIds = new Set((await myTeams(ctx)).teams.filter((t: any) => t.rank >= RANK.MEMBER).map((t: any) => t.id));
-    const mineIn: any[] = must(await ctx.db.from("recording_participants").select("recording_sessions!inner(request_id)").eq("person_id", ctx.me.id)) ?? [];
-    const joined = new Set(mineIn.map((x) => x.recording_sessions?.request_id).filter(Boolean));
+    // 업무 진행 상황은 과원 누구나 봄 (2026-10-06). 관리(올리기·배치·알림 등)는 각 기능에서 교관 이상 확인
+    await requireRank(ctx, ctx.payload.team_id, RANK.MEMBER);
+    const sec = await sectionOf(ctx, ctx.payload.team_id);
     const rows: any[] = (must(await ctx.db.from("recording_requests")
       .select("id, team_id, title, request_code, request_dept, requester_name, volume_desc, note, due_at, duration_min, voices_needed, status, received_by, received_at, notify_result")
-      .in("team_id", sec.teamIds).order("received_at", { ascending: false }).limit(300)) ?? [])
-      .filter((r: any) => myTeamIds.has(r.team_id) || r.received_by === ctx.me.id || joined.has(r.id));
+      .in("team_id", sec.teamIds).order("received_at", { ascending: false }).limit(300)) ?? []);
     const old = Date.now() - 60 * 86400000;
     const list = rows.filter((r) => !["녹음완료", "편집완료", "전달완료", "취소"].includes(r.status) || Date.parse(r.received_at) >= old);
     const ids = list.map((r) => r.id);

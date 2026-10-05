@@ -1528,3 +1528,19 @@ body.town-mode .act-fab, body.sky-mode .act-fab { display: none !important; }
 .lk-l small { display: block; font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 2px; }
 .lk-says { display: grid; gap: 6px; flex: 1; } .lk-say { margin: 0; padding: 9px 12px; font-size: 13.5px; }
 #placeModal .tp-row .select-wrap { flex: 1; }
+
+/* 업무 탭: 교관 아래는 보기만 (관리 버튼 숨김) */
+#recView.rec-ro .rc-acts, #recView.rec-ro .rp-add, #recView.rec-ro .rp-x, #recView.rec-ro .rp-sel, #recView.rec-ro .rc-new, #recView.rec-ro #rdPlan, #recView.rec-ro .rb-choose, #recView.rec-ro [data-act="stat"] { display: none !important; }
+/* 회의 고르기 */
+.mt-pick { display: grid; gap: 8px; } .mt-pick .card { text-align: left; padding: 12px 16px; margin: 0; cursor: pointer; border: none; font: inherit; color: var(--text); }
+.mt-pick b { display: block; font-size: 14.5px; } .mt-pick small { color: var(--muted); font-size: 12.5px; }
+/* 프로필: 내 캐릭터는 맨 아래 가로로 넓게 (왼쪽 미리보기 | 오른쪽 고르기 두 줄) */
+@media (min-width: 1000px) {
+  #lookArea { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 0 20px; align-items: start; }
+  #lookArea .lk-prev { grid-row: 1 / span 3; position: sticky; top: 24px; margin: 0; }
+  #lookArea .lk-opts { margin-top: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; }
+  #lookArea .lk-row:nth-last-child(2) { border-bottom: none; }
+  #lookArea .lk-acts, #lookArea .msg { grid-column: 2; }
+  #profileView.split #lookArea { grid-template-columns: minmax(0, 1fr); } #profileView.split #lookArea .lk-prev { grid-row: auto; position: static; }
+  #profileView.split #lookArea .lk-opts { grid-template-columns: minmax(0, 1fr); } #profileView.split #lookArea .lk-acts, #profileView.split #lookArea .msg { grid-column: 1; }
+}

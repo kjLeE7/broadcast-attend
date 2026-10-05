@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006q">
+  <link rel="stylesheet" href="beta.css?v=20261006r">
 </head>
 <body>
   <div class="app">
@@ -266,8 +266,7 @@
       <!-- 제목은 PC 반반 배치 위에 한 줄로 (목록·녹음 한눈에 모두 이 아래) -->
       <div class="rec-title">
         <h1 class="page-title">목소리를 담는 시간</h1>
-        <p class="page-desc" id="recDesc">녹음 요청을 올리면 세 팀 교관 이상 모두에게 알림이 가요. 마감까지 가능한 사람·장소·시간을 찾아 드려요</p>
-        <div class="b-attseg"><button class="wkchip active" onclick="goTab('rec')">녹음</button><button class="wkchip" onclick="goTab('weekly')">업무가능 시간</button></div>
+        <p class="page-desc" id="recDesc">우리 과에서 지금 진행 중인 녹음과 지난 요청을 모두 함께 봐요</p>
         <!-- 내가 맡은 녹음 (누구나): 누르면 응답·도착·보고 팝업 -->
         <div id="recMine"></div>
       </div>
@@ -295,7 +294,7 @@
 
       <!-- 업무가능 시간 2주 한눈에 (PC는 아래에 화면 폭 가득) -->
       <div id="recAvail" class="rec-avail">
-        <div class="section-head b-gap"><h2>업무가능 시간 · 2주</h2><span class="section-count">오늘부터 14일 · 각자 낸 업무가능 시간</span></div>
+        <div class="section-head b-gap"><h2>업무가능 시간 · 2주</h2><span class="section-count">교관 이상만 · 오늘부터 14일 · 각자 낸 업무가능 시간</span></div>
         <div id="avBody"></div>
       </div>
     </section>
@@ -307,22 +306,22 @@
 
         <!-- 연말 결산 카드 (관리자가 켰을 때만. 공개일 뒤 모두, 그 전엔 교관 이상 미리보기) -->
         <div id="recapArea"></div>
-        <!-- 성우 스탯: PC는 왼쪽 나의 성장 | 오른쪽 받은 피드백. 스탯 축이 있는 팀 사람만 보임 -->
-        <div id="statArea"></div>
-        <!-- 아래: PC는 왼쪽 배지·내 정보 | 오른쪽 캐릭터 꾸미기 -->
+        <!-- 위: PC는 왼쪽 내 정보 | 오른쪽 나의 배지 -->
         <div class="pf-two">
           <div class="pf-col">
-            <!-- 칭호·배지 (딴 것 진하게, 못 딴 것 흐리게, 누르면 대표 칭호 고르기) -->
-            <div id="badgeArea"></div>
             <div class="section-head b-gap"><h2>내 정보</h2></div>
             <div class="card pf-card" id="pfCard"><div class="b-wait">불러오는 중...</div></div>
           </div>
           <div class="pf-col">
-            <!-- 동네지도 캐릭터 꾸미기 (renderLook) -->
-            <div class="section-head b-gap"><h2>내 캐릭터</h2><span class="section-count">동네지도에 나오는 내 모습 · 탈것은 이동할 때만</span></div>
-            <div id="lookArea"><div class="b-wait">불러오는 중...</div></div>
+            <!-- 칭호·배지 (딴 것 진하게, 못 딴 것 흐리게, 누르면 대표 칭호 고르기) -->
+            <div id="badgeArea"></div>
           </div>
         </div>
+        <!-- 성우 스탯: PC는 왼쪽 나의 성장 | 오른쪽 받은 피드백. 스탯 축이 있는 팀 사람만 보임 -->
+        <div id="statArea"></div>
+        <!-- 맨 아래: 동네지도 캐릭터 꾸미기 (PC는 왼쪽 미리보기 | 오른쪽 고르기, 가로로 넓게) -->
+        <div class="section-head b-gap"><h2>내 캐릭터</h2><span class="section-count">동네지도에 나오는 내 모습 · 탈것은 이동할 때만</span></div>
+        <div id="lookArea"><div class="b-wait">불러오는 중...</div></div>
 
         <!-- 내가 알린 특이사항 (본인 것만) -->
         <div id="myNotes"></div>
@@ -382,7 +381,6 @@
     <section id="weeklyView" style="display:none;">
       <h1 class="page-title">업무가능 시간 취합</h1>
       <p class="page-desc">녹음·사회·촬영 등 업무가 가능한 시간을 칠해주세요 · 매주 주일 22시 마감</p>
-      <div class="b-attseg"><button class="wkchip" onclick="goTab('rec')">녹음</button><button class="wkchip active" onclick="goTab('weekly')">업무가능 시간</button></div>
 
       <div class="subtabs">
         <button class="subtab wk-which" data-wk="next" onclick="openWeekly('next')">다음 주</button>
@@ -589,6 +587,7 @@
     <div class="b-pfsub" id="pfSub">
       <button type="button" data-t="profile" onclick="pfGo('profile')">프로필</button>
       <button type="button" data-t="pmonth" onclick="pfGo('pmonth')">월간 리포트</button>
+      <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
       <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
     </div>
     <button class="tab" data-tab="sky" title="하늘방송국" id="skyTab" onclick="goTab('sky')" style="display:none;">
@@ -960,6 +959,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006b"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006q"></script>
+  <script src="beta.js?v=20261006r"></script>
 </body>
 </html>

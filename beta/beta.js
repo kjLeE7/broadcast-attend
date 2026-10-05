@@ -1257,7 +1257,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { return t === 'weekly' ? 'rec' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { return t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -2679,13 +2679,11 @@ function loadRec() {
   if (!STF.data) loadStatForm().then(function () { if (RC.current && statCan()) renderRecBoard(); });
   if (!S.team) return Promise.resolve();
   loadRecMine();
-  var mgr = recAllowed() && MG.rec;   // 교관 이상이 FAB '녹음 요청 관리'를 켰을 때
-  // 교관 아래: 내가 맡은 녹음만 (녹음 요청 관리·한눈에·2주 모아보기는 숨김)
-  $('recListWrap').classList.toggle('rec-member', !mgr); $('recAvail').style.display = mgr ? '' : 'none'; $('recFab').style.display = mgr ? '' : 'none';
-  $('recDesc').textContent = mgr ? '녹음 요청을 올리면 세 팀 교관 이상 모두에게 알림이 가요. 마감까지 가능한 사람·장소·시간을 찾아 드려요' : '내가 맡은 녹음이에요. 눌러서 수락·조율하고, 당일엔 녹음실 도착을 눌러주세요';
-  if (!mgr) { $('recOverview').style.display = 'none'; $('recView').classList.remove('split'); return Promise.resolve(); }
+  // 진행 상황은 과원 모두 봄 (2026-10-06). 올리기·배치·알림 같은 관리와 업무가능 2주 모아보기는 교관 이상만
+  var mgr = recAllowed();
+  $('recView').classList.toggle('rec-ro', !mgr); $('recAvail').style.display = mgr ? '' : 'none'; $('recFab').style.display = mgr ? '' : 'none';
   if (!RC.list) $('recOpen').innerHTML = '<div class="skeleton row-skel"></div>';
-  loadAvail();
+  if (mgr) loadAvail();
   return api('rec.list', { team_id: S.team.id }).then(function (d) {
     RC.list = d.requests; RC.people = d.people || [];
     renderRecList();
@@ -2741,7 +2739,7 @@ function renderRecList() {
   var past = RC.list.filter(function (r) { return !recIsOpen(r); });
   $('recOpenCount').textContent = open.length ? open.length + '건' : '';
   $('recOpen').innerHTML = open.length ? open.map(recCard).join('')
-    : '<div class="empty"><b>진행 중인 녹음 요청이 없어요</b>오른쪽 아래 + 버튼으로 요청을 올려요</div>';
+    : '<div class="empty"><b>진행 중인 녹음 요청이 없어요</b>' + (recAllowed() ? '오른쪽 아래 + 버튼으로 요청을 올려요' : '새 요청이 올라오면 여기에 보여요') + '</div>';
   $('recPast').innerHTML = past.length ? past.map(recCard).join('') : '<p class="rec-none">최근 60일 동안 끝난 요청이 없어요</p>';
   renderRecOverview(open);
 }
@@ -2970,12 +2968,12 @@ function openRec(id) {
   var r = byId(RC.list || [], id); if (!r) return;
   if (!RC.current || RC.current.id !== id) { RC.plan = null; RC.want = null; RC.day = null; RC.slot = null; RC.sel = null; RC.place = null; RC.adding = null; RC.planOpen = false; }
   RC.current = r;
-  if (!activeSess(r).length && freeRoles(r).length && recIsOpen(r) && r.status !== '보류') RC.planOpen = true;
+  if (recAllowed() && !activeSess(r).length && freeRoles(r).length && recIsOpen(r) && r.status !== '보류') RC.planOpen = true;
   var wide = isWide();
   document.body.classList.toggle('rc-pop', wide);   // PC: 상세는 화면 가운데 팝업 (옆에서 밀고 들어오지 않음)
   $('recListWrap').style.display = wide ? 'block' : 'none';
   document.querySelector('.rec-title').style.display = wide ? '' : 'none';
-  $('recAvail').style.display = wide ? '' : 'none';
+  $('recAvail').style.display = wide && recAllowed() ? '' : 'none';
   $('recView').classList.toggle('split', wide);
   renderRecList();
   if (!wide) { $('recOverview').style.display = 'none'; $('recView').classList.remove('ov'); }
@@ -2992,7 +2990,7 @@ function closeRec() {
   $('recDetail').style.display = 'none';
   $('recListWrap').style.display = 'block';
   document.querySelector('.rec-title').style.display = '';
-  $('recAvail').style.display = '';
+  $('recAvail').style.display = recAllowed() ? '' : 'none';
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
   if (RC.list) renderRecList();
 }
@@ -4958,6 +4956,7 @@ function actItems() {
     } else {
       if (lead) add('plus', '모임 만들기', openSessModal);
       if (inst) add('plus', '체크인 만들기', openCiModal);
+      if (S.sessions && S.sessions.some(mtgPickable)) add('list', '회의 안건 올리기·회의 열기', pickMeeting);
       if (lead && C.list.length) add('eye', '체크인 현황', mgToggle('ci', renderCheckins), MG.ci);
     }
   }
@@ -4974,7 +4973,7 @@ function actItems() {
     if (A.current) { if (lead) add('eye', '제출 현황', mgToggle('task', function () { openTask(A.current.id); }), MG.task); if (inst) add('edit', '과제 고치기', editTask); }
     else if (inst) add('plus', '과제 내기', openHwModal);
   }
-  if (t === 'rec' && recAllowed() && !RC.current) { add('plus', '녹음 요청 올리기', openRecModal); add('list', '녹음 요청 관리·모아보기', mgToggle('rec', function () { RC.list = null; loadRec(); }), MG.rec); }
+  if (t === 'rec' && recAllowed() && !RC.current) add('plus', '녹음 요청 올리기', openRecModal);
   if (t === 'profile') add('edit', '특이사항 알리기', function () { openNote({}); });
   if (t === 'profile' && statCan()) add('star', '스탯 주기', function () { closeAct(); openStatGrant({}); });
   if (t === 'dues' && DU.d && DU.d.treasurer) add('won', '회계 (확인·현황)', mgToggle('dues', renderDues), MG.dues);
@@ -5267,4 +5266,15 @@ function saveItem(id) {
   if (!p.title) { setMsg('imMsg', '안건을 적어주세요', true); return; }
   $('imBtn').disabled = true;
   api('mtg.item', p).then(function () { haptic('success'); closeModal('itemModal'); loadMeeting(); }).catch(function (err) { $('imBtn').disabled = false; setMsg('imMsg', err.message, true); });
+}
+
+// 일정 탭 + 메뉴: 모임을 먼저 안 눌러도 회의를 고를 수 있게 (취소·마감 안 된 모임)
+function mtgPickable(x) { var ph = phaseOf(x); return ph === 'before' || ph === 'live'; }
+function pickMeeting() {
+  var list = S.sessions.filter(mtgPickable).sort(function (a, b) { return (a.session_date + (a.start_time || '')) < (b.session_date + (b.start_time || '')) ? -1 : 1; });
+  $('itemModalT').textContent = '어느 모임의 회의인가요';
+  $('itemBody').innerHTML = '<div class="mt-pick">' + list.map(function (x) {
+    return '<button type="button" class="card" onclick="closeModal(\'itemModal\');openMeeting(\'' + x.id + '\')"><b>' + esc(x.title || '모임') + '</b><small>' + shortD(x.session_date) + (x.start_time ? ' ' + String(x.start_time).slice(0, 5) : '') + (x.location ? ' · ' + esc(x.location) : '') + '</small></button>';
+  }).join('') + '</div>';
+  openModal('itemModal');
 }
