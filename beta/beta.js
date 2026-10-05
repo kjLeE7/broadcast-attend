@@ -2490,7 +2490,7 @@ function renderNotices() {
       '<div class="ann-title">' + esc(n.title) + '<i class="ann-chev">' + (open ? '▴' : '▾') + '</i></div>' +
       (open ? (n.body ? '<div class="ann-body">' + esc(n.body) + '</div>' : '') + fileChips('notice', n.id) +
         (n.seen || n.mine ? '' : '<button type="button" class="ann-ok" data-id="' + esc(n.id) + '" onclick="event.stopPropagation();confirmNotice(\'' + esc(n.id) + '\')">✓ 다 읽었어요</button>') : '') +
-      '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' + (MG.ann ? readChip('notice', n) : '') +
+      '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' + readChip('notice', n) +
         (canDel && MG.ann ? '<button class="ann-hide" onclick="event.stopPropagation();editNotice(\'' + esc(n.id) + '\')">고치기</button>' +
           '<button class="ann-hide" onclick="event.stopPropagation();deleteNotice(\'' + esc(n.id) + '\')">삭제</button>' : '') +
       '</div></div>';
@@ -3011,7 +3011,11 @@ function avTeam(t) { AV.team = t; AV.sel = ''; renderAvail(); }
 function avView(v) { AV.view = v; AV.sel = ''; renderAvail(); }
 function avPick(k) { AV.sel = AV.sel === k ? '' : k; renderAvail(); }
 // 이름 찾기: 쉼표·띄어쓰기로 여러 명 → 명단에서 이름에 그 글자가 들어간 사람 (성 빼고 이름만 적어도 됨)
-function avFind(v) { AV.q = v; AV.sel = ''; AV.qFocus = true; renderAvail(); AV.qFocus = false; }
+function avFind(v) {
+  if (window.event && window.event.isComposing) return;   // 한글 조합 중엔 기다렸다가 (compositionend에서 다시 옴)
+  if (AV.q === v) return;
+  AV.q = v; AV.sel = ''; renderAvail();
+}
 function avTerms() { return String(AV.q || '').split(/[,，\s]+/).map(function (x) { return x.trim(); }).filter(Boolean); }
 function avQ(d) {
   var out = [];
@@ -3063,7 +3067,7 @@ function renderAvail() {
     '<div class="rcr-seg">' + [['time', '시간대별'], ['person', '사람별']].map(function (v) {
       return '<button type="button" class="' + (AV.view === v[0] ? 'on' : '') + '" onclick="avView(\'' + v[0] + '\')">' + v[1] + '</button>';
     }).join('') + '</div></div>' +
-    '<div class="av-find"><input type="search" id="avQ" class="b-input" value="' + esc(AV.q || '') + '" placeholder="이름으로 같이 되는 시간 찾기 · 예) 박현희, 정동훈" oninput="avFind(this.value)">' + avFindChips(d) + '</div>';
+    avFindChips(d);
   if (!ppl.length) { $('avBody').innerHTML = h + '<div class="empty"><b>이 팀에는 사람이 없어요</b></div>'; return; }
   var n = d.dates.length, total = ppl.length;
   var q = avQ(d);
@@ -3117,7 +3121,6 @@ function renderAvail() {
     return names.length ? '<div class="av-miss"><div class="av-info-h">' + shortD(w) + '~' + shortD(ymd(e)) + ' 아직 안 냄<small>' + names.length + '명</small></div>' + avChips('', names, 'none') + '</div>' : '';
   }).join('');
   $('avBody').innerHTML = h + (miss || '<div class="av-miss av-done">2주 모두 냈어요 🎉</div>');
-  var qi = $('avQ'); if (qi && AV.qFocus) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
 }
 
 function openRec(id) {

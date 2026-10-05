@@ -297,6 +297,8 @@
       <!-- 업무가능 시간 2주 한눈에 (PC는 아래에 화면 폭 가득) -->
       <div id="recAvail" class="rec-avail">
         <div class="section-head b-gap"><h2>업무가능 시간 · 2주</h2><span class="section-count">교관 이상만 · 오늘부터 14일 · 각자 낸 업무가능 시간</span></div>
+        <!-- 이름 찾기 칸은 표 밖에 고정 (표를 다시 그려도 한글 입력이 끊기지 않게) -->
+        <div class="av-find"><input type="search" id="avQ" class="b-input" placeholder="이름으로 같이 되는 시간 찾기 · 예) 박현희, 정동훈" oninput="avFind(this.value)" oncompositionend="avFind(this.value)"></div>
         <div id="avBody"></div>
       </div>
     </section>
@@ -1031,6 +1033,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007j"></script>
+  <script src="beta.js?v=20261007k"></script>
 </body>
 </html>

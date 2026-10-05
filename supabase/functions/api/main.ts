@@ -680,7 +680,9 @@ async function readTarget(ctx: Ctx, kind: string, id: string) {
     if (!n) throw new HttpError(404, "공지를 찾을 수 없습니다");
     const unit = must(await ctx.db.from("org_units").select("unit_type").eq("id", n.team_id).single());
     const rank = await rankIn(ctx, n.team_id);
-    const canSee = n.created_by === ctx.me.id || rank >= (unit.unit_type === "팀" ? RANK.INSTRUCTOR : RANK.TEAM_LEADER);
+    // 확인 명단: 쓴 사람 + 조장 이상 (과 공지는 과의 어느 팀이든 조장 이상)
+    let canSee = n.created_by === ctx.me.id || rank >= RANK.GROUP_LEADER;
+    if (!canSee && unit.unit_type !== "팀") canSee = (await myTeams(ctx)).teams.some((t: any) => t.rank >= RANK.GROUP_LEADER);
     // 과 공지: 과의 팀 사람이면 받는 사람 (과 직책이 없어 rank가 0이어도) — 예전엔 확인이 저장 안 돼 '안 읽음'으로 돌아갔음 (2026-10-07)
     const inSection = unit.unit_type !== "팀" && rank < RANK.MEMBER && (await unitAudience(ctx, n.team_id)).some((m: any) => m.id === ctx.me.id);
     return {
@@ -4114,8 +4116,8 @@ ${text}`;
       .concat((must(elsewhere as any) ?? []).filter((r: any) => !mine.has(r.id)))
       .sort((a: any, b: any) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0) || (a.published_at < b.published_at ? 1 : -1));
     const [names, { counts, seen }] = await Promise.all([nameMap(ctx, list.map((r: any) => r.created_by)), readCounts(ctx, "notice", list)]);
-    // 확인 명단은 쓴 사람, 팀 공지는 교관 이상, 과 공지는 팀장 이상
-    const canSee = (r: any) => r.created_by === ctx.me.id || rank >= (r.team_id === team_id ? RANK.INSTRUCTOR : RANK.TEAM_LEADER);
+    // 확인 명단은 쓴 사람 + 조장 이상 (2026-10-07)
+    const canSee = (r: any) => r.created_by === ctx.me.id || rank >= RANK.GROUP_LEADER;
     return list.map((r: any) => ({
       ...r, scope: r.team_id === team_id ? "team" : units.includes(r.team_id) ? "section" : "other",
       target_names: (r.target_positions ?? []).map((c: string) => (pos.get(c) as any)?.name).filter(Boolean),
