@@ -2629,7 +2629,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       const came = a.filter((x) => ["참석", "지각", "조퇴"].includes(x.status)).length;
       let streak = 0; for (let i = a.length - 1; i >= 0 && a[i].status === "불참"; i--) streak++;
       const fresh = ns.filter((n) => Date.parse(n.created_at) > week).length;
-      return { id: m.id, name: m.name, position: m.position, group: m.group, open: open.length, latest: open.sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0]?.title ?? null,
+      return { id: m.id, name: m.name, position: m.position, rank: m.rank ?? 0, group: m.group, open: open.length, latest: open.sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0]?.title ?? null,
         followup: due.length, fresh, rate: a.length ? Math.round(came / a.length * 100) : null, sessions: a.length, streak,
         score: fresh * 3 + due.length * 2 + open.length + (streak >= 2 ? 3 : 0) + (a.length && came / a.length < .6 ? 2 : 0) };
     }).sort((x: any, y: any) => y.score - x.score || x.name.localeCompare(y.name));

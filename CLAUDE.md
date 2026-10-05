@@ -385,6 +385,7 @@
 - 탭 '인원'(`peopleView`, `#peopleTab`, 어느 팀이든 교관 이상일 때만, 화면 제목 '한 사람 한 사람', 딥링크 `?go=people`). 지금 고른 팀(`S.team`) 기준, 그 팀 교관 이상이어야 봄.
 - 표(`supabase/migrations/20261006_person_notes.sql`): `person_notes`(team_id, person_id, category 건강·직장·학업·일정 충돌·가정·기타, title 60자, body, starts_on, ends_on(비면 계속), affects 수업·스터디·녹음·업무, status 진행 중·해결됨, followup 없음·보강·대체학습 + followup_done_at, source 운영진·본인, created_by) / `person_note_comments`(운영진 메모).
 - 왼쪽 팀원 한눈에(`people.board`): 진행 중 특이사항·최근 요약·보강 밀림·이번 주 새 것·연속 불참·최근 4주 출석률, 신경 쓸 사람(score)이 위로. 오른쪽 사람별 타임라인(`people.timeline`, 열람 기록 남김): 특이사항 카드(보강 완료 체크·해결됨·운영진 메모·고치기) + 출결 기록(불참·지각·조퇴·사전 불참과 사유, 180일)을 날짜순 한 줄로.
+- (2026-10-07 바꿈) 팀원 한눈에는 **묶음 카드**(`pplGroups`: 운영진 = 교관 이상 + 4조 → 1조 → 2조 → 3조 → 조 없음, 묶음마다 '살필 사람 n'), PC는 **왼쪽·오른쪽 두 줄**(`.ppl-cols`, 인원 반씩), 이름 찾기 칸(`pplFind`, 한글 조합 안전). 사람을 누르면 **가운데 팝업**(`#pplPop`, 폰은 아래 시트, '‹ 뒤로'·✕·Esc·바깥 누르기·텔레그램 뒤로가기로 닫힘). `people.board`에 `rank` 추가.
 - 팀원 쪽: '특이사항 알리기'(일정 탭·나의 기록 + 메뉴, `#noteModal`) → `notes.save`(본인 것만, 그 팀 교관 이상에게 봇 알림) / 나의 기록 아래 '내가 알린 특이사항'(`notes.mine`, 본인이 쓴 것만, 운영진 기록·메모는 안 보임).
 - 기능: `people.board/timeline`, `notes.save/status/comment/delete/mine`. **회의 모드는 아직**(사용자: 써 본 뒤 회의 얘기를 더 하고 붙이기).
 

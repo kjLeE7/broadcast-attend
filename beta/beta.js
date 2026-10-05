@@ -1364,6 +1364,7 @@ function lastTab() {
   return t;
 }
 function setTabUI(t) {
+  if (t !== 'people' && $('pplPop') && $('pplPop').classList.contains('show')) { PPL.cur = null; $('pplPop').classList.remove('show'); document.body.classList.remove('modal-open'); }
   curTab = t;
   try { sessionStorage.setItem('betaTab', t); sessionStorage.setItem('betaTaskFrom', taskFrom); } catch (e) {}
   var pt = parentTab(t);
@@ -3561,7 +3562,7 @@ document.addEventListener('keydown', function (e) {
   else if (curTab === 'profile' && $('profileView').classList.contains('split')) closePfEdit();
   else if (curTab === 'rec' && RC.current) closeRec();
   else if (curTab === 'poll' && $('pollView').classList.contains('split')) closePoll();
-  else if (curTab === 'people' && PPL.cur) closePerson();
+  else if (curTab === 'people' && $('pplPop').classList.contains('show')) closePerson();
   else if (curTab === 'mtg') closeMeeting();
 });
 
@@ -4118,7 +4119,7 @@ if (tg && tg.BackButton) {
   tg.BackButton.onClick(function () {
     if (MODAL) closeModal();
     else if (RP.open) closeRecap();
-    else if (curTab === 'people' && PPL.cur) closePerson();
+    else if (curTab === 'people' && $('pplPop').classList.contains('show')) closePerson();
   else if (curTab === 'mtg') closeMeeting();
     else if (curTab === 'task' && A.current) closeTask();
     else if (curTab === 'rec' && RC.current) closeRec();
@@ -5190,31 +5191,55 @@ function loadPeople() {
   api('people.board', { team_id: S.team.id }).then(function (d) { PPL.board = d.members; renderPeople(); if (PPL.cur) openPerson(PPL.cur.person.id); })
     .catch(function (err) { $('pplBoard').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
-function renderPeople() {
-  var l = PPL.board || [];
-  $('pplBoard').innerHTML = '<div class="section-head"><h2>' + esc(S.team.name) + '</h2><span class="section-count">' + l.length + '명 · 신경 쓸 사람이 위로</span></div>' +
-    (l.length ? l.map(function (m) {
-      var tags = [];
-      if (m.fresh) tags.push(['bad', '이번 주 새 ' + m.fresh]);
-      if (m.followup) tags.push(['warn', '보강·대체 ' + m.followup]);
-      if (m.streak >= 2) tags.push(['bad', m.streak + '번 연속 불참']);
-      if (m.open) tags.push(['', '진행 중 ' + m.open]);
-      return '<button type="button" class="card ppl-row' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + '" onclick="openPerson(\'' + m.id + '\')">' +
-        '<span class="ppl-nm"><b>' + esc(m.name) + '</b><small>' + esc([m.position, m.group].filter(Boolean).join(' · ')) + '</small></span>' +
-        '<span class="ppl-mid">' + (m.latest ? esc(m.latest) : '<i>특이사항 없음</i>') + '<span class="tv-tags">' + tags.map(function (x) { return '<em class="' + x[0] + '">' + x[1] + '</em>'; }).join('') + '</span></span>' +
-        '<span class="ppl-rate ' + (m.rate == null ? '' : m.rate < 60 ? 'bad' : m.rate < 80 ? 'warn' : 'ok') + '">' + (m.rate == null ? '–' : m.rate + '%') + '<small>4주 출석</small></span></button>';
-    }).join('') : '<div class="empty"><b>팀원이 없어요</b></div>');
+// 팀원 한눈에: 운영진 · 1조 · 2조 · 3조 … 묶음으로, PC는 왼쪽·오른쪽 두 줄에 나눠 담음 (운영진 = 교관 이상 + 4조)
+function pplGroups(l) {
+  var g = {}, order = [];
+  l.forEach(function (m) {
+    var k = (m.rank || 0) >= RANK.INSTRUCTOR || m.group === '4조' ? '운영진' : m.group || '조 없음';
+    if (!g[k]) { g[k] = []; order.push(k); }
+    g[k].push(m);
+  });
+  order.sort(function (a, b) { var r = function (k) { return k === '운영진' ? -1 : k === '조 없음' ? 99 : parseInt(k, 10) || 50; }; return r(a) - r(b); });
+  return order.map(function (k) { return [k, g[k]]; });
 }
+function pplRow(m) {
+  var tags = [];
+  if (m.fresh) tags.push(['bad', '새 ' + m.fresh]);
+  if (m.followup) tags.push(['warn', '보강 ' + m.followup]);
+  if (m.streak >= 2) tags.push(['bad', m.streak + '연속 불참']);
+  if (m.open) tags.push(['', '진행 ' + m.open]);
+  return '<button type="button" class="ppl-it' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + (tags.length ? ' flag' : '') + '" onclick="openPerson(\'' + m.id + '\')">' +
+    '<span class="ppl-av">' + esc(m.name.slice(-2)) + '</span>' +
+    '<span class="ppl-nm"><b>' + esc(m.name) + '</b><small>' + (m.latest ? esc(m.latest) : esc(m.position || '')) + '</small></span>' +
+    (tags.length ? '<span class="tv-tags">' + tags.map(function (x) { return '<em class="' + x[0] + '">' + x[1] + '</em>'; }).join('') + '</span>' : '') +
+    '<span class="ppl-rate ' + (m.rate == null ? '' : m.rate < 60 ? 'bad' : m.rate < 80 ? 'warn' : 'ok') + '">' + (m.rate == null ? '–' : m.rate + '%') + '</span></button>';
+}
+function renderPeople() {
+  var l = PPL.board || [], q = (PPL.q || '').trim();
+  if (q) l = l.filter(function (m) { return m.name.indexOf(q) !== -1; });
+  var groups = pplGroups(l), half = Math.ceil((PPL.board || []).length / 2), cols = [[], []], n = 0;
+  groups.forEach(function (g) { (n < half || !cols[1].length && groups.length === 1 ? cols[0] : cols[1]).push(g); n += g[1].length; });
+  if (groups.length > 1 && !cols[1].length) cols[1].push(cols[0].pop());
+  var card = function (g) {
+    var flag = g[1].filter(function (m) { return m.fresh || m.followup || m.streak >= 2; }).length;
+    return '<div class="card ppl-grp"><div class="ppl-gh"><b>' + esc(g[0]) + '</b><small>' + g[1].length + '명' + (flag ? ' · <span class="bad">살필 사람 ' + flag + '</span>' : '') + '</small><span class="ppl-gr">4주 출석</span></div>' + g[1].map(pplRow).join('') + '</div>';
+  };
+  $('pplBoard').innerHTML = '<div class="ppl-top"><div class="section-head"><h2>' + esc(S.team.name) + '</h2><span class="section-count">' + (PPL.board || []).length + '명 · 묶음마다 신경 쓸 사람이 위로</span></div>' +
+    '<input type="search" class="b-input ppl-q" id="pplQ" placeholder="이름 찾기" value="' + esc(PPL.q || '') + '" oninput="pplFind(this.value)" oncompositionend="pplFind(this.value)"></div>' +
+    (l.length ? '<div class="ppl-cols">' + cols.map(function (c) { return '<div class="ppl-col">' + c.map(card).join('') + '</div>'; }).join('') + '</div>' : '<div class="empty"><b>' + (q ? '「' + esc(q) + '」인 팀원이 없어요' : '팀원이 없어요') + '</b></div>');
+  var qi = $('pplQ'); if (qi && PPL.qFocus) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
+}
+function pplFind(v) { if (window.event && window.event.isComposing) return; PPL.q = v; PPL.qFocus = true; renderPeople(); PPL.qFocus = false; }
 function openPerson(id) {
-  var wide = isWide();
-  $('pplList').style.display = wide ? 'block' : 'none'; $('peopleView').classList.toggle('split', wide);
-  $('pplDetail').style.display = 'block'; $('pplTimeline').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  var pop = $('pplPop'), first = !pop.classList.contains('show');
+  if (first) $('pplTimeline').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  pop.classList.add('show'); pop.setAttribute('aria-hidden', 'false'); document.body.classList.add('modal-open');
   try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
-  api('people.timeline', { team_id: S.team.id, person_id: id }).then(function (d) { PPL.cur = d; renderTimeline(); renderPeople(); if (!wide) window.scrollTo(0, 0); })
+  api('people.timeline', { team_id: S.team.id, person_id: id }).then(function (d) { PPL.cur = d; renderTimeline(); renderPeople(); })
     .catch(function (err) { $('pplTimeline').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
 function closePerson() {
-  PPL.cur = null; $('peopleView').classList.remove('split'); $('pplDetail').style.display = 'none'; $('pplList').style.display = 'block';
+  PPL.cur = null; var pop = $('pplPop'); pop.classList.remove('show'); pop.setAttribute('aria-hidden', 'true'); document.body.classList.remove('modal-open');
   try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
   renderPeople();
 }

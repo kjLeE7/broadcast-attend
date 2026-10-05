@@ -1763,3 +1763,29 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .cm-write textarea { flex: 1; min-width: 0; font: inherit; font-size: 14px; line-height: 1.5; padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 18px; background: var(--card-soft); resize: none; }
 .cm-write button { flex: none; border: none; border-radius: 99px; background: var(--accent); color: #fff; font: inherit; font-weight: 800; font-size: 13px; padding: 9px 16px; cursor: pointer; }
 .cm-miss { margin-top: 8px; font-size: 12.5px; } .cm-miss summary { cursor: pointer; color: var(--muted); font-weight: 700; } .cm-miss div { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; } .cm-miss span { background: var(--card-soft); border-radius: 99px; padding: 2px 9px; }
+
+/* 인원: 묶음(운영진·조) 두 줄 + 사람 팝업 */
+.ppl-top { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; } .ppl-top .section-head { margin: 0; flex: 1; }
+.ppl-q { max-width: 220px; margin: 0; }
+.ppl-cols { display: grid; gap: 14px; align-items: start; } .ppl-col { display: grid; gap: 14px; }
+@media (min-width: 900px) { .ppl-cols { grid-template-columns: 1fr 1fr; } }
+.ppl-grp { padding: 4px 0 6px; margin: 0; overflow: hidden; }
+.ppl-gh { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px 8px; border-bottom: 1px solid var(--line); }
+.ppl-gh b { font-size: 15.5px; font-family: var(--font-title) !important; } .ppl-gh small { color: var(--muted); font-size: 12px; flex: 1; } .ppl-gh .bad { color: var(--bad); font-weight: 700; }
+.ppl-gr { font-size: 11px; color: var(--muted); }
+.ppl-it { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 16px; border: none; background: none; font: inherit; text-align: left; cursor: pointer; color: var(--text); border-left: 3px solid transparent; }
+.ppl-it:hover { background: var(--card-soft); } .ppl-it.sel { background: var(--accent-soft); } .ppl-it.flag { border-left-color: var(--bad); }
+.ppl-av { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--card-soft); font-size: 10.5px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+.ppl-it .ppl-nm { flex: 1; min-width: 0; } .ppl-it .ppl-nm b { display: block; font-size: 14px; } .ppl-it .ppl-nm small { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ppl-it .tv-tags { flex: none; } .ppl-it .ppl-rate { flex: 0 0 44px; text-align: right; font-size: 13px; font-weight: 800; }
+.ppl-pop { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 24px; visibility: hidden; pointer-events: none; transition: visibility 0s linear .26s; }
+.ppl-pop.show { visibility: visible; pointer-events: auto; transition-delay: 0s; }
+.ppl-dim { position: absolute; inset: 0; background: rgba(31,30,26,.42); opacity: 0; transition: opacity .3s ease; }
+.ppl-pop.show .ppl-dim { opacity: 1; backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.ppl-box { position: relative; width: min(760px, 100%); max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); overflow-y: auto; background: var(--bg); border-radius: 24px; padding: 14px 26px 26px; box-shadow: 0 24px 64px rgba(31,30,26,.28);
+  opacity: 0; transform: translateY(18px) scale(.965); transition: opacity .2s ease, transform .26s var(--ease-in, ease); }
+.ppl-pop.show .ppl-box { opacity: 1; transform: none; transition: opacity .32s ease, transform .52s var(--ease-out, ease); }
+.ppl-bar { position: sticky; top: -14px; z-index: 2; display: flex; justify-content: space-between; align-items: center; margin: -14px -26px 6px; padding: 12px 18px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.ppl-back { border: none; background: none; font: inherit; font-size: 14.5px; font-weight: 700; color: var(--accent); cursor: pointer; padding: 4px 6px; }
+@media (max-width: 999px) { .ppl-pop { align-items: flex-end; padding: 0; } .ppl-box { max-height: 94vh; max-height: 94dvh; border-radius: 24px 24px 0 0; padding: 14px 16px 26px; transform: translateY(100%); } .ppl-bar { margin: -14px -16px 6px; } }
+@media (prefers-reduced-motion: reduce) { .ppl-box, .ppl-dim, .ppl-pop.show .ppl-box { transition: none; } }

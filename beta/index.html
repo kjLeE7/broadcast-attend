@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261007j">
+  <link rel="stylesheet" href="beta.css?v=20261007l">
 </head>
 <body>
   <div class="app">
@@ -509,10 +509,13 @@
         <p class="page-desc">팀원별 특이사항과 출결 기록을 한 줄로 모아봐요. 운영진(교관 이상)만 봐요</p>
         <div id="pplBoard"><div class="b-wait">불러오는 중...</div></div>
       </div>
-      <div id="pplDetail" style="display:none;">
-        <button class="back" onclick="closePerson()">‹ 팀원 목록</button>
-        <button class="b-close" type="button" onclick="closePerson()" aria-label="닫기" title="닫기 (Esc)">✕</button>
-        <div id="pplTimeline"></div>
+      <!-- 사람 자세히 = 팝업 (‹ 뒤로 · ✕ · Esc · 바깥 누르기로 닫힘) -->
+      <div class="ppl-pop" id="pplPop" aria-hidden="true">
+        <div class="ppl-dim" onclick="closePerson()"></div>
+        <div class="ppl-box" role="dialog" aria-modal="true">
+          <div class="ppl-bar"><button type="button" class="ppl-back" onclick="closePerson()">‹ 뒤로</button><button class="b-modal-x" type="button" onclick="closePerson()" aria-label="닫기" title="닫기 (Esc)">✕</button></div>
+          <div id="pplTimeline"></div>
+        </div>
       </div>
     </section>
 
@@ -1033,6 +1036,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007k"></script>
+  <script src="beta.js?v=20261007l"></script>
 </body>
 </html>
