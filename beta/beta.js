@@ -3896,14 +3896,20 @@ function renderTodos() {
   bd.hidden = !n; bd.textContent = n > 99 ? '99+' : String(n);
   var ap = d && d.items.filter(function (x) { return x.kind === 'approve'; })[0], ab = $('aprBadge'); ab.hidden = !ap; ab.textContent = ap ? String(ap.n) : '';
   if (!d) return;
-  if (!d.items.length) { setTodoHtml('<div class="todo-ok">✅ 지금 할 일을 다 했어요</div>'); return; }
-  var wkLabel = function (ws) { var m = parseDate(ws), e = parseDate(ws); e.setDate(e.getDate() + 6); return (m.getMonth() + 1) + '/' + m.getDate() + '~' + (e.getMonth() + 1) + '/' + e.getDate(); };
+  var now = d.items.map(function (t, i) { return [t, i]; }).filter(function (x) { return !x[0].later; });
+  if (!now.length) { setTodoHtml('<div class="todo-ok">✅ 지금 할 일을 다 했어요</div>'); if (curTab === 'mytodo' && MY.list) renderMyTodos(); return; }
+  setTodoHtml('<div class="section-head"><h2>지금 할 일</h2><span class="section-count">' + now.length + '개</span></div><div class="todo-list">' +
+    now.map(function (x) { return todoRow(x[0], x[1]); }).join('') + '</div>');
+  if (curTab === 'mytodo' && MY.list) renderMyTodos();
+}
+// 할 일 한 줄 (지금 할 일 상자 · 할 일 화면 같이 씀)
+function todoWk(ws) { var m = parseDate(ws), e = parseDate(ws); e.setDate(e.getDate() + 6); return (m.getMonth() + 1) + '/' + m.getDate() + '~' + (e.getMonth() + 1) + '/' + e.getDate(); }
+function todoRow(t, i) {
+  var wkLabel = todoWk;
   var row = function (i, ic, title, sub, urgent) {
     return '<button type="button" class="todo' + (urgent ? ' urgent' : '') + '" onclick="openTodo(' + i + ')"><span class="todo-ic">' + ic + '</span>' +
       '<span class="todo-tx"><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></span><span class="todo-go">›</span></button>';
   };
-  setTodoHtml('<div class="section-head"><h2>지금 할 일</h2><span class="section-count">' + d.items.length + '개</span></div><div class="todo-list">' +
-    d.items.map(function (t, i) {
       if (t.kind === 'weekly') return row(i, '🎙', (t.which === 'this' ? '이번 주' : '다음 주') + ' 업무가능 시간 미제출',
         wkLabel(t.week_start) + (t.which === 'next' ? ' · 마감 ' + mdw(t.due) + ' ' + hmMs(t.due) : ' · 지금이라도 입력해주세요'), t.urgent);
       if (t.kind === 'reason') return row(i, '✍️', t.status + ' 사유를 적어주세요', shortD(t.date) + ' ' + t.name, true);
@@ -3920,8 +3926,12 @@ function renderTodos() {
       if (t.kind === 'recarrive') return row(i, '🎙', '녹음실 도착 · ' + t.name, hmMs(t.start) + ' 시작' + (t.place ? ' · ' + t.place : '') + ' · 도착하면 눌러주세요', true);
       if (t.kind === 'recrun') return row(i, t.step === 'start' ? '▶' : '✅', (t.step === 'start' ? '녹음 시작 보고 · ' : '녹음 종료 보고 · ') + t.name, hmMs(t.start) + ' 시작' + (t.place ? ' · ' + t.place : ''), true);
       if (t.kind === 'recask') return row(i, '🎙', '녹음 요청 응답 · ' + t.name, t.role + ' · ' + mdw(t.start) + ' ' + hmMs(t.start) + (t.place ? ' · ' + t.place : ''), t.urgent);
+      var when = t.start ? mdw(t.start) + ' ' + hmMs(t.start) + (t.end ? '–' + hmMs(t.end) : '') : '';
+      if (t.kind === 'myrec') return row(i, '🎙', '녹음 · ' + t.name, t.role + ' · ' + when + (t.place ? ' · ' + t.place : ''), dayDiff(t.start) <= 1);
+      if (t.kind === 'duty') return row(i, t.type === '사회' ? '🎤' : t.type === '촬영' ? '🎥' : t.type === '음향편집' ? '🎧' : '🛠', t.type + ' · ' + t.name, when + (t.place ? ' · ' + t.place : ''), t.start && dayDiff(t.start) <= 1);
+      if (t.kind === 'project') return row(i, '📁', '프로젝트 · ' + t.name, t.role + ' · ' + t.status + (t.progress != null ? ' ' + t.progress + '%' : '') + (t.due ? ' · ' + t.due.slice(5).replace('-', '/') + ' 마감' : ''), false);
+      if (t.kind === 'flowwait') return row(i, '⏳', t.flow + ' · ' + t.name, '앞 단계가 끝나면 내 차례' + (t.due ? ' · ' + t.due.slice(5).replace('-', '/') + '까지' : ''), false);
       return '';
-    }).join('') + '</div>');
 }
 // 할 일을 누르면 그 화면으로
 function openTodo(i) {
@@ -3934,6 +3944,10 @@ function openTodo(i) {
   if (t.kind === 'weekly') { goWeekly(t.week_start === mondayOf('next') ? 'next' : 'this'); return; }
   if (t.kind === 'recask' || t.kind === 'recarrive' || t.kind === 'recrun') { openAsk(t.id); return; }
   if (t.kind === 'approve') { goTab('approve'); return; }
+  if (t.kind === 'myrec') { openAsk(t.id); return; }
+  if (t.kind === 'duty') { openDashItem('duty', t.id); return; }
+  if (t.kind === 'project') { openDashItem('project', t.id); return; }
+  if (t.kind === 'flowwait') { goTab('flow'); return; }
   if (t.kind === 'mytodo') { goTab('mytodo'); return; }
   if (t.kind === 'flowstep') { FW.pending = t.id; if (curTab === 'flow') loadFlows(); else goTab('flow'); return; }
   if (t.kind === 'mtgaction') { if (confirm('「' + t.name + '」 끝냈나요?')) api('mtg.actionDone', { id: t.id }).then(function () { haptic('success'); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); return; }
@@ -5603,6 +5617,7 @@ function fwParseRules(text) {
 // =====================================================================
 var MY = { list: null };
 function loadMyTodos() {
+  refreshTodos(true);
   api('mytodo.list').then(function (l) { MY.list = l; renderMyTodos(); })
     .catch(function (err) { $('mytodoArea').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
 }
@@ -5623,9 +5638,31 @@ function renderMyTodos() {
   var h = open.length ? groups.map(function (g) {
     var l = open.filter(g[1]); if (!l.length) return '';
     return '<div class="section-head b-gap"><h2>' + g[0] + '</h2><span class="section-count">' + l.length + '</span></div><div class="card my-list">' + l.map(row).join('') + '</div>';
-  }).join('') : '<div class="empty"><b>할 일이 없어요</b>위 칸에 적고 날짜를 고르면 그날 전에 알려 드려요</div>';
+  }).join('') : '<p class="rec-none">직접 적은 할 일이 없어요. 위 칸에 적고 날짜를 고르면 그날 전에 알려 드려요</p>';
   if (done.length) h += '<details class="rm-past"><summary>끝낸 일 ' + done.length + '개 (2주)</summary><div class="card my-list">' + done.map(row).join('') + '</div></details>';
   $('mytodoArea').innerHTML = h;
+  $('myCats').innerHTML = myCatsHtml();
+}
+// 앱이 알아서 모은 할 일을 종류별로 (지금 할 일 + 앞으로 2주 녹음·업무 + 내 담당 프로젝트)
+var MY_CATS = [
+  ['⏰ 체크인', ['checkin']],
+  ['🙋 모임·출결', ['plan', 'reason', 'mtgprep', 'mtgaction']],
+  ['🎙 녹음', ['recask', 'recarrive', 'recrun', 'myrec']],
+  ['🧩 프로젝트·업무', ['flowstep', 'duty', 'project', 'flowwait']],
+  ['🕒 업무가능·시간취합', ['weekly', 'poll']],
+  ['📚 과제·공지', ['task', 'notice']],
+  ['🗳 승인', ['approve']]
+];
+function myCatsHtml() {
+  var d = TODO.data; if (!d) return '<div class="b-wait">할 일을 모으는 중...</div>';
+  var all = d.items.map(function (t, i) { return [t, i]; }).filter(function (x) { return x[0].kind !== 'mytodo'; });
+  var h = MY_CATS.map(function (c) {
+    var l = all.filter(function (x) { return c[1].indexOf(x[0].kind) !== -1; }); if (!l.length) return '';
+    var urgent = l.filter(function (x) { return x[0].urgent; }).length;
+    return '<div class="section-head b-gap"><h2>' + c[0] + '</h2><span class="section-count">' + l.length + '개' + (urgent ? ' · 급한 것 ' + urgent : '') + '</span></div>' +
+      '<div class="todo-list">' + l.map(function (x) { return todoRow(x[0], x[1]); }).join('') + '</div>';
+  }).join('');
+  return h || '<div class="todo-ok my-allok">✅ 앱에서 모은 할 일은 지금 없어요</div>';
 }
 function addMyTodo() {
   var t = $('mtTitle').value.trim(); if (!t) { setMsg('mtAddMsg', '할 일을 적어주세요', true); return; }

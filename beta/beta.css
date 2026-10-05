@@ -1706,3 +1706,8 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
   .b-modal-box, .b-modal-dim, .b-modal.show .b-modal-box, .b-modal.show .b-modal-dim { transition: none; }
   .b-modal.show .b-modal-head, .b-modal.show .b-modal-body > *, .b-modal-body > .di-in > *, body.rc-pop #recView #recDetail, body.rc-pop .rc-dim, .tw-zoom:not([hidden]), .tw-zoom:not([hidden]) > * { animation: none; }
 }
+
+/* 할 일: 종류별 */
+#mytodoView .todo-list { margin-bottom: 4px; }
+#mytodoView .my-own { margin-top: 44px; padding-top: 18px; border-top: 1px dashed var(--line); }
+.my-allok { margin-top: 18px; }

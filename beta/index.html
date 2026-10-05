@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261007f">
+  <link rel="stylesheet" href="beta.css?v=20261007g">
 </head>
 <body>
   <div class="app">
@@ -460,7 +460,9 @@
     <!-- ===== 개인 › 내 할 일 (본인만, 마감 전날·당일 아침 봇 알림) ===== -->
     <section id="mytodoView" style="display:none;">
       <h1 class="page-title">할 일</h1>
-      <p class="page-desc">언제까지 해야 하는 일을 적어 두면, 마감 전날과 당일 아침에 텔레그램으로 알려 드려요. 나만 볼 수 있어요</p>
+      <p class="page-desc">체크인·모임·녹음·업무·업무가능 시간·과제까지 내가 할 일을 종류별로 모았어요. 아래에 직접 적은 할 일은 마감 전날과 당일 아침에 알려 드려요</p>
+      <div id="myCats"><div class="b-wait">불러오는 중...</div></div>
+      <div class="section-head b-gap my-own"><h2>✍️ 내가 적은 할 일</h2><span class="section-count">마감 전날·당일 아침에 텔레그램으로 알려 드려요</span></div>
       <div class="card mt-add">
         <input type="text" id="mtTitle" class="b-input" maxlength="100" placeholder="예) AI 키 새로 만들기" onkeydown="if(event.key==='Enter')addMyTodo()">
         <input type="date" id="mtDue" class="b-input">
@@ -1025,6 +1027,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261007f"></script>
+  <script src="beta.js?v=20261007h"></script>
 </body>
 </html>

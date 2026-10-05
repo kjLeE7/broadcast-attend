@@ -3423,9 +3423,25 @@ ${text}`;
       const due = Date.parse(p.deadline);
       items.push({ kind: "poll", id: p.id, name: p.title, due: p.deadline, urgent: due - now < 24 * HOUR });
     }
+    // '할 일' 화면용 (later: 지금 할 일·배지에는 안 셈): 앞으로 2주 내 녹음·업무, 내 담당 프로젝트, 아직 차례가 아닌 작업 단계
+    try {
+      const in14 = new Date(now + 14 * 86400000).toISOString();
+      const [myRec, myDuty, myProj, myWait] = await Promise.all([
+        ctx.db.from("recording_participants").select("id, role, recording_sessions!inner(id, title, status, scheduled_start, scheduled_end, location, recording_requests(title))")
+          .eq("person_id", me).eq("selected", true).eq("recording_sessions.status", "예정").gte("recording_sessions.scheduled_start", new Date(now + 2 * HOUR).toISOString()).lt("recording_sessions.scheduled_start", in14),
+        ctx.db.from("duties").select("id, duty_type, title, place, starts_at, ends_at").eq("owner_id", me).gte("ends_at", new Date(now).toISOString()).lt("starts_at", in14).order("starts_at"),
+        ctx.db.from("projects").select("id, title, status, due_on, progress, owner_id, mc_id").or(`owner_id.eq.${me},mc_id.eq.${me}`).neq("status", "완료"),
+        ctx.db.from("work_step_people").select("id, state, work_steps!inner(title, due_on, ready_at, done_at, work_flows!inner(title, status))")
+          .eq("person_id", me).is("work_steps.ready_at", null).is("work_steps.done_at", null).eq("work_steps.work_flows.status", "진행"),
+      ]);
+      for (const a of must(myRec as any) ?? []) { const rs = a.recording_sessions; items.push({ kind: "myrec", later: true, id: a.id, name: rs.recording_requests?.title ?? "녹음", role: a.role, start: Date.parse(rs.scheduled_start), end: rs.scheduled_end ? Date.parse(rs.scheduled_end) : null, place: rs.location ?? "" }); }
+      for (const d of must(myDuty as any) ?? []) items.push({ kind: "duty", later: true, id: d.id, name: d.title || d.duty_type, type: d.duty_type, start: d.starts_at ? Date.parse(d.starts_at) : null, end: d.ends_at ? Date.parse(d.ends_at) : null, place: d.place ?? "" });
+      for (const x of must(myProj as any) ?? []) items.push({ kind: "project", later: true, id: x.id, name: x.title, status: x.status, due: x.due_on, progress: x.progress, role: x.owner_id === me ? "담당" : "MC" });
+      for (const w of must(myWait as any) ?? []) items.push({ kind: "flowwait", later: true, id: w.id, name: w.work_steps.title, flow: w.work_steps.work_flows.title, due: w.work_steps.due_on });
+    } catch (e) { console.error("todos later", e); }
     const order: Record<string, number> = { reason: 0, recask: 1, weekly: 2, checkin: 3, poll: 4, plan: 5, task: 6, notice: 7 };
-    items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0) || order[x.kind] - order[y.kind]);
-    return { count: items.length, items };
+    items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0) || (order[x.kind] ?? 9) - (order[y.kind] ?? 9));
+    return { count: items.filter((x) => !x.later).length, items };
   },
 
   // ----- 개인 양식(템플릿): 만들기 화면 입력 상태를 저장해 두고 다시 채움 -----

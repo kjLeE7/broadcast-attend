@@ -433,6 +433,8 @@
 - 개인 하위 메뉴 맨 위 **'내 할 일'**(`mytodoView`, `curTab` 'mytodo', 딥링크 `?go=mytodo`). 본인만 봄. 표 `personal_todos`(person_id, title 100자, memo, due_on, done_at, reminded_d1/d0_at), 마이그레이션 `supabase/migrations/20261007_personal_todos.sql`.
 - 위 입력 줄(할 일 + 날짜 + 추가) → 지난 것·오늘·이번 주·나중에·날짜 없음으로 묶어 보여 줌, 네모 눌러 체크, 글 누르면 고치기(메모·지우기), 끝낸 일은 2주 접어 둠.
 - 알림: `cronMyTodos` — 마감 **전날·당일 아침 9시 이후** 한 번씩 봇. '지금 할 일' kind `mytodo`(마감 사흘 안·지난 것).
+- **할 일 = 내가 할 모든 것 종류별**(2026-10-07, 함수 버전 68): 위쪽 `#myCats`(`myCatsHtml`, `MY_CATS`) = `todos.list` 항목을 ⏰ 체크인 · 🙋 모임·출결(plan·reason·mtgprep·mtgaction) · 🎙 녹음(recask·recarrive·recrun·myrec) · 🧩 프로젝트·업무(flowstep·duty·project·flowwait) · 🕒 업무가능·시간취합(weekly·poll) · 📚 과제·공지 · 🗳 승인으로 묶음. 아래 '✍️ 내가 적은 할 일'(입력 줄 + 목록).
+  `todos.list`에 `later: true` 항목 추가(배지·'지금 할 일' 상자에는 안 셈, `count`에서 뺌): myrec(앞으로 2주 확정 녹음, 2시간 넘게 남은 것) · duty(내 담당 업무 2주) · project(담당·MC, 완료 아닌 것) · flowwait(아직 차례 아닌 내 작업 단계). 줄 그리기는 `todoRow(t, i)` 하나로.
 - 기능: `mytodo.list/save/done/delete`. 이강준 앞으로 'Anthropic AI 키 새로 만들기'(12/24 마감, 키 만료 12/31) 넣어 둠.
 
 ### 승인함 (2026-10-07, 함수 버전 65)
