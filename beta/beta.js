@@ -5531,8 +5531,23 @@ function fwClean(t) {
     .replace(/(하고|해서|드려서|하다가|다가)\s*[,.]?\s*$/, '')
     .replace(/\s+/g, ' ').replace(/^[,.\s]+|[,.\s]+$/g, '').slice(0, 40);
 }
+// 먼저 AI(flow.parse)로, 키가 없거나 실패하면 아래 규칙 방식(fwParseRules)으로
 function fwParse() {
   var text = $('fwNote').value.trim(); if (!text) { setMsg('fwMsg', '원문을 먼저 붙여넣어 주세요', true); return; }
+  var btn = document.querySelector('.fw-parse'); btn.disabled = true; setMsg('fwMsg', '✨ AI가 글을 읽고 단계를 나누는 중...');
+  api('flow.parse', { team_id: S.team.id, text: text }).then(function (r) {
+    btn.disabled = false;
+    if (!r.steps.length) { setMsg('fwMsg', '단계를 찾지 못했어요. 직접 적어주세요', true); return; }
+    FWF.steps = r.steps.map(function (x) { var y = fwNew(); y.key = x.key; y.title = x.title; y.detail = x.detail; y.due_on = x.due_on; y.done_rule = x.done_rule; y.after = x.after; y.people = x.people; return y; });
+    if (!$('fwTitle').value.trim() && r.title) $('fwTitle').value = r.title;
+    renderFwSteps(); setMsg('fwMsg', '✨ AI가 ' + r.steps.length + '단계를 뽑았어요. 담당·마감·앞 단계가 맞는지 확인해 주세요');
+  }).catch(function (err) {
+    btn.disabled = false;
+    fwParseRules(text);
+    if (FWF.steps.length) setMsg('fwMsg', (err.code === 'no_ai' ? '' : 'AI가 안 돼서(' + err.message + ') ') + '간단 규칙으로 ' + FWF.steps.length + '단계를 뽑았어요. 꼭 확인해 주세요');
+  });
+}
+function fwParseRules(text) {
   var ro = fwRoster(), me = { person_id: S.me.profile.id, name: S.me.profile.name }, out = [], ctx = { month: 0 }, prev = null, chain = false;
   // 글 어딘가에 '이후·그 다음'이 있으면 순서대로 쓴 글로 보고 모든 단계를 앞 단계에 이음 (괄호로 덧붙인 건 빼고)
   var ordered = /(^|\s)(이후|그\s*다음|그\s*후|그\s*뒤)/m.test(text);
@@ -5568,7 +5583,7 @@ function fwParse() {
     });
     chain = linkNext;
   });
-  if (!out.length) { setMsg('fwMsg', '단계를 찾지 못했어요. 한 줄에 일 하나씩 적어 보거나 직접 적어주세요', true); return; }
+  if (!out.length) { FWF.steps = []; setMsg('fwMsg', '단계를 찾지 못했어요. 한 줄에 일 하나씩 적어 보거나 직접 적어주세요', true); return; }
   if (!$('fwTitle').value.trim()) $('fwTitle').value = out[0].title.slice(0, 30);
   FWF.steps = out; renderFwSteps();
   setMsg('fwMsg', out.length + '단계를 뽑았어요. 담당·마감·앞 단계가 맞는지 확인해 주세요');

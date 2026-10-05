@@ -147,7 +147,7 @@
 - 텔레그램 안에서: `initData` 서명 확인 (HMAC, 키 = HMAC("WebAppData", 봇 토큰)).
 - PC 브라우저: 텔레그램 로그인 위젯 → 헤더 `x-telegram-login`, 키 = SHA256(봇 토큰), 7일간 유효. 브라우저 저장 키 `beta_tg_login`.
 - 아이디/비밀번호는 없어요. 🔴 민감 기능만 PIN을 한 번 더 입력해요 (`pin.setInitial`, `pin.verify`, `pin_sessions`).
-- Secrets(Supabase에만 있음, 코드·채팅에 절대 쓰지 않음): `TELEGRAM_BOT_TOKEN`, `ALLOWED_ORIGIN`.
+- Secrets(Supabase에만 있음, 코드·채팅에 절대 쓰지 않음): `TELEGRAM_BOT_TOKEN`, `ALLOWED_ORIGIN`, `ANTHROPIC_API_KEY`(작업 흐름 AI, 2026-10-07).
   ALLOWED_ORIGIN 끝에 `/`가 붙어 있어도 코드가 `new URL(raw).origin`으로 정리해요.
 
 ### 문지기 배포 방법 (중요)
@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel`(작업 흐름), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -417,7 +417,8 @@
 - 표(`supabase/migrations/20261006_work_flows.sql`): `work_flows`(team_id, title, note 원문, status 진행·완료·취소, created_by) / `work_steps`(sort, title, detail, due_on, done_rule 한 명·모두, after_ids = 앞 단계, ready_at, done_at, reminded_d1/over_at) / `work_step_people`(person_id 또는 null + name(앱에 없는 사람), state 대기·시작·완료·막힘, note).
 - 흐름: 만들면 앞 단계가 없는 단계 담당자에게 '내 차례' 알림. 담당자(또는 지시자·그 팀 교관 이상이 대신)가 [시작][끝냈어요][막혔어요(메모 필수)][되돌리기] → 지시자에게 알림 → `flowSync`가 단계 완료(done_rule) 판단 → 다음 단계 담당자 알림 → 다 끝나면 지시자에게 '모두 끝남'. 마감 하루 전·지남 알림(`cronFlows`), '지금 할 일' kind `flowstep`.
 - 그림: 단계 깊이(앞 단계 사슬)마다 열, 칸 색 = 진행(카키)·완료(초록)·기다림(점선)·막힘(빨강), 사람 칩에 상태.
-- **글에서 단계 뽑기**(`fwParse`, AI 없이 규칙, 2026-10-06 보강: 줄 끝 '~하고/~다가'·줄 앞 '이후'로 앞 단계에 이음, 글에 '이후/그 다음'이 있으면 모든 줄을 순서대로 이음, 할 일 단어에 배포·컨펌·운영·완료 등 추가, 날짜만 있어도 단계, '17일'은 앞에 나온 달, '10월 안으로'는 그달 말, '과장님' 같은 직책은 그 직책인 사람, 담당을 못 찾으면 글 쓴 사람): 문장·'하고/해서/드려서'로 나누고 같은 문장 안은 앞 단계로 이음, '○○님께 공유' 조각은 다음 조각과 합침, 명단 이름·'제가'(나)·'교관님들'(교관 이상 모두)·명단에 없는 '○○님께'(이름만), 오늘/내일/모레/M/D, '(내일까지 …)' 같은 덧붙임은 앞 단계 마감으로. 지시자가 고쳐서 저장.
+- **글에서 단계 뽑기 = AI 먼저**(2026-10-07): `flow.parse { team_id, text }`(그 팀 교관 이상, 하루 30번) → Claude `claude-haiku-4-5-20251001`에 원문 + 과 명단(번호·이름·팀·직책)을 보내고 tool `make_flow`로 정해진 칸만 받음(담당은 명단 번호로만, 명단 밖 사람은 outside 이름). 키는 Supabase Secret **`ANTHROPIC_API_KEY`**(없으면 503 `code: no_ai` → 앱이 규칙 방식 `fwParseRules`로 대신, 실패해도 규칙 방식). 원문 칸에 '녹음 대본·민감한 인원 정보는 넣지 마세요' 안내.
+- 규칙 방식(`fwParseRules`, AI 없이 규칙, 2026-10-06 보강: 줄 끝 '~하고/~다가'·줄 앞 '이후'로 앞 단계에 이음, 글에 '이후/그 다음'이 있으면 모든 줄을 순서대로 이음, 할 일 단어에 배포·컨펌·운영·완료 등 추가, 날짜만 있어도 단계, '17일'은 앞에 나온 달, '10월 안으로'는 그달 말, '과장님' 같은 직책은 그 직책인 사람, 담당을 못 찾으면 글 쓴 사람): 문장·'하고/해서/드려서'로 나누고 같은 문장 안은 앞 단계로 이음, '○○님께 공유' 조각은 다음 조각과 합침, 명단 이름·'제가'(나)·'교관님들'(교관 이상 모두)·명단에 없는 '○○님께'(이름만), 오늘/내일/모레/M/D, '(내일까지 …)' 같은 덧붙임은 앞 단계 마감으로. 지시자가 고쳐서 저장.
 - 기능: `flow.list/create/update/mark/cancel`(cancel `remove: true`면 지움). 카드 아래 '✏️ 작업 고치기'(`openFlowEdit`, 같은 팝업, 있던 단계는 id·같은 담당은 진행 상태 유지, 앞 단계가 바뀌어 차례가 아니게 되면 ready_at 지움) · '지우기'. '작업 취소' 버튼은 없앰(목록에서 안 보여 지우기와 같았음). 2026-10-06 샘플 1건(감정 연기 수업 준비, 안소현 대신 임지윤) SQL로 넣음(알림 없이).
 
 ### 업무 탭 둘로: 프로젝트 · 실무 (2026-10-06, 함수 버전 59)

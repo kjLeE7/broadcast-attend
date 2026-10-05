@@ -334,6 +334,8 @@ async function editableNotice(ctx: Ctx, id: string) {
 //      → 마감(끝나는 시간이 지나면 자동, 또는 마감 버튼) → 확인 안 된 대상자는 불참
 //      → 지각·불참은 본인이 사유 입력 → 월간 리포트
 // ---------------------------------------------------------------------
+// 작업 흐름 '글에서 단계 뽑기'용 AI 키 (Supabase Secrets에만, 없으면 앱이 규칙 방식으로 대신 뽑음)
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const MINIAPP_URL = Deno.env.get("MINIAPP_URL") ?? "https://kjlee7.github.io/broadcast-attend/beta/";
 const HOUR = 3600000;
 // 모임에 붙은 체크인(기상·출발·도착)도 같이: checkins: [{ id, items }]
@@ -2739,6 +2741,80 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     if (f.status === "완료") must(await ctx.db.from("work_flows").update({ status: "진행", done_at: null }).eq("id", f.id));
     await flowSync(ctx, f.id);
     return { ok: true };
+  },
+  // 글에서 단계 뽑기 (AI): 원문 + 과 명단 → Claude가 정해진 칸으로 답함. 사람은 명단 번호로만 고르게 해서 엉뚱한 이름이 안 나옴
+  async "flow.parse"(ctx) {
+    const p = ctx.payload ?? {};
+    await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
+    if (!ANTHROPIC_KEY) throw new HttpError(503, "AI 키가 아직 없어요", { code: "no_ai" });
+    const text = String(p.text ?? "").trim().slice(0, 3000);
+    if (!text) throw new HttpError(400, "원문을 먼저 적어주세요");
+    await rateLimit(ctx, "flow_ai", 30, 1440);
+    const roster = await sectionRoster(ctx, p.team_id);
+    const teamName = new Map<string, string>(roster.teams.map((t: any) => [t.id, t.name]));
+    const list = roster.members.map((m: any, i: number) => {
+      const team = Object.keys(m.ranks).map((u) => teamName.get(u)).filter(Boolean)[0] ?? "방송예술과";
+      return `${i + 1}. ${m.name} (${team} ${m.position}${m.group ? ", " + m.group : ""})`;
+    }).join("\n");
+    const meIdx = roster.members.findIndex((m: any) => m.id === ctx.me.id) + 1;
+    const today = kstToday(), wd = "일월화수목금토"[new Date(today + "T00:00:00Z").getUTCDay()];
+    const prompt = `교회 방송예술과(성우팀·아나운서팀·엔지니어팀)에서 지시자가 텔레그램에 쓴 업무 지시 글을 작업 흐름 단계로 나눠 주세요.
+오늘: ${today} (${wd}요일). 글 쓴 사람(지시자): ${meIdx > 0 ? meIdx + "번 " : ""}${ctx.me.name}. "제가/저는"은 이 사람이에요.
+
+[과 명단 — 담당은 반드시 이 번호로만 고르세요]
+${list}
+
+[규칙]
+- 단계 = 누군가 해야 하는 일 하나. 인사·감사·부탁 말투·설명만 있는 문장은 단계가 아니에요.
+- title: 짧은 명사형 할 일 (예: "수업용 PPT 1차 제작", "과장님 컨펌"). 20자 안팎.
+- people: 그 일을 하는 사람의 명단 번호. "교관님들"은 교관 이상 모두, "과장님"처럼 직책이면 그 직책인 사람. 일을 받는 사람(○○에게 배포)은 담당이 아니에요. 담당이 안 드러나면 지시자.
+- outside: 명단에 없는 사람이 담당이면 그 이름 (예: "소현"). 없으면 빈 배열.
+- after: 이 일을 시작하려면 먼저 끝나야 하는 단계 번호(1부터). "이후", "~하고", "~해서", "~다가"는 순서. 서로 상관없는 일은 비워서 동시에 진행.
+- due: 마감 날짜 YYYY-MM-DD. "17일"처럼 달이 없으면 앞에 나온 달, "10월 안으로"는 그달 마지막 날, 지난 날짜면 내년. 없으면 빈 문자열.
+- done_rule: 담당이 여럿일 때 "모두"(각자 다 해야 함) 또는 "한 명"(누구든 하나만 하면 됨).
+- detail: 덧붙일 설명이 있으면 한 줄, 없으면 빈 문자열.
+- flow_title: 작업 전체 이름 (20자 안팎).
+
+[글]
+${text}`;
+    const tool = {
+      name: "make_flow", description: "작업 흐름 단계",
+      input_schema: {
+        type: "object", required: ["flow_title", "steps"],
+        properties: {
+          flow_title: { type: "string" },
+          steps: { type: "array", maxItems: 20, items: { type: "object", required: ["title", "people", "outside", "after", "due", "done_rule", "detail"], properties: {
+            title: { type: "string" }, detail: { type: "string" }, due: { type: "string" }, done_rule: { type: "string", enum: ["한 명", "모두"] },
+            people: { type: "array", items: { type: "integer" } }, outside: { type: "array", items: { type: "string" } }, after: { type: "array", items: { type: "integer" } },
+          } } },
+        },
+      },
+    };
+    let r: any;
+    try {
+      r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 2000, tools: [tool], tool_choice: { type: "tool", name: "make_flow" }, messages: [{ role: "user", content: prompt }] }),
+      }).then((x) => x.json());
+    } catch (e: any) { console.error("ai fetch", e?.name ?? "error"); throw new HttpError(502, "AI에 연결하지 못했어요", { code: "ai_fail" }); }
+    const out = (r?.content ?? []).find((c: any) => c.type === "tool_use")?.input;
+    if (!out?.steps) { console.error("ai", r?.error?.type ?? r?.type, r?.error?.message ?? ""); throw new HttpError(502, "AI가 단계를 만들지 못했어요", { code: "ai_fail" }); }
+    const n = roster.members.length;
+    const steps = (out.steps as any[]).slice(0, 20).map((x, i) => ({
+      key: "a" + (i + 1),
+      title: String(x.title ?? "").trim().slice(0, 80),
+      detail: String(x.detail ?? "").trim().slice(0, 500),
+      due_on: isDate(x.due) ? x.due : "",
+      done_rule: x.done_rule === "모두" ? "모두" : "한 명",
+      after: [...new Set((x.after ?? []).map(Number).filter((k: number) => Number.isInteger(k) && k >= 1 && k <= i))].map((k) => "a" + k),
+      people: [
+        ...[...new Set((x.people ?? []).map(Number).filter((k: number) => Number.isInteger(k) && k >= 1 && k <= n))].map((k: any) => ({ person_id: roster.members[k - 1].id, name: roster.members[k - 1].name })),
+        ...(x.outside ?? []).map((o: any) => String(o ?? "").trim().slice(0, 30)).filter(Boolean).map((name: string) => ({ person_id: null, name })),
+      ],
+    })).filter((x) => x.title);
+    for (const x of steps) if (!x.people.length) x.people = [{ person_id: ctx.me.id, name: ctx.me.name }];
+    return { title: String(out.flow_title ?? "").trim().slice(0, 80), steps };
   },
   async "flow.mark"(ctx) {
     const p = ctx.payload ?? {};
