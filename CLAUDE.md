@@ -161,7 +161,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/mark/cancel`(작업 흐름), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel`(작업 흐름), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -413,13 +413,14 @@
 - 흐름: 만들면 앞 단계가 없는 단계 담당자에게 '내 차례' 알림. 담당자(또는 지시자·그 팀 교관 이상이 대신)가 [시작][끝냈어요][막혔어요(메모 필수)][되돌리기] → 지시자에게 알림 → `flowSync`가 단계 완료(done_rule) 판단 → 다음 단계 담당자 알림 → 다 끝나면 지시자에게 '모두 끝남'. 마감 하루 전·지남 알림(`cronFlows`), '지금 할 일' kind `flowstep`.
 - 그림: 단계 깊이(앞 단계 사슬)마다 열, 칸 색 = 진행(카키)·완료(초록)·기다림(점선)·막힘(빨강), 사람 칩에 상태.
 - **글에서 단계 뽑기**(`fwParse`, AI 없이 규칙): 문장·'하고/해서/드려서'로 나누고 같은 문장 안은 앞 단계로 이음, '○○님께 공유' 조각은 다음 조각과 합침, 명단 이름·'제가'(나)·'교관님들'(교관 이상 모두)·명단에 없는 '○○님께'(이름만), 오늘/내일/모레/M/D, '(내일까지 …)' 같은 덧붙임은 앞 단계 마감으로. 지시자가 고쳐서 저장.
-- 기능: `flow.list/create/mark/cancel`(cancel `remove: true`면 지움). 2026-10-06 샘플 1건(감정 연기 수업 준비, 안소현 대신 임지윤) SQL로 넣음(알림 없이).
+- 기능: `flow.list/create/update/mark/cancel`(cancel `remove: true`면 지움). 카드 아래 '✏️ 작업 고치기'(`openFlowEdit`, 같은 팝업, 있던 단계는 id·같은 담당은 진행 상태 유지, 앞 단계가 바뀌어 차례가 아니게 되면 ready_at 지움) · '지우기'. '작업 취소' 버튼은 없앰(목록에서 안 보여 지우기와 같았음). 2026-10-06 샘플 1건(감정 연기 수업 준비, 안소현 대신 임지윤) SQL로 넣음(알림 없이).
 
 ### 업무 탭 둘로: 프로젝트 · 실무 (2026-10-06, 함수 버전 59)
 - 아래 탭 '업무'를 누르면 하위 메뉴(`#recSub`, 개인과 같은 `togglePfSub(open, 'recSub')`, `SUB_TAB`): **프로젝트**(`flowView`, `curTab` 'flow', 작업 흐름, 딥링크 `?go=flow`) · **실무**(`recView`, 딥링크 `?go=rec`).
 - 실무 순서: 내가 맡은 녹음 → **녹음 달력**(`#recCal`, `renderRecCal`/`RCAL`, 홈 달력과 같은 `.mc` 모양, 녹음 회차만, 조율 중은 점선) → **녹음 요청 표**(`#recTable`, `renderRecTable`, 진행 중 위·지난 것 흐리게, 검색 `#rtQ` = 제목·코드·상태·녹음자·엔지니어·감독, 찾은 글자 표시) → 업무가능 시간 2주(교관 이상). '녹음 한눈에'(`recOverview`)·반반 배치는 없앰, 교관 이상 상세는 가운데 팝업 그대로.
 - **교관 아래**는 `rec.list`가 녹음 제목·코드·상태·마감 + 확정(예정·완료) 회차의 시간·녹음자 이름만 보냄(`staff: false`). 표는 [녹음·상태·일시·녹음자]만, 달력·표를 누르면 `recBrief`(녹음·녹음자·시간) 팝업.
 - 동네지도 말풍선: 10~18초에 한 번 4초.
+- 구역 제목(`.section-head h2`): 17px + 살짝 두껍게(`-webkit-text-stroke`, 고운바탕은 700이 최대), `.b-gap` 36px.
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)

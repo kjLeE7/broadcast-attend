@@ -2688,6 +2688,58 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     await flowSync(ctx, f.id);
     return { id: f.id };
   },
+  // 작업 고치기: 이름·원문·단계(있던 단계는 id로, 새 단계는 key). 담당은 같은 사람이면 진행 상태를 그대로 둠
+  async "flow.update"(ctx) {
+    const p = ctx.payload ?? {};
+    const f = await flowLoad(ctx, p.id);
+    if (!(await flowCanManage(ctx, f))) throw new HttpError(403, "지시자나 그 팀 교관 이상만 고칠 수 있어요");
+    if (f.status === "취소") throw new HttpError(400, "취소된 작업이에요");
+    const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n);
+    const title = t(p.title, 80); if (!title) throw new HttpError(400, "작업 이름을 적어주세요");
+    const steps = Array.isArray(p.steps) ? p.steps.slice(0, 30) : [];
+    if (!steps.length) throw new HttpError(400, "단계를 하나 이상 적어주세요");
+    const roster = await sectionRoster(ctx, f.team_id), ok = new Map<string, string>(roster.members.map((m: any) => [m.id, m.name]));
+    const old: any[] = must(await ctx.db.from("work_steps").select("id").eq("flow_id", f.id)) ?? [];
+    const oldIds = new Set(old.map((x) => x.id));
+    const keys = steps.map((x: any) => String(x.id && oldIds.has(x.id) ? x.id : x.key ?? ""));
+    for (const [i, x] of steps.entries()) {
+      if (!t(x.title, 80)) throw new HttpError(400, `${i + 1}단계 할 일을 적어주세요`);
+      if (!Array.isArray(x.people) || !x.people.length) throw new HttpError(400, `${i + 1}단계 담당을 정해주세요`);
+      if (x.due_on && !isDate(x.due_on)) throw new HttpError(400, "마감 날짜가 이상해요");
+      for (const a of x.after ?? []) { const j = keys.indexOf(String(a)); if (j < 0 || j >= i) throw new HttpError(400, `${i + 1}단계의 앞 단계는 그보다 위에 있는 단계만 고를 수 있어요`); }
+      for (const q of x.people) if (q.person_id && !ok.has(q.person_id)) throw new HttpError(400, "우리 과 사람만 담당으로 고를 수 있어요");
+    }
+    must(await ctx.db.from("work_flows").update({ title, note: t(p.note, 3000) || null }).eq("id", f.id));
+    const idOf = new Map<string, string>(), keep = new Set<string>();
+    for (const [i, x] of steps.entries()) {
+      const row: any = { sort: i, title: t(x.title, 80), detail: t(x.detail, 500) || null, due_on: x.due_on || null, done_rule: x.done_rule === "모두" ? "모두" : "한 명",
+        after_ids: (x.after ?? []).map((a: any) => idOf.get(String(a))).filter(Boolean) };
+      let sid: string;
+      if (x.id && oldIds.has(x.id)) {
+        sid = x.id; const cur = must(await ctx.db.from("work_steps").select("due_on").eq("id", sid).single());
+        if (cur.due_on !== row.due_on) { row.reminded_d1_at = null; row.reminded_over_at = null; }
+        must(await ctx.db.from("work_steps").update(row).eq("id", sid));
+      } else sid = must(await ctx.db.from("work_steps").insert({ flow_id: f.id, ...row }).select("id").single()).id;
+      idOf.set(keys[i], sid); keep.add(sid);
+      const want = x.people.map((q: any) => q.person_id ? { person_id: q.person_id, name: ok.get(q.person_id)! } : { person_id: null, name: t(q.name, 30) }).filter((q: any) => q.name);
+      if (!want.length) throw new HttpError(400, `${i + 1}단계 담당을 정해주세요`);
+      const have: any[] = must(await ctx.db.from("work_step_people").select("id, person_id, name").eq("step_id", sid)) ?? [];
+      const k = (q: any) => q.person_id ?? "n:" + q.name, wantK = new Set(want.map(k)), haveK = new Set(have.map(k));
+      const gone = have.filter((q) => !wantK.has(k(q))).map((q) => q.id);
+      if (gone.length) must(await ctx.db.from("work_step_people").delete().in("id", gone));
+      const add = want.filter((q: any, j: number) => !haveK.has(k(q)) && want.findIndex((z: any) => k(z) === k(q)) === j).map((q: any) => ({ step_id: sid, ...q }));
+      if (add.length) must(await ctx.db.from("work_step_people").insert(add));
+    }
+    const drop = [...oldIds].filter((id) => !keep.has(id));
+    if (drop.length) must(await ctx.db.from("work_steps").delete().in("id", drop));
+    // 앞 단계가 바뀌어 아직 차례가 아닌 단계는 차례 표시를 지움 (다시 차례가 되면 알림), 완료였던 흐름은 다시 진행
+    const all: any[] = must(await ctx.db.from("work_steps").select("id, after_ids, done_at, ready_at").eq("flow_id", f.id)) ?? [];
+    const doneIds = new Set(all.filter((x) => x.done_at).map((x) => x.id));
+    for (const x of all) if (x.ready_at && !x.done_at && !(x.after_ids ?? []).every((a: string) => doneIds.has(a))) must(await ctx.db.from("work_steps").update({ ready_at: null }).eq("id", x.id));
+    if (f.status === "완료") must(await ctx.db.from("work_flows").update({ status: "진행", done_at: null }).eq("id", f.id));
+    await flowSync(ctx, f.id);
+    return { ok: true };
+  },
   async "flow.mark"(ctx) {
     const p = ctx.payload ?? {};
     if (!UUID_RE.test(String(p.id)) || !FLOW_STATES.includes(p.state)) throw new HttpError(400, "잘못된 요청이에요");

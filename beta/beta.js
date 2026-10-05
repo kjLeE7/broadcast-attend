@@ -868,7 +868,7 @@ function renderHead() {
     // 상세 안 버튼: 고치기(조장 이상) · 회의(이름에 '회의'면 누구나)
     ((lead && ph !== 'cancel') || /회의/.test(sessionName(s)) ? '<div class="b-dacts">' +
       (lead && ph !== 'cancel' ? '<button type="button" onclick="editSession()">✏️ 모임 고치기</button>' : '') +
-      (/회의/.test(sessionName(s)) ? '<button type="button" onclick="openMeeting(\'' + s.id + '\')">🗂 회의 열기 (안건·회의록)</button>' : '') + '</div>' : '') + '</div>';
+      (/회의/.test(sessionName(s)) ? '<button type="button" onclick="openMeeting(\'' + s.id + '\')">🗂 회의 열기</button>' : '') + '</div>' : '') + '</div>';
 }
 
 function renderMine() {
@@ -5412,7 +5412,7 @@ function fwCard(f) {
         '<div class="fw-foot">' + (st === 'wait' ? '⏳ ' + x.after.map(function (a) { return idx[a]; }).join('·') + '번 끝나면 차례' : st === 'done' ? '완료' : (x.people.length > 1 ? (x.done_rule === '모두' ? '모두 완료해야 끝' : '한 명만 완료하면 끝') : '')) + '</div></div>';
     }).join('') + '</div>';
   });
-  h += '</div>' + (f.manage && f.status === '진행' ? '<div class="fw-acts"><button type="button" onclick="fwCancel(\'' + f.id + '\')">작업 취소</button><button type="button" class="bad" onclick="fwCancel(\'' + f.id + '\',true)">지우기</button></div>' : '');
+  h += '</div>' + (f.manage ? '<div class="fw-acts"><button type="button" onclick="openFlowEdit(\'' + f.id + '\')">✏️ 작업 고치기</button><button type="button" class="bad" onclick="fwCancel(\'' + f.id + '\',true)">지우기</button></div>' : '');
   return h + '</div>';
 }
 function renderFlows() {
@@ -5439,12 +5439,26 @@ function fwMark(spId, state) {
     .catch(function (err) { setMsg('fwAMsg', err.message, true); });
 }
 function fwCancel(id, remove) {
-  if (!confirm(remove ? '이 작업 흐름을 지울까요? 기록도 같이 지워져요' : '이 작업을 취소할까요? 더 이상 알림이 안 가요')) return;
+  if (!confirm('이 작업 흐름을 지울까요? 단계·진행 기록도 같이 지워지고, 더 이상 알림이 안 가요')) return;
   api('flow.cancel', { id: id, remove: !!remove }).then(function () { haptic('success'); loadFlows(); }).catch(function (err) { alertMsg(err.message); });
 }
 // ----- 만들기 -----
-var FWF = { steps: [], n: 0 };
+var FWF = { steps: [], n: 0, editId: null };
+// 작업 고치기: 같은 팝업에 지금 단계를 채움 (있던 단계는 id를 key로)
+function openFlowEdit(id) {
+  var f = (FW.list || []).filter(function (x) { return x.id === id; })[0]; if (!f) return;
+  FWF = { n: FWF.n, editId: id, steps: f.steps.map(function (x) {
+    return { id: x.id, key: x.id, title: x.title, detail: x.detail || '', due_on: x.due_on || '', done_rule: x.done_rule, after: x.after.slice(),
+      people: x.people.map(function (p) { return { person_id: p.person_id, name: p.name }; }) };
+  }) };
+  $('fwTitle').value = f.title; $('fwNote').value = f.note || '';
+  $('flowModalT').textContent = '작업 고치기'; $('fwBtn').textContent = '저장하기';
+  loadRoster().then(function () { renderFwSteps(); }).catch(function () {});
+  renderFwSteps(); setMsg('fwMsg', '진행 상태는 그대로 남아요. 새 담당자는 차례가 되면 알림을 받아요'); openModal('flowModal');
+}
 function openFlowModal() {
+  if (FWF.editId) { FWF = { steps: [], n: FWF.n }; $('fwTitle').value = ''; $('fwNote').value = ''; }
+  $('flowModalT').textContent = '작업 흐름 만들기'; $('fwBtn').textContent = '만들고 알림 보내기';
   loadRoster().then(function () { renderFwSteps(); }).catch(function () {});
   if (!FWF.steps.length) fwAddStep(); else renderFwSteps();
   setMsg('fwMsg', ''); openModal('flowModal');
@@ -5484,10 +5498,11 @@ function saveFlow() {
   var bad = steps.filter(function (x) { return !x.title.trim() || !x.people.length; })[0];
   if (bad) { setMsg('fwMsg', (FWF.steps.indexOf(bad) + 1) + '번 단계의 할 일과 담당을 채워주세요', true); return; }
   var btn = $('fwBtn'); btn.disabled = true; setMsg('fwMsg', '만드는 중...');
-  api('flow.create', { team_id: S.team.id, title: title, note: $('fwNote').value, steps: steps.map(function (x) { return { key: x.key, title: x.title, detail: x.detail, due_on: x.due_on || null, done_rule: x.done_rule, after: x.after, people: x.people }; }) })
+  var edit = FWF.editId;
+  api(edit ? 'flow.update' : 'flow.create', { id: edit, team_id: S.team.id, title: title, note: $('fwNote').value, steps: steps.map(function (x) { return { id: x.id || null, key: x.key, title: x.title, detail: x.detail, due_on: x.due_on || null, done_rule: x.done_rule, after: x.after, people: x.people }; }) })
     .then(function () {
-      haptic('success'); btn.disabled = false; FWF.steps = []; $('fwTitle').value = ''; $('fwNote').value = '';
-      setMsg('fwMsg', '만들었어요! 지금 차례인 담당자에게 알림을 보냈어요'); setTimeout(function () { closeModal('flowModal'); }, 1300); loadFlows();
+      haptic('success'); btn.disabled = false; FWF = { steps: [], n: FWF.n, editId: null }; $('fwTitle').value = ''; $('fwNote').value = '';
+      setMsg('fwMsg', edit ? '고쳤어요!' : '만들었어요! 지금 차례인 담당자에게 알림을 보냈어요'); setTimeout(function () { closeModal('flowModal'); }, 1300); loadFlows();
     }).catch(function (err) { btn.disabled = false; setMsg('fwMsg', err.message, true); });
 }
 // ----- 붙여넣은 글 → 단계 초안 (규칙 기반: 문장·'하고/해서' 나누기, 명단 이름·'제가'·'교관님들', 오늘/내일/날짜) -----

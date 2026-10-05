@@ -1625,3 +1625,8 @@ button.fw-p { cursor: pointer; } .fw-p i { font-style: normal; font-size: 11px; 
 .rt mark { background: #F2E3B3; color: inherit; border-radius: 3px; padding: 0 1px; }
 .rb-brief { display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--card-soft); margin-bottom: 8px; }
 .rb-brief > div { display: flex; gap: 12px; font-size: 14px; } .rb-brief span { flex: 0 0 52px; color: var(--muted); font-weight: 700; font-size: 13px; }
+
+/* 구역 제목(부제목): 조금 더 굵게 + 위 내용과 틈 넓게 (2026-10-06) */
+.section-head h2 { font-size: 17px; -webkit-text-stroke: .45px currentColor; letter-spacing: -0.01em; }
+.b-gap { margin-top: 36px; }
+.section-head { margin-bottom: 14px; }
