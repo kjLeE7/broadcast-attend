@@ -815,8 +815,9 @@ function openSession(id) {
   loadFiles('session', [s], function () { if (S.current && S.current.id === s.id) renderHead(); });
   $('myCard').style.display = 'block';
   $('myCard').innerHTML = '<div class="b-wait">불러오는 중...</div>';
-  ['board', 'boardChips', 'boardActs', 'remindBox', 'reviewBox'].forEach(function (k) { $(k).innerHTML = ''; });
+  ['board', 'boardChips', 'boardActs', 'remindBox', 'reviewBox', 'sessCiBox'].forEach(function (k) { $(k).innerHTML = ''; });
   loadReviews(s.id);
+  renderCheckins();   // 이 모임 체크인은 목록에서 빼고 상세에 보임
   $('boardCount').textContent = ''; setMsg('boardMsg', '');
   loadBoard(true);
   if (!wide) window.scrollTo(0, 0);
@@ -849,7 +850,7 @@ function syncSession() {
   if ($('listView').style.display !== 'none') renderList();
 }
 
-function renderDetail() { renderHead(); renderMine(); renderBoard(); renderRemind(); renderActs(); }
+function renderDetail() { renderHead(); renderMine(); renderSessCi(); renderBoard(); renderRemind(); renderActs(); }
 
 function sessCiItems(s) {
   var all = {}; (s.checkins || []).forEach(function (c) { (c.items || []).forEach(function (x) { all[x] = 1; }); });
@@ -2277,12 +2278,15 @@ var CI_EMOJI = { '기상': '☀️', '출발': '🚗', '도착': '📍' };
 function renderCheckins() {
   if (!S.team) return;
   var today = todayStr(), tmr = addDays(1);
-  var mine = C.list.filter(function (c) { return (c.check_date === today || c.check_date === tmr) && (C.showDone || !ciDone(c)); })
+  // 지금 연 모임의 체크인은 모임 상세 쪽에만 (같은 카드가 둘이면 버튼 id가 겹침)
+  var open = S.current && $('detailView').style.display !== 'none' ? S.current.id : null;
+  var mine = C.list.filter(function (c) { return (c.check_date === today || c.check_date === tmr) && (C.showDone || !ciDone(c)) && !(open && c.session_id === open); })
     .sort(function (a, b) { return a.check_date < b.check_date ? -1 : 1; });
   var done = C.list.filter(function (c) { return c.check_date === today && ciDone(c); }).length;
   // 끝난 체크인은 숨김 (시간을 고치려면 '끝난 체크인 보기')
   $('ciArea').innerHTML = mine.map(ciCard).join('') + (done ? '<button type="button" class="ci-donelink" onclick="C.showDone=!C.showDone;renderCheckins()">' +
     (C.showDone ? '끝난 체크인 접기' : '✅ 오늘 체크인 ' + done + '개 끝 · 기록 보기·고치기') + '</button>' : '');
+  renderSessCi();
   var lead = S.team.rank >= RANK.GROUP_LEADER;
   $('ciBoardWrap').style.display = MG.ci && lead && C.list.length ? 'block' : 'none';
   if (!lead || !C.list.length) return;
@@ -2376,19 +2380,38 @@ function ciBoardCard(c) {
     (c.target_label ? ' · ' + esc(c.target_label) : c.target_unit_id ? ' · ' + esc(groupName(c.target_unit_id)) + '만' : '') + '</div></div>' +
     '<span class="b-chev' + (open ? ' open' : '') + '">›</span></div><div class="b-chips">' + counts + '</div>';
   if (open) {
-    html += '<div class="table-scroll"><table class="sched ci-table"><thead><tr><th>이름</th>' +
-      c.items.map(function (it) { return '<th>' + CI_EMOJI[it] + it + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      target.map(function (m) {
-        return '<tr><td class="c-who"><b>' + esc(m.name) + '</b><span>' + esc(m.group || m.position || '') + '</span></td>' +
-          c.items.map(function (it) {
-            var r = reps.filter(function (x) { return x.person_id === m.id && x.item === it; })[0];
-            return '<td class="' + (r ? 'ci-ok' : 'ci-miss') + '">' + (r ? hmOf(r.reported_at) + (r.note ? '<small>' + esc(r.note) + '</small>' : '') : '–') + '</td>';
-          }).join('') + '</tr>';
-      }).join('') + '</tbody></table></div>' +
+    html += ciTable(c, target) +
       (S.team.rank >= RANK.INSTRUCTOR || c.created_by === S.me.profile.id ? '<div class="b-row-btns"><button class="ghost-btn" onclick="editCheckin(\'' + esc(c.id) + '\')">✏️ 체크인 고치기</button>' +
         '<button class="ghost-btn b-danger" onclick="deleteCheckin(\'' + esc(c.id) + '\')">이 체크인 지우기</button></div>' : '');
   }
   return html + '</div>';
+}
+
+function ciTable(c, target) {
+  var reps = c.reports || [];
+  return '<div class="table-scroll"><table class="sched ci-table"><thead><tr><th>이름</th>' +
+    c.items.map(function (it) { return '<th>' + CI_EMOJI[it] + it + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    target.map(function (m) {
+      return '<tr><td class="c-who"><b>' + esc(m.name) + '</b><span>' + esc(m.group || m.position || '') + '</span></td>' +
+        c.items.map(function (it) {
+          var r = reps.filter(function (x) { return x.person_id === m.id && x.item === it; })[0];
+          return '<td class="' + (r ? 'ci-ok' : 'ci-miss') + '">' + (r ? hmOf(r.reported_at) + (r.note ? '<small>' + esc(r.note) + '</small>' : '') : '–') + '</td>';
+        }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+// 모임 상세: 그 모임에 붙은 체크인 (모임 당일만). 대상자 = 내 체크인 버튼, 조장 이상 = 모두의 기록 표
+function renderSessCi() {
+  var box = $('sessCiBox'), s = S.current; if (!box) return;
+  var cs = s && s.session_date === todayStr() ? C.list.filter(function (c) { return c.session_id === s.id; }) : [];
+  if (!cs.length) { box.innerHTML = ''; return; }
+  var me = M.board && M.board.members.filter(function (m) { return m.me; })[0];
+  box.innerHTML = '<div class="section-head b-gap"><h2>오늘의 체크인</h2></div>' + cs.map(function (c) {
+    var reps = c.reports || [], all = M.board ? M.board.members : [];
+    return (me ? ciCard(c) : '') + (c.reports && all.length ? '<div class="card ci-board"><div class="b-chips">' + c.items.map(function (it) {
+      return '<span class="chip">' + CI_EMOJI[it] + ' ' + it + ' ' + reps.filter(function (r) { return r.item === it; }).length + '/' + all.length + '</span>';
+    }).join('') + '</div>' + ciTable(c, all) + '</div>' : '');
+  }).join('');
 }
 
 function createCheckin() {
