@@ -28,6 +28,9 @@
      이미 배포된 버전 31은 배포할 때 코드가 묶여 저장돼서(eszip) 비공개로 바꿔도 계속 돌아감.
   2. 옛 운영 앱 Apps Script 점검 → 2026-10-04 고친 Code.gs·WeeklyAvail.gs를 사용자에게 줌(사용자가 붙여넣고 새 버전 배포). 받은 코드는 저장소에 올리지 않기.
   3. 정식 런칭 때 **테스트 데이터 초기화** + **서버 키 교체**. 초기화 SQL은 아직 안 만듦(만들면 저장소엔 파일만, 실행은 사용자 승인 뒤).
+     - **가짜 인원 47명**(2026-10-06, UI 확인용, 사용자 요청): `supabase/seed/fake_people.sql`로 넣음(이미 실행함). 과장 1·부과장 2(1명은 아나운서팀장 겸)·성우팀 28(+실제 6 = 34)·아나운서팀 11(+겸직 팀장 = 12)·엔지니어팀 5.
+       텔레그램 번호 없음(알림 안 감), `position_history.note = '가짜(UI 확인용)'`로 구분. 업무가능(지난주~다음 주)·지난 정규수업 4번(`target_label = '정규수업 (가짜 인원)'`)·출결도 랜덤으로.
+       지우기: `supabase/seed/fake_people_cleanup.sql` (사용자 승인 뒤 실행).
 - **작업 환경 메모 (claude.ai 클라우드 작업 공간)**
   - 저장소 `.mcp.json`의 Supabase MCP는 여기선 프록시 오류로 안 붙음 → claude.ai의 Supabase 커넥터(`mcp__Supabase__*`, ToolSearch로 불러옴)로 SQL·배포·마이그레이션 함.
   - 쉘에서 Supabase 주소로 직접 요청은 막힘 → 배포 확인은 SQL `select net.http_post(url:='…/functions/v1/api', body:='{"action":"public.bot"}'::jsonb, headers:='{"Content-Type":"application/json"}'::jsonb);`
