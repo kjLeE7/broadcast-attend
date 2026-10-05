@@ -5505,50 +5505,70 @@ function saveFlow() {
       setMsg('fwMsg', edit ? '고쳤어요!' : '만들었어요! 지금 차례인 담당자에게 알림을 보냈어요'); setTimeout(function () { closeModal('flowModal'); }, 1300); loadFlows();
     }).catch(function (err) { btn.disabled = false; setMsg('fwMsg', err.message, true); });
 }
-// ----- 붙여넣은 글 → 단계 초안 (규칙 기반: 문장·'하고/해서' 나누기, 명단 이름·'제가'·'교관님들', 오늘/내일/날짜) -----
-function fwDateOf(t) {
+// ----- 붙여넣은 글 → 단계 초안 (AI 없이 규칙): 줄·문장·'하고/해서'로 나누고, '이후'·'~하고/~다가'로 끝나면 앞 단계에 이어 붙임 -----
+// 날짜: 오늘/내일/모레, 10월 10일, 10/10, 17일(앞에 나온 달), 10월 안으로(그달 말). 담당: 제가=나, 교관님들, 명단 이름, 직책(과장님·팀장님), 없으면 나
+var FW_VERB = /(제작|만들|보완|수정|찾|분류|정리|피드백|준비|녹음|편집|검토|작성|확인|도와|촬영|연습|업로드|전달|보내|배포|공유|컨펌|승인|받|운영|진행|완료|제출|안내|올리|섭외|예약|모집|점검|교육|발표|회의|정하|결정|설계|기획|테스트)/;
+var FW_LINK_START = /^(이후|그\s*후|그\s*다음|다음에?|그\s*뒤|그리고|끝나면|마치면)\s*,?\s*/;
+var FW_LINK_END = /(하고|해서|드려서|하다가|다가|한\s*뒤|한\s*후|고)\s*[,.]?\s*$/;
+function fwYmd(y, m, d) { return y + '-' + ('0' + m).slice(-2) + '-' + ('0' + d).slice(-2); }
+function fwDateOf(t, ctx) {
   if (/오늘/.test(t)) return todayStr(); if (/내일/.test(t)) return addDays(1); if (/모레/.test(t)) return addDays(2);
-  var m = t.match(/(\d{1,2})\s*[\/월]\s*(\d{1,2})\s*일?/);
-  if (m) { var y = new Date().getFullYear(), d = y + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2); return d < todayStr() ? (y + 1) + d.slice(4) : d; }
+  var y = new Date().getFullYear(), now = todayStr(), m;
+  var fix = function (d) { return d < now ? (y + 1) + d.slice(4) : d; };
+  if ((m = t.match(/(\d{1,2})\s*(?:월|\/|\.)\s*(\d{1,2})\s*일?/))) { ctx.month = +m[1]; return fix(fwYmd(y, +m[1], +m[2])); }
+  if ((m = t.match(/(\d{1,2})\s*월\s*(안|중|말|까지|내)/))) { ctx.month = +m[1]; return fix(fwYmd(y, +m[1], new Date(y, +m[1], 0).getDate())); }
+  if ((m = t.match(/(?:^|[^\d월\/.])(\d{1,2})\s*일/))) { var mm = ctx.month || (new Date().getMonth() + 1); return fix(fwYmd(y, mm, +m[1])); }
   return '';
 }
-var FW_VERB = /(제작|만들|보완|수정|찾|분류|정리|피드백|준비|녹음|편집|검토|작성|확인|도와|촬영|연습|업로드|전달|보내)/;
 function fwClean(t) {
   return t.replace(/[\u{1F000}-\u{1FFFF}☀-➿️*()]/gu, ' ')
+    .replace(FW_LINK_START, '')
     .replace(/[가-힣]{2,3}\s*(성우|교관|팀장|조장)?\s*님(께|에게)\s*공유\s*/g, ' ')
-    .replace(/(오늘|내일|모레)까지|제가|혹시|교관님들|(연기\s*)?교관분들은?|추가적으로/g, ' ')
-    .replace(/(해나갈 예정입니다|할 예정입니다|예정입니다|주시면 좋을 것 같습니다|좋을 것 같습니다|주실 수 있으실까요|수 있으실까요|해주세요|부탁드립니다|합니다|입니다)[\s?!.~]*$/, '')
-    .replace(/\s+/g, ' ').trim().slice(0, 40);
+    .replace(/\d{1,2}\s*(월|\/|\.)\s*\d{1,2}\s*일?\s*(까지|에)?|\d{1,2}\s*월\s*(안으로|안에|중으로|중에|말까지|까지|내)|(^|\s)\d{1,2}\s*일\s*(까지|에)?/g, ' ')
+    .replace(/(오늘|내일|모레)\s*(까지|중)?|제가|저는|혹시|교관님들|(연기\s*)?교관분들은?|추가적으로/g, ' ')
+    .replace(/님께\s*/g, '님 ').replace(/\s*(을|를)?\s*받(겠습니다|을 예정|기로)?[\s.!]*$/, '')
+    .replace(/(해나갈 예정입니다|할 예정입니다|예정입니다|예정|주시면 좋을 것 같습니다|좋을 것 같습니다|주실 수 있으실까요|수 있으실까요|해주세요|부탁드립니다|하겠습니다|겠습니다|합니다|입니다)[\s?!.~]*$/, '')
+    .replace(/(하고|해서|드려서|하다가|다가)\s*[,.]?\s*$/, '')
+    .replace(/\s+/g, ' ').replace(/^[,.\s]+|[,.\s]+$/g, '').slice(0, 40);
 }
 function fwParse() {
   var text = $('fwNote').value.trim(); if (!text) { setMsg('fwMsg', '원문을 먼저 붙여넣어 주세요', true); return; }
-  var ro = fwRoster(), meId = S.me.profile.id, meName = S.me.profile.name, out = [];
+  var ro = fwRoster(), me = { person_id: S.me.profile.id, name: S.me.profile.name }, out = [], ctx = { month: 0 }, prev = null, chain = false;
+  // 글 어딘가에 '이후·그 다음'이 있으면 순서대로 쓴 글로 보고 모든 단계를 앞 단계에 이음 (괄호로 덧붙인 건 빼고)
+  var ordered = /(^|\s)(이후|그\s*다음|그\s*후|그\s*뒤)/m.test(text);
   var who = function (t) {
     var ps = [];
-    if (/제가|저는|제가/.test(t)) ps.push({ person_id: meId, name: meName });
+    if (/제가|저는/.test(t)) ps.push(me);
     if (/교관\s*(님들|분들)/.test(t)) ro.filter(function (m) { return m.rank >= RANK.INSTRUCTOR; }).forEach(function (m) { ps.push({ person_id: m.id, name: m.name }); });
     ro.forEach(function (m) { if (t.indexOf(m.name) !== -1 || (m.name.length === 3 && new RegExp(m.name.slice(1) + '\\s*(님|성우|교관|팀장|조장)').test(t))) ps.push({ person_id: m.id, name: m.name }); });
-    // 명단에 없는 '○○성우님께/○○님께' (함께하는 사람 '○○님과'는 빼고)
+    // 직책으로 부르면 그 직책인 사람 (과장님·부과장님·팀장님…)
+    var pm, pre = /(부과장|과장|부팀장|팀장|서무)\s*님/g;
+    while ((pm = pre.exec(t))) { var pos = pm[1]; ro.filter(function (m) { return m.position === pos; }).forEach(function (m) { ps.push({ person_id: m.id, name: m.name }); }); }
     var re = /([가-힣]{2,3})\s*(?:성우|교관|팀장|조장)?\s*님(께|에게|이|은|는|,)/g, m;
-    while ((m = re.exec(t))) if (!ps.some(function (p) { return p.name.slice(-2) === m[1].slice(-2); }) && !/^(교관|성우|팀장|조장)$/.test(m[1])) ps.push({ person_id: null, name: m[1] });
+    while ((m = re.exec(t))) if (!ps.some(function (p) { return p.name.slice(-2) === m[1].slice(-2); }) && !/^(교관|성우|팀장|조장|과장|부과장|부팀장|서무|교관님)$/.test(m[1])) ps.push({ person_id: null, name: m[1] });
     var seen = {}; return ps.filter(function (p) { var k = p.person_id || p.name; return seen[k] ? false : (seen[k] = true); });
   };
   text.split(/\n+|(?<=[.!?。])\s+/).forEach(function (sent) {
-    sent = sent.trim(); if (!sent) return;
-    var parts = sent.split(/(?:하고|해서|드려서|한 뒤|한 후)\s*,?\s+/), prev = null;
-    // '○○님께 공유' 같은 조각은 다음 조각과 합침 (받는 사람이 다음 일을 함)
+    sent = sent.trim(); if (!sent) { chain = false; return; }
+    var linkNext = FW_LINK_END.test(sent), linkPrev = chain || FW_LINK_START.test(sent) || (ordered && !/^[(（]/.test(sent));
+    var parts = sent.split(/(?:하고|해서|드려서|한 뒤|한 후|하다가)\s*,?\s+/);
     for (var i = 0; i < parts.length - 1; i++) if (/(께|에게)\s*\S*$/.test(parts[i]) && !FW_VERB.test(parts[i].replace(/공유/, ''))) { parts[i + 1] = parts[i] + ' ' + parts[i + 1]; parts[i] = ''; }
+    var first = true;
     parts.forEach(function (c) {
       c = c.trim(); if (!c) return;
-      var due = fwDateOf(c), ps = who(c), title = fwClean(c);
-      // '(내일까지 찾아주세요)'처럼 짧은 덧붙임은 앞 단계 마감으로
-      if (due && out.length && title.replace(/찾아주시면|찾아|해주시면/g, '').trim().length < 8) { out[out.length - 1].due_on = out[out.length - 1].due_on || due; return; }
-      if (!FW_VERB.test(c) || (/필요합니다/.test(c) && !ps.length)) return;
-      var x = fwNew(); x.title = title; x.due_on = due; x.people = ps; if (prev) x.after = [prev.key];
-      out.push(x); prev = x;
+      var due = fwDateOf(c, ctx), title = fwClean(c);
+      if (due && out.length && /^[(（]/.test(c)) { out[out.length - 1].due_on = out[out.length - 1].due_on || due; return; }
+      if (!FW_VERB.test(c) && !due) return;
+      if (/필요합니다/.test(c) && !who(c).length) return;
+      if (!title) return;
+      var x = fwNew(); x.title = title; x.due_on = due; x.people = who(c);
+      if (!x.people.length) x.people = [me];   // 담당을 못 찾으면 글 쓴 사람 (고칠 수 있음)
+      if (prev && (!first || linkPrev)) x.after = [prev.key];
+      out.push(x); prev = x; first = false;
     });
+    chain = linkNext;
   });
-  if (!out.length) { setMsg('fwMsg', '단계를 찾지 못했어요. 직접 적어주세요', true); return; }
+  if (!out.length) { setMsg('fwMsg', '단계를 찾지 못했어요. 한 줄에 일 하나씩 적어 보거나 직접 적어주세요', true); return; }
   if (!$('fwTitle').value.trim()) $('fwTitle').value = out[0].title.slice(0, 30);
   FWF.steps = out; renderFwSteps();
   setMsg('fwMsg', out.length + '단계를 뽑았어요. 담당·마감·앞 단계가 맞는지 확인해 주세요');
