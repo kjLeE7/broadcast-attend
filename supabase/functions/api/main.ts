@@ -335,7 +335,7 @@ async function editableNotice(ctx: Ctx, id: string) {
 //      → 지각·불참은 본인이 사유 입력 → 월간 리포트
 // ---------------------------------------------------------------------
 // 작업 흐름 '글에서 단계 뽑기'용 AI 키 (Supabase Secrets에만, 없으면 앱이 규칙 방식으로 대신 뽑음)
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const ANTHROPIC_KEY = (Deno.env.get("ANTHROPIC_API_KEY") ?? "").replace(/\s+/g, "");   // 붙여넣을 때 들어간 줄바꿈·공백은 뺌
 const MINIAPP_URL = Deno.env.get("MINIAPP_URL") ?? "https://kjlee7.github.io/broadcast-attend/beta/";
 const HOUR = 3600000;
 // 모임에 붙은 체크인(기상·출발·도착)도 같이: checkins: [{ id, items }]
