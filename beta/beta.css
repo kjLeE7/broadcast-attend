@@ -1428,3 +1428,11 @@ html { scrollbar-gutter: stable; }
 .adm-sw { display: flex; gap: 8px; align-items: center; font-weight: 700; margin-bottom: 10px; }
 .adm-save { width: auto; padding: 9px 22px; margin-top: 12px; }
 @media (min-width: 1000px) { #adminArea { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; align-items: start; } }
+
+/* 할 수 있는 일 FAB: 예전 화면별 + 버튼은 숨기고 이 하나로 */
+.b-fab:not(.act-fab) { display: none !important; }
+.act-fab { z-index: 31; }
+.act-fab .fab-item.on .fab-mini { background: var(--accent); color: #fff; }
+.act-fab .fab-mini svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#actDim { z-index: 30; }
+body.town-mode .act-fab, body.sky-mode .act-fab { display: none !important; }

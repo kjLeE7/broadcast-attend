@@ -915,7 +915,7 @@ function renderBoard() {
   }
   $('boardChips').innerHTML = chips;
 
-  var lead = b.can_check && ph !== 'cancel' && s.session_date <= todayStr();   // 출결확인은 모임 당일부터
+  var lead = MG.sess && b.can_check && ph !== 'cancel' && s.session_date <= todayStr();   // 출결확인은 모임 당일부터 (FAB '출결 확인·마감'을 켰을 때)
   var html = '', lastGroup = '§';
   list.forEach(function (m) {
     var g = m.group || (s.target_unit_id ? '' : '조 배정 없음');
@@ -1008,7 +1008,7 @@ function setStatus(personId, status) {
 // ----- 사전체크 알림: 교관 이상은 버튼으로 미체크자에게 보냄, 자동 알림(72·24시간 전) 상태도 보여줌 -----
 function renderRemind() {
   var s = S.current, b = M.board, box = $('remindBox');
-  if (!b || phaseOf(s) !== 'before' || S.team.rank < RANK.INSTRUCTOR) { box.innerHTML = ''; return; }
+  if (!b || !MG.sess || phaseOf(s) !== 'before' || S.team.rank < RANK.INSTRUCTOR) { box.innerHTML = ''; return; }
   var left = b.members.filter(function (m) { return !(m.att && (m.att.planned_status || m.att.status)); });
   var start = s.start_ms, created = s.created_at ? Date.parse(s.created_at) : 0;
   // 자동 알림 한 줄: 보냄 / 예정 / 건너뜀(그 시점 뒤에 만든 모임)
@@ -1049,7 +1049,7 @@ function sendRemind() {
 // ----- 마감·취소·지우기 (조장 이상) -----
 function renderActs() {
   var s = S.current, ph = phaseOf(s), b = M.board;
-  if (!b.can_check || ph === 'cancel') { $('boardActs').innerHTML = ''; return; }
+  if (!MG.sess || !b.can_check || ph === 'cancel') { $('boardActs').innerHTML = ''; return; }
   var left = b.members.filter(function (m) { return !(m.att && m.att.status); }).length;
   var h = '';
   if (ph === 'live') {
@@ -1059,11 +1059,6 @@ function renderActs() {
     h += '<p class="b-note b-center">' + dtLabel(s.closed_at) + ' 마감됨 · 늦게 온 사람은 이름을 눌러 출결확인하면 지각으로 바뀌어요</p>';
   } else {
     h += '<p class="b-note b-center">모임 당일 시작 시간(' + hmMs(s.start_ms || s.end_ms) + ')부터 현장 출결확인을 해요.<br>이름을 누르면 출결확인 버튼이 나와요.</p>';
-  }
-  h += '<button class="ghost-btn" onclick="editSession()">✏️ 모임 고치기</button>';
-  if (ph !== 'closed') {
-    h += '<button class="ghost-btn b-danger" onclick="cancelSess()">모임 취소 (대상자에게 알림)</button>' +
-      '<button class="ghost-btn" onclick="deleteSess()">잘못 만들었어요 · 지우기</button>';
   }
   $('boardActs').innerHTML = h;
 }
@@ -1144,7 +1139,14 @@ function pctText(v) { return v == null ? '–' : (Math.round(v) === v ? v : v.to
 function toggleRp(id) { R.open = R.open === id ? null : id; renderReport(); }
 
 function renderReport() {
-  var d = R.data, team = d.scope === 'team', sm = d.summary;
+  var d = R.data, team = d.scope === 'team' && MG.rp, sm = d.summary;
+  if (d.scope === 'team' && !MG.rp) {   // 조장 이상도 기본은 내 기록만 (팀 리포트는 FAB)
+    var me = d.people.filter(function (p) { return p.id === S.me.profile.id; })[0];
+    $('rpDesc').textContent = '내 한 달 출결이에요';
+    $('rpBody').innerHTML = me ? '<div class="b-tiles">' + tile('출석률', pctText(me.attend_rate)) + tile('참석', me.참석 + '<small>건</small>') + tile('지각', me.지각 + '<small>건</small>') + tile('불참', me.불참 + '<small>건</small>') + '</div>' +
+      '<div class="card b-pad b-top">' + personDetail(me) + '</div>' : '<div class="empty"><b>' + monthLabel(d.month) + ' 내 출결 기록이 없어요</b>팀 전체는 오른쪽 아래 + 에서 볼 수 있어요</div>';
+    return;
+  }
   $('rpDesc').textContent = team ? S.team.name + ' 팀원마다 한 달 출결을 모아봐요' : '내 한 달 출결이에요';
   var h = '<div class="b-tiles">' +
     tile('모임', d.sessions.closed + '<small>회</small>') +
@@ -1242,6 +1244,7 @@ function goTab(t) {
   if (curTab === 'poll' && PL.dirty && !confirm('저장하지 않은 칸이 있어요. 그래도 넘어갈까요?')) return;
   closeModal(); closeFabMenu();
   if (LK.stop) { LK.stop(); LK.stop = null; }   // 캐릭터 미리보기 그리기 멈춤
+  MG = {}; closeAct();
   setTabUI(t);
   refreshTodos();
   $('stateBox').style.display = 'none';
@@ -1306,6 +1309,7 @@ function setTabUI(t) {
   $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
+  setTimeout(renderAct, 0);
 }
 // 지금 탭의 내용을 (팀이 바뀌었으면 새로) 그림
 function refreshTab() {
@@ -2201,7 +2205,7 @@ function renderCheckins() {
   $('ciArea').innerHTML = mine.map(ciCard).join('') + (done ? '<button type="button" class="ci-donelink" onclick="C.showDone=!C.showDone;renderCheckins()">' +
     (C.showDone ? '끝난 체크인 접기' : '✅ 오늘 체크인 ' + done + '개 끝 · 기록 보기·고치기') + '</button>' : '');
   var lead = S.team.rank >= RANK.GROUP_LEADER;
-  $('ciBoardWrap').style.display = lead && C.list.length ? 'block' : 'none';
+  $('ciBoardWrap').style.display = MG.ci && lead && C.list.length ? 'block' : 'none';
   if (!lead || !C.list.length) return;
   if (S.members) { $('ciBoard').innerHTML = C.list.map(ciBoardCard).join(''); return; }
   $('ciBoard').innerHTML = '<div class="empty inner"><b>불러오는 중...</b></div>';
@@ -2405,9 +2409,9 @@ function renderNotices() {
         '<span class="ann-date">' + mdOf(n.published_at) + '</span></div>' +
       '<div class="ann-title">' + esc(n.title) + '</div>' +
       (n.body ? '<div class="ann-body' + (open ? '' : ' clamp') + '">' + esc(n.body) + '</div>' : '') + fileChips('notice', n.id) +
-      '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' + readChip('notice', n) +
+      '<div class="ann-foot"><span>' + esc(n.author || '') + '</span>' + (MG.ann ? readChip('notice', n) : '') +
         (long && !open ? '<span class="ann-more">더보기</span>' : '') +
-        (canDel ? '<button class="ann-hide" onclick="event.stopPropagation();editNotice(\'' + esc(n.id) + '\')">고치기</button>' +
+        (canDel && MG.ann ? '<button class="ann-hide" onclick="event.stopPropagation();editNotice(\'' + esc(n.id) + '\')">고치기</button>' +
           '<button class="ann-hide" onclick="event.stopPropagation();deleteNotice(\'' + esc(n.id) + '\')">삭제</button>' : '') +
       '</div></div>';
   }).join('');
@@ -2551,7 +2555,7 @@ function openTask(id) {
   setMsg('tdMsg', a.my ? dtLabel(a.my.submitted_at) + '에 제출했어요. 고쳐서 다시 낼 수 있어요.' : '');
   $('tdFeedback').innerHTML = a.my && a.my.feedback ? '<div class="b-feedback"><b>💬 피드백</b>' + esc(a.my.feedback) + '</div>' : '';
   var lead = S.team.rank >= RANK.GROUP_LEADER;
-  $('tdBoardWrap').style.display = lead ? 'block' : 'none';
+  $('tdBoardWrap').style.display = lead && MG.task ? 'block' : 'none';
   if (lead) loadTaskBoard();
   try { if (tg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
   if (!wide) window.scrollTo(0, 0);
@@ -2671,7 +2675,7 @@ function loadRec() {
   if (!STF.data) loadStatForm().then(function () { if (RC.current && statCan()) renderRecBoard(); });
   if (!S.team) return Promise.resolve();
   loadRecMine();
-  var mgr = recAllowed();
+  var mgr = recAllowed() && MG.rec;   // 교관 이상이 FAB '녹음 요청 관리'를 켰을 때
   // 교관 아래: 내가 맡은 녹음만 (녹음 요청 관리·한눈에·2주 모아보기는 숨김)
   $('recListWrap').classList.toggle('rec-member', !mgr); $('recAvail').style.display = mgr ? '' : 'none'; $('recFab').style.display = mgr ? '' : 'none';
   $('recDesc').textContent = mgr ? '녹음 요청을 올리면 세 팀 교관 이상 모두에게 알림이 가요. 마감까지 가능한 사람·장소·시간을 찾아 드려요' : '내가 맡은 녹음이에요. 눌러서 수락·조율하고, 당일엔 녹음실 도착을 눌러주세요';
@@ -4202,7 +4206,7 @@ function loadStats() {
 function statSeenKey() { return 'statSeen:' + (S.me ? S.me.profile.id : ''); }
 function renderStats(first) {
   var d = STAT.data, el = $('statArea');
-  if (!d || !d.team_id) { el.innerHTML = statCan() ? '<div class="st-give-only"><button type="button" class="ghost-btn" onclick="openStatGrant({})">⭐ 스탯 주기</button></div>' : ''; return; }
+  if (!d || !d.team_id) { el.innerHTML = ''; return; }
   // 레벨업 반짝임: 이 기기에서 지난번에 본 레벨보다 오른 축 (처음 보면 반짝임 없이 기억만)
   var seen = null; try { seen = JSON.parse(localStorage.getItem(statSeenKey()) || 'null'); } catch (e) {}
   var up = {};
@@ -4214,7 +4218,7 @@ function renderStats(first) {
   var grew = d.axes.filter(function (a) { return a.level > a.prev_level; }).length;
   el.innerHTML = '<div class="st-two"><div class="st-col"><div class="section-head"><h2>나의 성장</h2><span class="section-count">' +
       (grew ? '이번 달 ' + grew + '개 축 레벨업' : '축을 누르면 다음 레벨까지 남은 XP') + '</span>' +
-      (statCan() ? '<button type="button" class="ghost-btn st-give" onclick="openStatGrant({})">⭐ 스탯 주기</button>' : '') + '</div>' +
+      '</div>' +
     '<div class="card st-card"><div class="st-chart' + (first ? ' grow' : '') + '">' + statSvg(d, up) + '</div>' +
       '<div class="st-legend"><span><i class="now"></i>지금</span><span><i class="prev"></i>지난달 말</span></div>' +
       '<div class="st-pick" id="statPick">' + statPickText() + '</div></div></div><div class="st-col">' +
@@ -4506,7 +4510,7 @@ function renderDues() {
     '<div class="du-months">' + d.months.map(function (m) { return '<div class="card du-m s-' + m.state + '"><b>' + (m.month.slice(0, 4) !== d.current.slice(0, 4) ? m.month.slice(2, 4) + '년 ' : '') + monLabel(m.month) + '</b>' + duStChip(m.state) + '</div>'; }).join('') + '</div>' +
     '<div class="du-acts"><button class="btn-primary" onclick="openDuesModal(\'회비\')">💰 납부 확인 요청</button><button class="ghost-btn du-item" onclick="openDuesModal(\'물품\')">🎁 후원물품 올리기</button></div>';
   if (d.entries.length) h += '<div class="section-head b-gap"><h2>내가 올린 것</h2></div><div class="du-list">' + d.entries.map(duEntry).join('') + '</div>';
-  if (d.treasurer) h += renderDuesBoard();
+  if (d.treasurer && MG.dues) h += renderDuesBoard();
   $('duesArea').innerHTML = h;
 }
 function duEntry(e, board) {
@@ -4893,3 +4897,67 @@ function admSetNow(key, value) {
   api('admin.set', { key: key, value: value }).then(function (r) { haptic('success'); ADM.edit[key] = ADM.settings[key] = r.value; setMsg('admMsg-recap', '저장했어요'); RP.st = null; })
     .catch(function (err) { setMsg('admMsg-recap', err.message, true); });
 }
+
+// =====================================================================
+// 할 수 있는 일 FAB: 모두가 보는 화면은 그대로 두고, 권한에 따라 다른 것(만들기·관리 보기)은 이 메뉴로
+// 관리 보기는 MG 깃발로 켜고 끔 (탭을 바꾸면 꺼짐). 메뉴는 화면·권한마다 actItems()
+// =====================================================================
+var MG = {};
+var ACT_IC = {
+  plus: '<path d="M12 5v14M5 12h14"/>', check: '<path d="M5 12.5l4.5 4.5L19 7"/>', bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>', list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  star: '<path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/>', eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/>', won: '<path d="M4 6l4 12 4-9 4 9 4-12M3 11h18"/>'
+};
+function mgToggle(k, after) { return function () { MG[k] = !MG[k]; closeAct(); after(); }; }
+function actItems() {
+  var t = curTab, it = [], lead = S.team && S.team.rank >= RANK.GROUP_LEADER, inst = S.team && S.team.rank >= RANK.INSTRUCTOR;
+  var add = function (ic, label, fn, on) { it.push({ ic: ic, label: label + (on ? ' 닫기' : ''), fn: fn, on: on }); };
+  if (t === 'attend') {
+    if (S.current) {
+      var b = M.board;
+      if (b && b.can_check) add('check', '출결 확인·마감·알림', mgToggle('sess', renderDetail), MG.sess);
+      if (lead && phaseOf(S.current) !== 'cancel') add('edit', '모임 고치기', editSession);
+      if (lead && phaseOf(S.current) !== 'closed' && phaseOf(S.current) !== 'cancel') { add('x', '모임 취소 (대상자 알림)', cancelSess); add('x', '잘못 만들었어요 · 지우기', deleteSess); }
+    } else if ($('reportView').style.display !== 'none') {
+      if (R.data && R.data.scope === 'team') { add('list', '팀 전체 리포트', mgToggle('rp', renderReport), MG.rp); if (MG.rp) add('copy', '텍스트로 복사', copyReport); }
+    } else {
+      if (lead) add('plus', '모임 만들기', openSessModal);
+      if (inst) add('plus', '체크인 만들기', openCiModal);
+      if (lead && C.list.length) add('eye', '체크인 현황', mgToggle('ci', renderCheckins), MG.ci);
+    }
+  }
+  if (t === 'poll' && !PL.cur) add('plus', '시간취합 만들기', openTpModal);
+  if (t === 'place' && PLC.d) add('plus', '장소 신청', function () { openPlaceModal(); });
+  if (t === 'notice') {
+    if (annTeams().length) add('plus', '공지 쓰기', openAnnEdit);
+    if (N.list && N.list.some(function (n) { return n.mine || n.read_count != null; })) add('eye', '확인 현황·고치기·삭제', mgToggle('ann', renderNotices), MG.ann);
+  }
+  if (t === 'task') {
+    if (A.current) { if (lead) add('eye', '제출 현황', mgToggle('task', function () { openTask(A.current.id); }), MG.task); if (inst) add('edit', '과제 고치기', editTask); }
+    else if (inst) add('plus', '과제 내기', openHwModal);
+  }
+  if (t === 'rec' && recAllowed() && !RC.current) { add('plus', '녹음 요청 올리기', openRecModal); add('list', '녹음 요청 관리·모아보기', mgToggle('rec', function () { RC.list = null; loadRec(); }), MG.rec); }
+  if (t === 'profile' && statCan()) add('star', '스탯 주기', function () { closeAct(); openStatGrant({}); });
+  if (t === 'dues' && DU.d && DU.d.treasurer) add('won', '회계 (확인·현황)', mgToggle('dues', renderDues), MG.dues);
+  return it;
+}
+function renderAct() {
+  var items = S.me ? actItems() : [], fab = $('actFab');
+  fab.style.display = items.length ? '' : 'none';
+  fab.classList.toggle('one', items.length === 1 && !items[0].on);
+  $('actMenu').innerHTML = items.map(function (x, i) {
+    return '<button class="fab-item' + (x.on ? ' on' : '') + '" type="button" onclick="actRun(' + i + ')"><span class="fab-label">' + esc(x.label) + '</span><span class="fab-mini"><svg viewBox="0 0 24 24">' + ACT_IC[x.ic] + '</svg></span></button>';
+  }).join('');
+  ACT.items = items;
+}
+var ACT = { items: [] };
+function actRun(i) { var x = ACT.items[i]; closeAct(); if (x) x.fn(); setTimeout(renderAct, 50); }
+function actFabTap() {
+  if (ACT.items.length === 1 && !ACT.items[0].on) { actRun(0); return; }
+  var open = !$('actFab').classList.contains('open');
+  $('actFab').classList.toggle('open', open); $('actDim').classList.toggle('show', open);
+}
+function closeAct() { if (!$('actFab')) return; $('actFab').classList.remove('open'); $('actDim').classList.remove('show'); }
+// ponytail: 화면 상태(상세 열기·명단 도착 등)가 바뀔 때마다 부르는 대신 1초마다 다시 계산 (메뉴가 열려 있을 땐 안 함)
+setInterval(function () { if (S.me && !$('actFab').classList.contains('open')) renderAct(); }, 1000);

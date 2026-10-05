@@ -15,7 +15,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261006l">
+  <link rel="stylesheet" href="beta.css?v=20261006m">
 </head>
 <body>
   <div class="app">
@@ -519,6 +519,13 @@
     <p class="b-foot" id="foot">베타 · 홈·출결·체크인·공지·과제·업무가능·시간취합</p>
   </div>
 
+  <!-- 할 수 있는 일 FAB (2026-10-06): 모두가 보는 화면은 그대로, 권한에 따라 다른 것(만들기·관리)은 여기로. 메뉴는 화면·권한마다 actItems()가 만듦 -->
+  <div class="b-fabdim" id="actDim" onclick="closeAct()"></div>
+  <div class="b-fab act-fab" id="actFab" style="display:none;">
+    <div class="fab-menu" id="actMenu"></div>
+    <button class="fab" type="button" onclick="actFabTap()" aria-label="할 수 있는 일" title="할 수 있는 일"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  </div>
+
   <!-- 하단 탭 -->
   <nav class="tabbar b-tabbar b-off" id="tabbar">
     <!-- PC 왼쪽 메뉴 접기/펴기 (휴대폰에선 안 보임) -->
@@ -900,6 +907,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261006a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261006k"></script>
+  <script src="beta.js?v=20261006m"></script>
 </body>
 </html>
