@@ -5331,8 +5331,8 @@ function pplRow(m) {
   if (m.followup) tags.push(['warn', '보강 ' + m.followup]);
   if (m.streak >= 2) tags.push(['bad', m.streak + '연속 불참']);
   if (m.open) tags.push(['', '진행 ' + m.open]);
-  var mc = m.mentor ? mtColor(m.mentor) : null, own = mtMentees(m.id);
-  return '<button type="button" class="ppl-it' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + (tags.length ? ' flag' : '') + (mc ? ' mt' : '') + '"' + (mc ? ' style="--mt:' + mc + '"' : '') + ' onclick="openPerson(\'' + m.id + '\')">' +
+  var mc = m.mentor ? mtColor(m.mentor) : null, own = mtMentees(m.id), rc = mc || (own ? mtColor(m.id) : null);   // 멘토 줄도 자기 색으로
+  return '<button type="button" class="ppl-it' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + (tags.length ? ' flag' : '') + (rc ? ' mt' : '') + '"' + (rc ? ' style="--mt:' + rc + '"' : '') + ' onclick="openPerson(\'' + m.id + '\')">' +
     '<span class="ppl-av' + (own ? ' mt-own' : '') + '"' + photoBg(m.photo) + (own ? ' style="--mt:' + mtColor(m.id) + '"' : '') + '>' + esc(m.name.slice(-2)) + '</span>' +
     '<span class="ppl-nm"><b>' + esc(m.name) + '<i class="ppl-pos">' + esc(m.position || '') + '</i>' +
       (mc ? '<i class="mt-chip">' + (m.mentor === S.me.profile.id ? '내 멘티' : '멘토 ' + esc(mtName(m.mentor))) + '</i>' : '') + (own ? '<i class="mt-chip own">멘티 ' + own + '명</i>' : '') + '</b><small>' + (m.latest ? '📝 ' + esc(m.latest) : '') + '</small>' +
