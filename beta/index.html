@@ -19,7 +19,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261009a">
+  <link rel="stylesheet" href="beta.css?v=20261010a">
 </head>
 <body>
   <div class="app">
@@ -501,11 +501,21 @@
       <div id="setArea"></div>
     </section>
 
-    <!-- ===== 업무 › 프로젝트: 작업 흐름 (누구나 봄, 교관 이상이 만듦) ===== -->
+    <!-- ===== 업무 › 작업: 작업 흐름 (누구나 봄, 교관 이상이 만듦). 2026-10-10 '프로젝트'에서 이름 바꿈 ===== -->
     <section id="flowView" style="display:none;">
       <h1 class="page-title">함께 만드는 일</h1>
       <p class="page-desc">누가 무엇을 하고, 다음은 누구 차례인지 한눈에 봐요</p>
       <div id="flowArea"></div>
+    </section>
+
+    <!-- ===== 업무 › 프로젝트 (2026-10-10): 여러 회차에 걸친 큰 작업. 목록(종류별 색) → 방(명단에 있는 사람만) ===== -->
+    <section id="projView" style="display:none;">
+      <div id="projList">
+        <h1 class="page-title">우리가 만드는 것</h1>
+        <p class="page-desc">여러 회차에 걸친 큰 작업이에요. 명단에 있는 사람만 들어갈 수 있어요</p>
+        <div id="projArea"></div>
+      </div>
+      <div id="projRoom" style="display:none;"></div>
     </section>
 
     <!-- ===== 월간 리포트 (개인 › 월간 리포트): 한 달 동안 내 모임·녹음·실무·과제 ===== -->
@@ -644,7 +654,8 @@
     <!-- '업무' 하위 메뉴: 프로젝트(작업 흐름) · 실무(녹음) -->
     <div class="b-pfsub" id="recSub">
       <button type="button" data-t="rec" onclick="pfGo('rec')">실무</button>
-      <button type="button" data-t="flow" onclick="pfGo('flow')">프로젝트</button>
+      <button type="button" data-t="flow" onclick="pfGo('flow')">작업</button>
+      <button type="button" data-t="proj" onclick="pfGo('proj')">프로젝트</button>
       <!-- 폰·쉬운 모드: 아래 탭이 넘치지 않게 인원·승인함·관리자는 여기로 (setupTownTab) -->
       <button type="button" class="pf-more" data-t="people" data-more="peopleTab" onclick="pfGo('people')">인원</button>
       <button type="button" class="pf-more" data-t="approve" data-more="approveTab" onclick="pfGo('approve')">승인함 <b class="sub-n" id="aprBadge2" hidden></b></button>
@@ -867,6 +878,61 @@
       </div>
     </div>
   </div>
+  <div class="b-modal" id="projModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="projModalT">
+      <div class="b-modal-head">
+        <div><h1 id="projModalT">프로젝트 만들기</h1><p>여러 회차에 걸친 큰 작업을 위한 방이에요. 명단에 넣은 사람만 들어와요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body">
+        <label class="field-label" for="pjTitle">이름</label>
+        <input type="text" id="pjTitle" class="b-input" maxlength="80" placeholder="예) 웹드라마 제작">
+        <label class="field-label">종류 <span class="hint">목록에서 색으로 구분돼요</span></label>
+        <div class="pj-kinds" id="pjKinds"></div>
+        <label class="field-label" for="pjDesc">소개 <span class="hint">선택 · 명단에 있는 사람만 봐요</span></label>
+        <textarea id="pjDesc" rows="3" maxlength="2000" placeholder="예) 성우들이 배우로 출연하는 6부작 웹드라마"></textarea>
+        <label class="field-label" for="pjChannel">어디에 나가요 <span class="hint">선택</span></label>
+        <input type="text" id="pjChannel" class="b-input" maxlength="30" placeholder="예) 유튜브 · SCJ TV · 행사">
+        <label class="field-label">상태</label>
+        <div class="pj-kinds" id="pjStatus"></div>
+        <label class="field-label" for="pjProg">진행률 <span class="hint" id="pjProgV">0%</span></label>
+        <input type="range" id="pjProg" min="0" max="100" step="5" value="0" oninput="pjProgTx()">
+        <div class="pj-dates">
+          <div><label class="field-label" for="pjStart">시작</label><input type="date" id="pjStart" class="b-input"></div>
+          <div><label class="field-label" for="pjDue">끝 (마감)</label><input type="date" id="pjDue" class="b-input"></div>
+        </div>
+        <button class="btn-primary" id="pjBtn" onclick="saveProj()">만들기</button>
+        <button class="ghost-btn b-danger" id="pjDel" type="button" onclick="delProj()" style="display:none;">프로젝트 지우기</button>
+        <div class="msg" id="pjMsg"></div>
+      </div>
+    </div>
+  </div>
+  <div class="b-modal" id="pmModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="pmModalT">
+      <div class="b-modal-head">
+        <div><h1 id="pmModalT">사람 넣기</h1><p>넣으면 그 사람에게 텔레그램 알림이 가요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body">
+        <label class="field-label">자리</label>
+        <div class="pj-kinds" id="pmRoles"></div>
+        <p class="pm-role-tx" id="pmRoleTx"></p>
+        <label class="field-label" for="pmPart">맡은 일 · 배역 <span class="hint">선택</span></label>
+        <input type="text" id="pmPart" class="b-input" maxlength="40">
+        <label class="field-label">사람</label>
+        <div class="fw-chips pm-picked" id="pmPicked"></div>
+        <div id="pmFind">
+          <input type="text" id="pmQ" class="b-input" maxlength="20" placeholder="이름으로 찾기" oninput="if(!event.isComposing)pmFind()" oncompositionend="pmFind()">
+          <div class="pm-res" id="pmRes"></div>
+        </div>
+        <button class="btn-primary" id="pmBtn" onclick="savePm()">넣고 알림 보내기</button>
+        <button class="ghost-btn b-danger" id="pmOut" type="button" onclick="pmRemove()" style="display:none;">이 프로젝트에서 빼기</button>
+        <div class="msg" id="pmMsg"></div>
+      </div>
+    </div>
+  </div>
   <div class="b-modal" id="itemModal" aria-hidden="true">
     <div class="b-modal-dim" onclick="closeModal()"></div>
     <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="itemModalT">
@@ -1074,6 +1140,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261009a"></script>
+  <script src="beta.js?v=20261010a"></script>
 </body>
 </html>

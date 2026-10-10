@@ -108,7 +108,9 @@ var DEEP_SESSION = (function () { try { return new URLSearchParams(location.sear
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'rec', 'mytodo', 'approve'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'proj', 'rec', 'mytodo', 'approve'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+// 프로젝트 알림의 버튼: ?go=proj&p=프로젝트id → 그 방으로
+var DEEP_PROJ = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'proj' ? q.get('p') : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
   DEEP_SESSION = null;
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
@@ -166,6 +168,7 @@ function boot() {
     else if (DEEP_TAB) {
       var tab = DEEP_TAB; DEEP_TAB = null;
       try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+      if (tab === 'proj' && DEEP_PROJ) { PJ.pending = DEEP_PROJ; DEEP_PROJ = null; }
       Promise.resolve(selectTeam(me.teams[0].id)).then(function () { goTab(tab); });
     }
     else if (DEEP_WEEK) {
@@ -1299,7 +1302,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView', approve: 'approveView', practice: 'practiceView', settings: 'settingsView' };
+var VIEWS = { proj: 'projView', home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView', approve: 'approveView', practice: 'practiceView', settings: 'settingsView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1319,7 +1322,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' || t === 'proj' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1380,7 +1383,7 @@ function setTabUI(t) {
   togglePfSub(!pfFloating() && pt === 'admin', 'admSub');
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
-  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'mytodo' && t !== 'approve' && t !== 'practice' && t !== 'settings' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
+  $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'proj' && t !== 'mytodo' && t !== 'approve' && t !== 'practice' && t !== 'settings' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
   document.body.classList.toggle('sky-mode', t === 'sky');
   setTimeout(renderAct, 0);
@@ -1403,6 +1406,7 @@ function refreshTab() {
   else if (curTab === 'people') loadPeople();
   else if (curTab === 'mtg') loadMeeting();
   else if (curTab === 'flow') loadFlows();
+  else if (curTab === 'proj') loadProj();
   else if (curTab === 'mytodo') loadMyTodos();
   else if (curTab === 'approve') loadApprove();
   else if (curTab === 'practice') loadPractice();
@@ -3829,9 +3833,9 @@ function renderProjects() {
     var st = PJ_ST[p.status] || [p.status || '', 'pjs-plan'], n = projSegs(p);
     var due = p.due ? (dayDiff(p.due) < 0 ? '마감 지남' : dayDiff(p.due) === 0 ? '오늘 마감' : 'D-' + dayDiff(p.due)) + ' · ' + mdw(p.due) : '';
     return '<div class="pj dash-tap" role="button" tabindex="0" onclick="openDashItem(\'project\',\'' + p.id + '\')">' +
-      '<div class="pj-top"><b>' + esc(p.title) + '</b><span class="pj-st ' + st[1] + '">' + esc(st[0]) + '</span></div>' +
+      '<div class="pj-top"><b><i class="pk-dot ' + pkCls(p.kind) + '"></i>' + esc(p.title) + '</b><span class="pj-st ' + st[1] + '">' + esc(st[0]) + '</span></div>' +
       '<div class="pj-bar ' + st[1] + '"><i' + (n >= 1 ? ' class="on"' : '') + '></i><i' + (n >= 2 ? ' class="on"' : '') + '></i><i' + (n >= 3 ? ' class="on"' : '') + '></i></div>' +
-      '<div class="pj-meta">' + esc([p.channel, p.owner && '담당 ' + p.owner, p.mc && 'MC ' + p.mc].filter(Boolean).join(' · ')) +
+      '<div class="pj-meta">' + esc([p.channel, p.owner && 'PD ' + p.owner].filter(Boolean).join(' · ')) +
         (due ? '<span class="pj-due' + (p.due && dayDiff(p.due) <= 3 ? ' soon' : '') + '">' + due + '</span>' : '') + '</div>' +
       (p.desc ? '<div class="pj-desc">' + esc(p.desc) + '</div>' : '') +
     '</div>';
@@ -4052,10 +4056,13 @@ function openTodo(i) {
   if (t.kind === 'review') { inTeam(function () { goTab('attend'); return refreshSessions().then(function () { if (byId(S.sessions, t.id)) openSession(t.id); }); }); return; }
   if (t.kind === 'myrec') { openAsk(t.id); return; }
   if (t.kind === 'duty') { openDashItem('duty', t.id); return; }
-  if (t.kind === 'project') { openDashItem('project', t.id); return; }
-  if (t.kind === 'flowwait') { goTab('flow'); return; }
+  if (t.kind === 'project') { openProject(t.id); return; }
+  if (t.kind === 'flowwait') { if (t.project) openProject(t.project); else goTab('flow'); return; }
   if (t.kind === 'mytodo') { goTab('mytodo'); return; }
-  if (t.kind === 'flowstep') { FW.pending = t.id; if (curTab === 'flow') loadFlows(); else goTab('flow'); return; }
+  if (t.kind === 'flowstep') {
+    if (t.project) { PJ.pendingStep = t.id; PJ.id = t.project; if (curTab === 'proj') loadProjRoom(); else goTab('proj'); return; }
+    FW.pending = t.id; if (curTab === 'flow') loadFlows(); else goTab('flow'); return;
+  }
   if (t.kind === 'mtgaction') { if (confirm('「' + t.name + '」 끝냈나요?')) api('mtg.actionDone', { id: t.id }).then(function () { haptic('success'); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); return; }
   if (t.kind === 'mtgprep') { inTeam(function () { openMeeting(t.id); }); return; }
   if (t.kind === 'poll') { PL.pending = t.id; if (curTab === 'poll') loadPolls(); else goTab('poll'); return; }
@@ -5247,7 +5254,13 @@ function actItems() {
     else if (inst) add('plus', '과제 내기', openHwModal);
   }
   if (t === 'rec' && recAllowed() && !RC.current) add('plus', '녹음 요청 올리기', openRecModal);
-  if (t === 'flow' && FW.can) add('plus', '작업 흐름 만들기', openFlowModal);
+  if (t === 'flow' && FW.can) add('plus', '작업 흐름 만들기', function () { openFlowModal(); });
+  if (t === 'proj') {
+    if (!PJ.id && PJ.can) add('plus', '프로젝트 만들기', function () { openProjModal(false); });
+    var pc = PJ.id && PJ.cur && PJ.cur.project.id === PJ.id ? PJ.cur : null;
+    if (pc && pc.me.full) add('plus', '작업 만들기', function () { openFlowModal(pc.project.id); });
+    if (pc && pc.me.manage) { add('plus', '사람 넣기', function () { openPmModal(); }); add('edit', '프로젝트 고치기', function () { openProjModal(true); }); }
+  }
   if (t === 'profile') add('edit', '특이사항 알리기', function () { openNote({}); });
   if (t === 'profile' && statCan()) add('star', '스탯 주기', function () { closeAct(); openStatGrant({}); });
   if (t === 'dues' && DU.d && DU.d.treasurer) add('won', '회계 (확인·현황)', mgToggle('dues', renderDues), MG.dues);
@@ -5645,7 +5658,7 @@ function renderFlows() {
     (fin.length ? '<details class="rm-past"><summary>끝난 작업 ' + fin.length + '건 (30일)</summary>' + fin.map(fwCard).join('') + '</details>' : '');
 }
 function fwFind(spId) {
-  var r = null; (FW.list || []).forEach(function (f) { f.steps.forEach(function (x) { x.people.forEach(function (p) { if (p.id === spId) r = { f: f, x: x, p: p }; }); }); });
+  var r = null; (FW.list || []).concat(PJ.cur ? PJ.cur.flows : []).forEach(function (f) { f.steps.forEach(function (x) { x.people.forEach(function (p) { if (p.id === spId) r = { f: f, x: x, p: p }; }); }); });
   return r;
 }
 function fwAct(spId) {
@@ -5657,23 +5670,25 @@ function fwAct(spId) {
     '<label class="field-label" for="fwANote">메모 <span class="hint">막혔어요는 필수 · 지시자에게 같이 가요</span></label><input type="text" id="fwANote" class="b-input" maxlength="300" value="' + esc(r.p.note || '') + '" placeholder="예) 자료 링크 공유했어요 / 영상 원본이 없어요"><div class="msg" id="fwAMsg"></div>';
   openModal('itemModal');
 }
+// 작업이 바뀌면: 프로젝트 방이면 방을, 아니면 작업 목록을 다시
+function fwReload() { if (curTab === 'proj' && PJ.id) loadProjRoom(); else loadFlows(); }
 function fwMark(spId, state) {
   if (FW.marking) return; FW.marking = true;   // 두 번 눌러도 한 번만
   document.querySelectorAll('.fw-ab').forEach(function (b) { b.disabled = true; });
   var unlock = function () { FW.marking = false; document.querySelectorAll('.fw-ab').forEach(function (b) { b.disabled = false; }); };
-  api('flow.mark', { id: spId, state: state, note: $('fwANote').value }).then(function () { unlock(); haptic('success'); closeModal('itemModal'); loadFlows(); refreshTodos(true); })
+  api('flow.mark', { id: spId, state: state, note: $('fwANote').value }).then(function () { unlock(); haptic('success'); closeModal('itemModal'); fwReload(); refreshTodos(true); })
     .catch(function (err) { unlock(); setMsg('fwAMsg', err.message, true); });
 }
 function fwCancel(id, remove) {
   if (!confirm('이 작업 흐름을 지울까요? 단계·진행 기록도 같이 지워지고, 더 이상 알림이 안 가요')) return;
-  api('flow.cancel', { id: id, remove: !!remove }).then(function () { haptic('success'); loadFlows(); }).catch(function (err) { alertMsg(err.message); });
+  api('flow.cancel', { id: id, remove: !!remove }).then(function () { haptic('success'); fwReload(); }).catch(function (err) { alertMsg(err.message); });
 }
 // ----- 만들기 -----
-var FWF = { steps: [], n: 0, editId: null };
+var FWF = { steps: [], n: 0, editId: null, projectId: null };
 // 작업 고치기: 같은 팝업에 지금 단계를 채움 (있던 단계는 id를 key로)
 function openFlowEdit(id) {
-  var f = (FW.list || []).filter(function (x) { return x.id === id; })[0]; if (!f) return;
-  FWF = { n: FWF.n, editId: id, steps: f.steps.map(function (x) {
+  var f = (FW.list || []).concat(PJ.cur ? PJ.cur.flows : []).filter(function (x) { return x.id === id; })[0]; if (!f) return;
+  FWF = { n: FWF.n, editId: id, projectId: f.project_id || null, steps: f.steps.map(function (x) {
     return { id: x.id, key: x.id, title: x.title, detail: x.detail || '', due_on: x.due_on || '', done_rule: x.done_rule, after: x.after.slice(),
       people: x.people.map(function (p) { return { person_id: p.person_id, name: p.name }; }) };
   }) };
@@ -5682,9 +5697,11 @@ function openFlowEdit(id) {
   loadRoster().then(function () { renderFwSteps(); }).catch(function () {});
   renderFwSteps(); setMsg('fwMsg', '진행 상태는 그대로 남아요. 새 담당자는 차례가 되면 알림을 받아요'); openModal('flowModal');
 }
-function openFlowModal() {
-  if (FWF.editId) { FWF = { steps: [], n: FWF.n }; $('fwTitle').value = ''; $('fwNote').value = ''; }
-  $('flowModalT').textContent = '작업 흐름 만들기'; $('fwBtn').textContent = '만들고 알림 보내기';
+// projectId: 프로젝트 방에서 만들면 그 프로젝트 안 작업 (작업 탭 목록엔 안 나옴)
+function openFlowModal(projectId) {
+  projectId = typeof projectId === 'string' ? projectId : null;
+  if (FWF.editId || FWF.projectId !== projectId) { FWF = { steps: [], n: FWF.n, projectId: projectId }; $('fwTitle').value = ''; $('fwNote').value = ''; }
+  $('flowModalT').textContent = projectId && PJ.cur ? PJ.cur.project.title + ' · 작업 만들기' : '작업 흐름 만들기'; $('fwBtn').textContent = '만들고 알림 보내기';
   loadRoster().then(function () { renderFwSteps(); }).catch(function () {});
   if (!FWF.steps.length) fwAddStep(); else renderFwSteps();
   setMsg('fwMsg', ''); openModal('flowModal');
@@ -5725,10 +5742,10 @@ function saveFlow() {
   if (bad) { setMsg('fwMsg', (FWF.steps.indexOf(bad) + 1) + '번 단계의 할 일과 담당을 채워주세요', true); return; }
   var btn = $('fwBtn'); btn.disabled = true; setMsg('fwMsg', '만드는 중...');
   var edit = FWF.editId;
-  api(edit ? 'flow.update' : 'flow.create', { id: edit, team_id: S.team.id, title: title, note: $('fwNote').value, steps: steps.map(function (x) { return { id: x.id || null, key: x.key, title: x.title, detail: x.detail, due_on: x.due_on || null, done_rule: x.done_rule, after: x.after, people: x.people }; }) })
+  api(edit ? 'flow.update' : 'flow.create', { id: edit, team_id: S.team.id, project_id: FWF.projectId || null, title: title, note: $('fwNote').value, steps: steps.map(function (x) { return { id: x.id || null, key: x.key, title: x.title, detail: x.detail, due_on: x.due_on || null, done_rule: x.done_rule, after: x.after, people: x.people }; }) })
     .then(function () {
-      haptic('success'); btn.disabled = false; FWF = { steps: [], n: FWF.n, editId: null }; $('fwTitle').value = ''; $('fwNote').value = '';
-      setMsg('fwMsg', edit ? '고쳤어요!' : '만들었어요! 지금 차례인 담당자에게 알림을 보냈어요'); setTimeout(function () { closeModal('flowModal'); }, 1300); loadFlows();
+      haptic('success'); btn.disabled = false; FWF = { steps: [], n: FWF.n, editId: null, projectId: FWF.projectId }; $('fwTitle').value = ''; $('fwNote').value = '';
+      setMsg('fwMsg', edit ? '고쳤어요!' : '만들었어요! 지금 차례인 담당자에게 알림을 보냈어요'); setTimeout(function () { closeModal('flowModal'); }, 1300); fwReload();
     }).catch(function (err) { btn.disabled = false; setMsg('fwMsg', err.message, true); });
 }
 // ----- 붙여넣은 글 → 단계 초안 (AI 없이 규칙): 줄·문장·'하고/해서'로 나누고, '이후'·'~하고/~다가'로 끝나면 앞 단계에 이어 붙임 -----
@@ -5761,7 +5778,7 @@ function fwClean(t) {
 function fwParse() {
   var text = $('fwNote').value.trim(); if (!text) { setMsg('fwMsg', '원문을 먼저 붙여넣어 주세요', true); return; }
   var btn = document.querySelector('.fw-parse'); btn.disabled = true; setMsg('fwMsg', '✨ AI가 글을 읽고 단계를 나누는 중...');
-  api('flow.parse', { team_id: S.team.id, text: text }).then(function (r) {
+  api('flow.parse', { team_id: S.team.id, project_id: FWF.projectId || null, text: text }).then(function (r) {
     btn.disabled = false;
     if (!r.steps.length) { setMsg('fwMsg', '단계를 찾지 못했어요. 직접 적어주세요', true); return; }
     FWF.steps = r.steps.map(function (x) { var y = fwNew(); y.key = x.key; y.title = x.title; y.detail = x.detail; y.due_on = x.due_on; y.done_rule = x.done_rule; y.after = x.after; y.people = x.people; return y; });
@@ -5816,6 +5833,215 @@ function fwParseRules(text) {
 }
 
 // =====================================================================
+// 프로젝트 (업무 › 프로젝트, 2026-10-10): 여러 회차에 걸친 큰 작업. 명단에 있는 사람만 방에 들어감
+// 목록 = 종류별 색 카드(큰 글씨 분류 없이 색만), 방 = 개요 · 사람 · 작업(전용 작업 흐름) · 대본·자료(제작진만)
+// =====================================================================
+var PJ = { list: null, can: false, id: null, cur: null, pending: null, pendingStep: null, folder: '대본' };
+var PJ_KIND = { '영상': '영상 제작', '오디오': '오디오 제작', '방송': '정기 방송', '행사': '행사·공연', '기타': '기타' };
+var PJ_KINDS = ['영상', '오디오', '방송', '행사', '기타'];
+var PJ_ROLE_TX = { 'PD': '고치기·사람 넣기·지우기', '제작진': '대본·자료까지 모두 보고 작업을 만들어요', '출연': '개요·사람·내가 들어간 작업만 봐요' };
+function pkCls(k) { return 'pk-' + (PJ_KINDS.indexOf(k) === -1 ? 4 : PJ_KINDS.indexOf(k)); }
+function pjPeriod(p) {
+  if (!p.starts_on && !p.due_on) return '';
+  return (p.starts_on ? shortD(p.starts_on) : '') + ' ~ ' + (p.due_on ? shortD(p.due_on) : '');
+}
+function pjBar(p) { var v = p.progress == null ? null : p.progress; return '<span class="pj-pg"><i style="width:' + (v == null ? 0 : v) + '%"></i></span><em class="pj-pv">' + (v == null ? '' : v + '%') + '</em>'; }
+function loadProj() { if (PJ.pending) { PJ.id = PJ.pending; PJ.pending = null; } if (PJ.id) loadProjRoom(); else loadProjList(); }
+function loadProjList() {
+  $('projList').style.display = ''; $('projRoom').style.display = 'none';
+  if (!S.team) return;
+  api('proj.list', { team_id: S.team.id }).then(function (d) { PJ.list = d.items; PJ.can = d.can_create; renderProjList(); renderAct(); })
+    .catch(function (err) { $('projArea').innerHTML = '<div class="empty"><b>프로젝트를 불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function pjCard(p) {
+  var due = p.due_on && p.status !== '완료' ? dayDiff(parseDate(p.due_on).getTime()) : null;
+  return '<div class="pj-card ' + pkCls(p.kind) + (p.open ? '' : ' locked') + '" role="button" tabindex="0" onclick="openProject(\'' + p.id + '\')" title="' + esc(PJ_KIND[p.kind] || p.kind) + '">' +
+    '<div class="pj-ct"><b>' + esc(p.title) + '</b>' + (p.open ? (p.my_role ? '<em class="pj-me">' + esc(p.my_role) + '</em>' : '') : '<em class="pj-lock" aria-label="명단에 있는 사람만">🔒</em>') + '</div>' +
+    (p.desc ? '<p class="pj-cd">' + esc(p.desc) + '</p>' : '') +
+    '<div class="pj-cbar">' + pjBar(p) + '</div>' +
+    '<div class="pj-cm"><span>' + esc([p.status, p.pd.length ? 'PD ' + p.pd.join('·') : '', p.count ? p.count + '명' : ''].filter(Boolean).join(' · ')) + '</span>' +
+      (due != null ? '<span class="pj-cdue' + (due < 0 ? ' late' : due <= 7 ? ' soon' : '') + '">' + (due < 0 ? '마감 지남' : due === 0 ? '오늘 마감' : 'D-' + due) + '</span>' : '') + '</div></div>';
+}
+function renderProjList() {
+  var all = PJ.list || [], live = all.filter(function (p) { return p.status !== '완료'; }), fin = all.filter(function (p) { return p.status === '완료'; });
+  var used = PJ_KINDS.filter(function (k) { return all.some(function (p) { return p.kind === k; }); });
+  $('projArea').innerHTML =
+    (used.length ? '<div class="pj-legend">' + used.map(function (k) { return '<span class="' + pkCls(k) + '"><i></i>' + esc(PJ_KIND[k]) + '</span>'; }).join('') + '</div>' : '') +
+    (live.length ? '<div class="pj-grid">' + live.map(pjCard).join('') + '</div>'
+      : '<p class="rec-none">아직 프로젝트가 없어요' + (PJ.can ? '. 오른쪽 아래 + 에서 \'프로젝트 만들기\'' : '') + '</p>') +
+    (fin.length ? '<details class="rm-past"><summary>끝난 프로젝트 ' + fin.length + '개</summary><div class="pj-grid">' + fin.map(pjCard).join('') + '</div></details>' : '');
+}
+function openProject(id) {
+  var p = (PJ.list || []).filter(function (x) { return x.id === id; })[0];
+  if (p && !p.open) { alertMsg('「' + p.title + '」은 명단에 있는 사람만 들어갈 수 있어요' + (p.pd.length ? '. 참여하려면 PD(' + p.pd.join('·') + ')에게 말해주세요' : '')); return; }
+  PJ.id = id; PJ.cur = null;
+  if (curTab !== 'proj') goTab('proj'); else loadProjRoom();
+}
+function closeProject() { PJ.id = null; PJ.cur = null; loadProjList(); window.scrollTo(0, 0); setTimeout(renderAct, 0); }
+function loadProjRoom() {
+  $('projList').style.display = 'none'; $('projRoom').style.display = '';
+  if (!PJ.cur || PJ.cur.project.id !== PJ.id) $('projRoom').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  var id = PJ.id;
+  return api('proj.get', { id: id }).then(function (d) {
+    if (PJ.id !== id) return;
+    PJ.cur = d; renderProjRoom(); renderAct();
+    if (PJ.pendingStep) { var sp = PJ.pendingStep; PJ.pendingStep = null; fwAct(sp); }
+  }).catch(function (err) {
+    $('projRoom').innerHTML = '<button type="button" class="pj-back" onclick="closeProject()">‹ 프로젝트</button><div class="empty"><b>들어갈 수 없어요</b>' + esc(err.message) + '</div>';
+  });
+}
+function renderProjRoom() {
+  var d = PJ.cur, p = d.project, me = d.me;
+  var open = d.flows.filter(function (f) { return f.status === '진행'; }), fin = d.flows.filter(function (f) { return f.status === '완료'; });
+  var roles = ['PD', '제작진', '출연'];
+  var people = roles.map(function (r) {
+    var l = d.members.filter(function (m) { return m.role === r; }); if (!l.length) return '';
+    return '<div class="pm-g"><small>' + r + ' ' + l.length + '</small><div class="pm-chips">' + l.map(function (m) {
+      var mine = m.person_id === S.me.profile.id;
+      return '<' + (me.manage ? 'button type="button" onclick="openPmModal(\'' + m.id + '\')"' : 'span') + ' class="pm-chip' + (mine ? ' me' : '') + '" title="' + esc([m.position, m.group].filter(Boolean).join(' · ')) + '"><b>' + esc(m.name) + '</b>' + (m.part ? '<span>' + esc(m.part) + '</span>' : '') + '</' + (me.manage ? 'button' : 'span') + '>';
+    }).join('') + '</div></div>';
+  }).join('');
+  var files = '';
+  if (me.full) {
+    var fl = function (folder) {
+      var l = d.files.filter(function (f) { return f.folder === folder; });
+      return '<div class="pjf-g"><small>' + folder + ' ' + (l.length || '') + '</small>' + (l.length ? l.map(function (f) {
+        return '<div class="pjf-row"><button type="button" class="pjf-open" onclick="openFile(\'' + f.id + '\')">📄 <b>' + esc(f.name) + '</b>' + (f.label ? '<em>' + esc(f.label) + '</em>' : '') +
+          '<small>' + esc(f.by) + ' · ' + shortD(f.at.slice(0, 10)) + ' · ' + Math.max(0.1, Math.round(f.size / 1024 / 1024 * 10) / 10) + 'MB</small></button>' +
+          (f.mine || me.manage ? '<button type="button" class="fl-x" onclick="pjDelFile(\'' + f.id + '\')" title="파일 지우기">✕</button>' : '') + '</div>';
+      }).join('') : '<p class="rec-none">아직 없어요</p>') + '</div>';
+    };
+    files = '<div class="section-head b-gap"><h2>대본·자료</h2><span class="section-count">제작진만 봐요 · 열 때마다 기록돼요</span></div>' +
+      '<div class="card pj-files">' + fl('대본') + fl('자료') +
+      '<div class="pjf-up"><div class="pjf-seg">' + ['대본', '자료'].map(function (x) { return '<button type="button" class="b-pick' + (PJ.folder === x ? ' on' : '') + '" data-f="' + x + '" onclick="pjFolder(\'' + x + '\')">' + x + '</button>'; }).join('') + '</div>' +
+      '<input type="text" id="pjfLabel" class="b-input" maxlength="40" placeholder="' + (PJ.folder === '대본' ? '예) 1화 2고' : '예) 1화 콘티') + '">' +
+      '<input type="file" id="pjfFile" accept=".pdf,.hwp,.hwpx,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png">' +
+      '<button type="button" class="btn-primary" id="pjfBtn" onclick="pjUpload()">올리기</button><div class="msg" id="pjfMsg"></div>' +
+      '<small class="pjf-hint">PDF·한글·워드·텍스트·이미지, 20MB까지</small></div></div>';
+  }
+  $('projRoom').innerHTML =
+    '<button type="button" class="pj-back" onclick="closeProject()">‹ 프로젝트</button>' +
+    '<div class="pj-head ' + pkCls(p.kind) + '"><small>' + esc([PJ_KIND[p.kind] || p.kind, p.channel].filter(Boolean).join(' · ')) + '</small>' +
+      '<h1 class="page-title">' + esc(p.title) + '</h1>' +
+      '<div class="pj-hm"><span class="pj-st">' + esc(p.status) + '</span>' + (pjPeriod(p) ? '<span>' + pjPeriod(p) + '</span>' : '') + (me.role ? '<span>내 자리 · ' + esc(me.role) + (me.part ? ' (' + esc(me.part) + ')' : '') + '</span>' : '<span>보기 권한</span>') + '</div>' +
+      '<div class="pj-hbar">' + pjBar(p) + '</div>' +
+      (p.desc ? '<p class="pj-hd">' + esc(p.desc) + '</p>' : '') + '</div>' +
+    '<div class="pj-room">' +
+      '<div class="pj-main"><div class="section-head b-gap"><h2>작업</h2><span class="section-count">' + (open.length ? open.length + '건 진행 중' : '') + '</span></div>' +
+        (open.length ? open.map(fwCard).join('') : '<p class="rec-none">' + (me.full ? '진행 중인 작업이 없어요. 오른쪽 아래 + 에서 \'작업 만들기\'' : '나에게 온 작업이 없어요') + '</p>') +
+        (fin.length ? '<details class="rm-past"><summary>끝난 작업 ' + fin.length + '건</summary>' + fin.map(fwCard).join('') + '</details>' : '') + '</div>' +
+      '<div class="pj-side"><div class="section-head b-gap"><h2>사람</h2><span class="section-count">' + d.members.length + '명</span></div>' +
+        '<div class="card pj-people">' + (people || '<p class="rec-none">아직 명단이 없어요</p>') + (me.manage ? '<button type="button" class="ghost-btn pm-add" onclick="openPmModal()">+ 사람 넣기</button>' : '') + '</div>' +
+        files + '</div>' +
+    '</div>';
+}
+// ----- 만들기·고치기 -----
+var PJF = { kind: '영상', status: '기획', editId: null };
+function openProjModal(edit) {
+  var p = edit && PJ.cur ? PJ.cur.project : null;
+  PJF = { kind: p ? p.kind : '영상', status: p ? p.status : '기획', editId: p ? p.id : null };
+  $('projModalT').textContent = p ? '프로젝트 고치기' : '프로젝트 만들기';
+  $('pjTitle').value = p ? p.title : ''; $('pjDesc').value = p ? p.desc : ''; $('pjChannel').value = p ? p.channel : '';
+  $('pjStart').value = p && p.starts_on || ''; $('pjDue').value = p && p.due_on || '';
+  $('pjProg').value = p && p.progress != null ? p.progress : 0; pjProgTx();
+  $('pjBtn').textContent = p ? '저장하기' : '만들기'; $('pjDel').style.display = p ? '' : 'none';
+  pjModalChips(); setMsg('pjMsg', p ? '' : '만든 사람이 PD가 돼요. 만든 뒤 사람을 넣어주세요'); openModal('projModal');
+}
+function pjProgTx() { $('pjProgV').textContent = $('pjProg').value + '%'; }
+function pjModalChips() {
+  $('pjKinds').innerHTML = PJ_KINDS.map(function (k) { return '<button type="button" class="b-pick pj-kp ' + pkCls(k) + (PJF.kind === k ? ' on' : '') + '" onclick="PJF.kind=\'' + k + '\';pjModalChips()"><i></i>' + esc(PJ_KIND[k]) + '</button>'; }).join('');
+  $('pjStatus').innerHTML = ['기획', '진행', '보류', '완료'].map(function (s) { return '<button type="button" class="b-pick' + (PJF.status === s ? ' on' : '') + '" onclick="PJF.status=\'' + s + '\';pjModalChips()">' + s + '</button>'; }).join('');
+}
+function saveProj() {
+  var title = $('pjTitle').value.trim(); if (!title) { setMsg('pjMsg', '프로젝트 이름을 적어주세요', true); return; }
+  var btn = $('pjBtn'); btn.disabled = true; setMsg('pjMsg', '저장하는 중...');
+  var edit = PJF.editId;
+  api('proj.save', { id: edit, team_id: S.team.id, kind: PJF.kind, title: title, desc: $('pjDesc').value, channel: $('pjChannel').value, status: PJF.status,
+    progress: +$('pjProg').value, starts_on: $('pjStart').value || null, due_on: $('pjDue').value || null })
+    .then(function (r) {
+      btn.disabled = false; haptic('success'); closeModal('projModal');
+      if (edit) loadProjRoom(); else { PJ.id = r.id; loadProjRoom(); }
+    }).catch(function (err) { btn.disabled = false; setMsg('pjMsg', err.message, true); });
+}
+function delProj() {
+  var p = PJ.cur && PJ.cur.project; if (!p) return;
+  if (!confirm('「' + p.title + '」을 지울까요?\n작업·명단·대본·자료 파일까지 모두 지워지고 되돌릴 수 없어요')) return;
+  if (prompt('지우려면 프로젝트 이름을 똑같이 적어주세요') !== p.title) { alertMsg('이름이 달라서 지우지 않았어요'); return; }
+  api('proj.delete', { id: p.id }).then(function () { haptic('success'); closeModal('projModal'); closeProject(); }).catch(function (err) { setMsg('pjMsg', err.message, true); });
+}
+// ----- 사람 넣기·바꾸기 (PD) -----
+var PMF = { role: '제작진', picked: [], editId: null };
+function openPmModal(memberId) {
+  var m = memberId && PJ.cur ? PJ.cur.members.filter(function (x) { return x.id === memberId; })[0] : null;
+  PMF = { role: m ? m.role : '제작진', picked: m ? [{ id: m.person_id, name: m.name }] : [], editId: m ? m.id : null };
+  $('pmModalT').textContent = m ? m.name + '님 자리' : '사람 넣기';
+  $('pmPart').value = m ? m.part : ''; $('pmQ').value = ''; $('pmRes').innerHTML = '';
+  $('pmFind').style.display = m ? 'none' : ''; $('pmOut').style.display = m ? '' : 'none';
+  $('pmBtn').textContent = m ? '저장하기' : '넣고 알림 보내기';
+  pmRender(); setMsg('pmMsg', ''); openModal('pmModal');
+  loadRoster().then(function () { pmFind(); }).catch(function () {});
+}
+function pmRender() {
+  $('pmRoles').innerHTML = ['PD', '제작진', '출연'].map(function (r) { return '<button type="button" class="b-pick' + (PMF.role === r ? ' on' : '') + '" onclick="PMF.role=\'' + r + '\';pmRender()">' + r + '</button>'; }).join('');
+  $('pmRoleTx').textContent = PJ_ROLE_TX[PMF.role];
+  $('pmPart').placeholder = PMF.role === '출연' ? '예) 주연 · 지수 역' : PMF.role === 'PD' ? '예) 총괄' : '예) 촬영·편집';
+  $('pmPicked').innerHTML = PMF.picked.map(function (p, i) { return '<span class="fw-p">' + esc(p.name) + (PMF.editId ? '' : '<button type="button" onclick="PMF.picked.splice(' + i + ',1);pmRender();pmFind()" aria-label="빼기">×</button>') + '</span>'; }).join('');
+}
+function pmFind() {
+  if (PMF.editId) return;
+  var q = $('pmQ').value.trim(), ro = ROSTER.data ? ROSTER.data.members : [];
+  var picked = PMF.picked.map(function (p) { return p.id; });
+  var l = ro.filter(function (m) { return picked.indexOf(m.id) === -1 && (!q || m.name.indexOf(q) !== -1); }).slice(0, q ? 30 : 12);
+  $('pmRes').innerHTML = l.length ? l.map(function (m) {
+    var already = PJ.cur && PJ.cur.members.filter(function (x) { return x.person_id === m.id; })[0];
+    return '<button type="button" class="pm-r" onclick="pmPick(\'' + m.id + '\')"><b>+ ' + esc(m.name) + '</b><small>' + esc([m.position, m.group, already ? '지금 ' + already.role : ''].filter(Boolean).join(' · ')) + '</small></button>';
+  }).join('') + (!q && ro.length > l.length ? '<small class="pm-more">이름을 적으면 더 찾아요</small>' : '') : '<p class="rec-none">' + (ro.length ? '찾는 사람이 없어요' : '명단을 불러오는 중...') + '</p>';
+}
+function pmPick(id) {
+  var m = (ROSTER.data ? ROSTER.data.members : []).filter(function (x) { return x.id === id; })[0]; if (!m) return;
+  PMF.picked.push({ id: m.id, name: m.name }); $('pmQ').value = ''; pmRender(); pmFind();
+}
+function savePm() {
+  if (!PMF.picked.length) { setMsg('pmMsg', '사람을 골라주세요', true); return; }
+  var btn = $('pmBtn'); btn.disabled = true; setMsg('pmMsg', '저장하는 중...');
+  api('proj.member', { project_id: PJ.cur.project.id, people: PMF.picked.map(function (p) { return p.id; }), role: PMF.role, part: $('pmPart').value })
+    .then(function (r) {
+      btn.disabled = false; haptic('success');
+      setMsg('pmMsg', PMF.editId ? '바꿨어요' : r.added ? r.added + '명을 넣고 알림을 보냈어요' : '자리를 바꿨어요');
+      setTimeout(function () { closeModal('pmModal'); }, 900); loadProjRoom();
+    }).catch(function (err) { btn.disabled = false; setMsg('pmMsg', err.message, true); });
+}
+function pmRemove() {
+  var m = PMF.editId && PJ.cur.members.filter(function (x) { return x.id === PMF.editId; })[0]; if (!m) return;
+  if (!confirm(m.name + '님을 이 프로젝트에서 뺄까요? 더 이상 방에 들어올 수 없어요')) return;
+  api('proj.memberRemove', { id: m.id }).then(function () { haptic('success'); closeModal('pmModal'); loadProjRoom(); }).catch(function (err) { setMsg('pmMsg', err.message, true); });
+}
+// ----- 대본·자료 -----
+// 대본/자료 고르기: 다시 그리지 않음 (고른 파일·메모가 안 지워지게)
+function pjFolder(x) {
+  PJ.folder = x;
+  document.querySelectorAll('.pjf-seg button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-f') === x); });
+  $('pjfLabel').placeholder = x === '대본' ? '예) 1화 2고' : '예) 1화 콘티';
+}
+function pjUpload() {
+  var f = $('pjfFile').files[0]; if (!f) { setMsg('pjfMsg', '파일을 골라주세요', true); return; }
+  if (f.size > 20 * 1024 * 1024) { setMsg('pjfMsg', '20MB까지 올릴 수 있어요', true); return; }
+  if (!/\.(pdf|hwp|hwpx|doc|docx|txt|rtf|jpg|jpeg|png)$/i.test(f.name)) { setMsg('pjfMsg', 'PDF·한글·워드·텍스트·이미지 파일만 올릴 수 있어요', true); return; }
+  var btn = $('pjfBtn'); btn.disabled = true; setMsg('pjfMsg', '올리는 중...');
+  api('files.prepare', { kind: 'project', item_id: PJ.cur.project.id, name: f.name, size: f.size, folder: PJ.folder, label: $('pjfLabel').value })
+    .then(function (r) {
+      return fetch(r.url, { method: 'PUT', body: f, headers: { 'content-type': f.type || 'application/octet-stream', 'x-upsert': 'false' } })
+        .then(function (res) { if (!res.ok) throw new Error('파일을 올리지 못했어요 (' + res.status + ')'); return api('files.done', { id: r.id }); });
+    })
+    .then(function () { haptic('success'); loadProjRoom(); })
+    .catch(function (err) { btn.disabled = false; setMsg('pjfMsg', err.message, true); });
+}
+function pjDelFile(id) {
+  if (!confirm('이 파일을 지울까요? 되돌릴 수 없어요')) return;
+  api('files.delete', { id: id }).then(function () { loadProjRoom(); }).catch(function (err) { alertMsg(err.message); });
+}
+
+// =====================================================================
 // 내 할 일 (개인 › 내 할 일): 본인만 봄. 마감 전날·당일 아침 9시 봇 알림, 사흘 안이면 '지금 할 일'에도
 // =====================================================================
 var MY = { list: null };
@@ -5851,7 +6077,7 @@ var MY_CATS = [
   ['⏰ 체크인', ['checkin']],
   ['🙋 모임·출결·후기', ['plan', 'reason', 'review', 'mtgprep', 'mtgaction']],
   ['🎙 녹음', ['recask', 'recarrive', 'recrun', 'myrec']],
-  ['🧩 프로젝트·업무', ['flowstep', 'duty', 'project', 'flowwait']],
+  ['🧩 작업·프로젝트·업무', ['flowstep', 'duty', 'project', 'flowwait']],
   ['🕒 업무가능·시간취합', ['weekly', 'poll']],
   ['📚 과제·공지', ['task', 'notice']],
   ['🗳 승인', ['approve']]
@@ -5979,7 +6205,8 @@ function openDashItem(src, id) {
       (d.rows.length ? '<div class="di-rows">' + d.rows.map(function (r) { return '<div><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b></div>'; }).join('') + '</div>' : '') +
       (d.masked ? '<p class="di-lock">🔒 ' + esc(d.kind) + '의 자세한 내용(제목·사람·장소)은 교관 이상만 볼 수 있어요</p>' : '') + '</div>' +
       (d.open_session ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');inTeam(function(){goTab(\'attend\');refreshSessions().then(function(){openSession(\'' + d.open_session + '\')})})">모임 화면으로 ›</button>' : '') +
-      (d.open_rec && recAllowed() ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');RC.pending=\'' + d.open_rec + '\';goTab(\'rec\')">녹음 요청 자세히 ›</button>' : '');
+      (d.open_rec && recAllowed() ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');RC.pending=\'' + d.open_rec + '\';goTab(\'rec\')">녹음 요청 자세히 ›</button>' : '') +
+      (d.proj_open ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');openProject(\'' + d.proj_id + '\')">프로젝트 열기 ›</button>' : '');
     $('itemBody').innerHTML = shown ? '<div class="di-in">' + h + '</div>' : h;
     if (!shown) openModal('itemModal');
   }).catch(function (err) { clearTimeout(slow); $('itemModalT').textContent = '열 수 없어요'; $('itemModalS').textContent = ''; $('itemBody').innerHTML = '<p class="rec-none">' + esc(err.message) + '</p>'; if (!shown) openModal('itemModal'); });
@@ -6074,7 +6301,7 @@ function toggleEasy(on) {
   applyEasyText(); haptic('success');
   if (!S.me) return;
   setupTownTab();
-  if (on && ['town', 'sky', 'rec', 'flow'].indexOf(curTab) !== -1 && $('recTab').style.display === 'none') { goTab('home'); return; }
+  if (on && ['town', 'sky', 'rec', 'flow', 'proj'].indexOf(curTab) !== -1 && $('recTab').style.display === 'none') { goTab('home'); return; }
   if (curTab === 'home') loadDashboard();
   if (curTab === 'settings') renderSettings();
   setTabUI(curTab); renderAct();
