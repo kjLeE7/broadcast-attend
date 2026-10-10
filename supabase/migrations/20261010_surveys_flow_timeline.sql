@@ -36,7 +36,7 @@ create trigger trg_audit after insert or delete or update on surveys for each ro
 
 -- 프로젝트 공지·타임라인 (2026-10-10): 공지·모임을 프로젝트에 이어 둠 + 기록
 -- (처음엔 작업 흐름(work_flows)에 붙였다가 같은 날 프로젝트 방으로 옮김. 그때 생긴 notices.flow_id·meeting_sessions.flow_id·flow_events는
---  비어 있고 안 씀 — 지우기는 사용자 승인 뒤: drop table flow_events; alter table notices drop column flow_id; alter table meeting_sessions drop column flow_id;)
+--  비어 있어서 사용자 승인 뒤 2026-10-10에 지움: drop table flow_events; alter table notices drop column flow_id; alter table meeting_sessions drop column flow_id;)
 alter table notices add column project_id uuid references projects(id) on delete set null;
 alter table meeting_sessions add column project_id uuid references projects(id) on delete set null;
 create index notices_project on notices (project_id) where project_id is not null;

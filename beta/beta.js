@@ -440,7 +440,7 @@ var PCFG = {
   ci: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER },
   ann: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER, pos: true, dynAll: true },
   tp: { min: RANK.MEMBER, all: RANK.MEMBER, people: true },   // 시간취합: 과 사람 누구나, 언제나 사람 목록으로
-  sv: { min: RANK.MEMBER, all: RANK.MEMBER, people: true }    // 설문: 과 사람 누구나
+  sv: { min: RANK.MEMBER, all: RANK.MEMBER, people: true, pos: true }    // 설문: 과 사람 누구나, 직책으로 좁히기(교관만·팀원만 등)
 };
 var PK = {};
 // 팀은 여러 개 고를 수 있음(다른 팀과 함께하는 모임·공지 등). keys = 고른 팀 id들, all = 과 전체
@@ -990,7 +990,7 @@ function renderBoard() {
   }
   $('boardChips').innerHTML = chips;
 
-  var lead = MG.sess && b.can_check && ph !== 'cancel' && s.session_date <= todayStr();   // 출결확인은 모임 당일부터 (FAB '출결 확인·마감'을 켰을 때)
+  var lead = b.can_check && ph !== 'cancel' && s.session_date <= todayStr();   // 출결확인은 모임 당일부터. 모임을 열면 이름 옆에 바로 버튼 (2026-10-10, 예전엔 FAB로 켬)
   var html = '', lastGroup = '§';
   list.forEach(function (m) {
     var g = m.group || (s.target_unit_id ? '' : '조 배정 없음');
@@ -1008,7 +1008,7 @@ function renderBoard() {
     html += '<div class="b-prow b-arow' + (lead ? ' tap' : '') + (open ? ' open' : '') + (m.me ? ' me' : '') + '"' +
       (lead ? ' onclick="toggleRow(\'' + esc(m.id) + '\')"' : '') + '>' +
       '<div class="nm"><b>' + esc(m.name) + '</b><span>' + esc(m.position || '') + '</span>' + (m.me ? '<i class="b-me">나</i>' : '') + '</div>' +
-      '<div class="b-chs">' + stHtml + (lead ? '<span class="b-chev' + (open ? ' open' : '') + '">›</span>' : '') + '</div>' +
+      '<div class="b-chs">' + (lead && !a.arrived_at ? '<button type="button" class="b-qcheck" onclick="event.stopPropagation();checkIn(\'' + esc(m.id) + '\')">✓ 출결확인</button>' : stHtml) + (lead ? '<span class="b-chev' + (open ? ' open' : '') + '">›</span>' : '') + '</div>' +
       (sub.length ? '<div class="rs">' + esc(sub.join(' · ')) + '</div>' : '') +
       (open ? actionPanel(m) : '') + '</div>';
   });
@@ -1083,7 +1083,7 @@ function setStatus(personId, status) {
 // ----- 사전체크 알림: 교관 이상은 버튼으로 미체크자에게 보냄, 자동 알림(72·24시간 전) 상태도 보여줌 -----
 function renderRemind() {
   var s = S.current, b = M.board, box = $('remindBox');
-  if (!b || !MG.sess || phaseOf(s) !== 'before' || S.team.rank < RANK.INSTRUCTOR) { box.innerHTML = ''; return; }
+  if (!b || phaseOf(s) !== 'before' || S.team.rank < RANK.INSTRUCTOR) { box.innerHTML = ''; return; }
   var left = b.members.filter(function (m) { return !(m.att && (m.att.planned_status || m.att.status)); });
   var start = s.start_ms, created = s.created_at ? Date.parse(s.created_at) : 0;
   // 자동 알림 한 줄: 보냄 / 예정 / 건너뜀(그 시점 뒤에 만든 모임)
@@ -1124,7 +1124,7 @@ function sendRemind() {
 // ----- 마감·취소·지우기 (조장 이상) -----
 function renderActs() {
   var s = S.current, ph = phaseOf(s), b = M.board;
-  if (!MG.sess || !b.can_check || ph === 'cancel') { $('boardActs').innerHTML = ''; return; }
+  if (!b.can_check || ph === 'cancel') { $('boardActs').innerHTML = ''; return; }
   var left = b.members.filter(function (m) { return !(m.att && m.att.status); }).length;
   var h = '';
   if (ph === 'live') {
@@ -1133,7 +1133,7 @@ function renderActs() {
   } else if (ph === 'closed') {
     h += '<p class="b-note b-center">' + dtLabel(s.closed_at) + ' 마감됨 · 늦게 온 사람은 이름을 눌러 출결확인하면 지각으로 바뀌어요</p>';
   } else {
-    h += '<p class="b-note b-center">모임 당일 시작 시간(' + hmMs(s.start_ms || s.end_ms) + ')부터 현장 출결확인을 해요.<br>이름을 누르면 출결확인 버튼이 나와요.</p>';
+    h += '<p class="b-note b-center">모임 당일부터 이름 옆 \'✓ 출결확인\'을 누르면 돼요. 이름을 누르면 도착 시각 고치기·상태 바꾸기도 있어요.</p>';
   }
   $('boardActs').innerHTML = h;
 }
@@ -1331,7 +1331,7 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' || t === 'proj' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' || t === 'survey' ? 'notice' : t; }
+function parentTab(t) { if (t === 'sky') return 'town'; if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' || t === 'proj' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' || t === 'survey' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
@@ -1387,9 +1387,8 @@ function setTabUI(t) {
   var sub = t === 'task' && taskFrom !== 'profile' ? '' : t;
   document.querySelectorAll('#pfSub button, #recSub button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === sub); });
   document.querySelectorAll('#admSub button, #admSeg button').forEach(function (b) { var on = t === 'admin' && b.getAttribute('data-t') === 'adm-' + ADMSEC; b.classList.toggle('on', on); b.classList.toggle('active', on); });
-  togglePfSub(!pfFloating() && pt === 'profile');
-  togglePfSub(!pfFloating() && pt === 'rec', 'recSub');
-  togglePfSub(!pfFloating() && pt === 'admin', 'admSub');
+  // PC 펼친 메뉴: 지금 화면의 하위 메뉴는 펼치고, 미리 열어 둔 다른 하위 메뉴는 그대로 둠 (2026-10-10)
+  if (!pfFloating()) { if (pt === 'profile') togglePfSub(true); if (pt === 'rec') togglePfSub(true, 'recSub'); if (pt === 'admin') togglePfSub(true, 'admSub'); }
   if (t === 'task') renderTaskSeg();
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
   $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'proj' && t !== 'mytodo' && t !== 'approve' && t !== 'practice' && t !== 'settings' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
@@ -3648,7 +3647,6 @@ function townAllowed() { return !isPhone() && isWide(); }
 function setupTownTab() {
   var ok = townAllowed() && !isEasy();
   $('townTab').style.display = ok ? '' : 'none';
-  $('skyTab').style.display = ok ? '' : 'none';   // 하늘방송국도 PC 전용
   // 쉬운 모드: 업무 탭 숨김. 폰·쉬운 모드: 인원·승인함·관리자는 아래 탭 대신 '개인' 메뉴 안으로 (탭이 5개를 넘지 않게)
   var inMenu = !isWide() || isEasy(), staff = ['peopleTab', 'approveTab', 'adminTab'].some(function (k) { return $(k).dataset.ok === '1'; });
   $('recTab').style.display = isEasy() && !staff ? 'none' : '';   // 쉬운 모드: 업무 탭은 운영 메뉴가 있는 사람만
@@ -3673,7 +3671,8 @@ function startTown() {
   Town.mount($('townArea'), {
     load: function () { return api('dashboard.scene', { team_id: teamId }); },
     refreshMs: 60000,   // 서버 설정값 town_refresh_sec이 오면 그걸로
-    fill: true          // 화면 높이에 맞춰 크게
+    fill: true,         // 화면 높이에 맞춰 크게
+    onSky: function () { goTab('sky'); }   // 하늘방송국 건물을 누르면 건물 안으로 (탭은 없앰, 2026-10-10)
   });
 }
 
@@ -5244,7 +5243,6 @@ function actItems() {
   if (t === 'attend') {
     if (S.current) {
       var b = M.board;
-      if (b && b.can_check) add('check', '출결 확인·마감·알림', mgToggle('sess', renderDetail), MG.sess);
       if (lead && phaseOf(S.current) !== 'closed' && phaseOf(S.current) !== 'cancel') { add('x', '모임 취소 (대상자 알림)', cancelSess); add('x', '잘못 만들었어요 · 지우기', deleteSess); }
     } else if ($('reportView').style.display !== 'none') {
       if (R.data && R.data.scope === 'team') { add('list', '팀 전체 리포트', mgToggle('rp', renderReport), MG.rp); if (MG.rp) add('copy', '텍스트로 복사', copyReport); }
@@ -5333,9 +5331,11 @@ function pplRow(m) {
   if (m.followup) tags.push(['warn', '보강 ' + m.followup]);
   if (m.streak >= 2) tags.push(['bad', m.streak + '연속 불참']);
   if (m.open) tags.push(['', '진행 ' + m.open]);
-  return '<button type="button" class="ppl-it' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + (tags.length ? ' flag' : '') + '" onclick="openPerson(\'' + m.id + '\')">' +
-    '<span class="ppl-av"' + photoBg(m.photo) + '>' + esc(m.name.slice(-2)) + '</span>' +
-    '<span class="ppl-nm"><b>' + esc(m.name) + '<i class="ppl-pos">' + esc(m.position || '') + '</i></b><small>' + (m.latest ? '📝 ' + esc(m.latest) : '') + '</small>' +
+  var mc = m.mentor ? mtColor(m.mentor) : null, own = mtMentees(m.id);
+  return '<button type="button" class="ppl-it' + (PPL.cur && PPL.cur.person.id === m.id ? ' sel' : '') + (tags.length ? ' flag' : '') + (mc ? ' mt' : '') + '"' + (mc ? ' style="--mt:' + mc + '"' : '') + ' onclick="openPerson(\'' + m.id + '\')">' +
+    '<span class="ppl-av' + (own ? ' mt-own' : '') + '"' + photoBg(m.photo) + (own ? ' style="--mt:' + mtColor(m.id) + '"' : '') + '>' + esc(m.name.slice(-2)) + '</span>' +
+    '<span class="ppl-nm"><b>' + esc(m.name) + '<i class="ppl-pos">' + esc(m.position || '') + '</i>' +
+      (mc ? '<i class="mt-chip">' + (m.mentor === S.me.profile.id ? '내 멘티' : '멘토 ' + esc(mtName(m.mentor))) + '</i>' : '') + (own ? '<i class="mt-chip own">멘티 ' + own + '명</i>' : '') + '</b><small>' + (m.latest ? '📝 ' + esc(m.latest) : '') + '</small>' +
       (m.last_rec || m.last_grant ? '<span class="ppl-work">' + (m.last_rec ? '<span>🎙 ' + esc(m.last_rec.title) + ' <em>' + shortD(ymd(new Date(m.last_rec.at))) + '</em></span>' : '') +
         (m.last_grant ? '<span>⭐ ' + (m.last_grant.total ? '+' + m.last_grant.total + ' ' : '') + '“' + esc(m.last_grant.comment) + '”</span>' : '') + '</span>' : '') + '</span>' +
     (tags.length ? '<span class="tv-tags">' + tags.map(function (x) { return '<em class="' + x[0] + '">' + x[1] + '</em>'; }).join('') + '</span>' : '') +
@@ -5344,6 +5344,7 @@ function pplRow(m) {
 function renderPeople() {
   var l = PPL.board || [], q = (PPL.q || '').trim();
   if (q) l = l.filter(function (m) { return m.name.indexOf(q) !== -1; });
+  if (PPL.mt) l = l.filter(function (m) { return m.mentor === PPL.mt || m.id === PPL.mt; });
   var groups = pplGroups(l), half = Math.ceil((PPL.board || []).length / 2), cols = [[], []], n = 0;
   groups.forEach(function (g) { (n < half || !cols[1].length && groups.length === 1 ? cols[0] : cols[1]).push(g); n += g[1].length; });
   if (groups.length > 1 && !cols[1].length) cols[1].push(cols[0].pop());
@@ -5352,9 +5353,59 @@ function renderPeople() {
     return '<div class="card ppl-grp"><div class="ppl-gh"><b>' + esc(g[0]) + '</b><small>' + g[1].length + '명' + (flag ? ' · <span class="bad">살필 사람 ' + flag + '</span>' : '') + '</small><span class="ppl-gr">4주 출석</span></div>' + g[1].map(pplRow).join('') + '</div>';
   };
   $('pplBoard').innerHTML = '<div class="ppl-top"><div class="section-head"><h2>' + esc(S.team.name) + '</h2><span class="section-count">' + (PPL.board || []).length + '명 · 직책 순 · 살필 사람은 빨간 줄</span></div>' +
-    '<input type="search" class="b-input ppl-q" id="pplQ" placeholder="이름 찾기" value="' + esc(PPL.q || '') + '" oninput="pplFind(this.value)" oncompositionend="pplFind(this.value)"></div>' +
+    '<input type="search" class="b-input ppl-q" id="pplQ" placeholder="이름 찾기" value="' + esc(PPL.q || '') + '" oninput="pplFind(this.value)" oncompositionend="pplFind(this.value)"></div>' + mtBarHtml() +
     (l.length ? '<div class="ppl-cols">' + cols.map(function (c) { return '<div class="ppl-col">' + c.map(card).join('') + '</div>'; }).join('') + '</div>' : '<div class="empty"><b>' + (q ? '「' + esc(q) + '」인 팀원이 없어요' : '팀원이 없어요') + '</b></div>');
   var qi = $('pplQ'); if (qi && PPL.qFocus) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
+}
+// ----- 멘토·멘티 (2026-10-10): 교관 이상이 '내가 피드백 해주기로 한 사람'을 정함. 멘토마다 색, 멘티 줄은 그 색 띠 -----
+var MT_COLS = ['#C0573E', '#3F6A8A', '#4E7A55', '#8C5A9E', '#B8862B', '#2F8C8C', '#A84A72', '#6B6B2F'];
+function mtList() {   // 멘티가 있는 멘토들 (나 먼저, 그다음 이름 순)
+  var ids = []; (PPL.board || []).forEach(function (m) { if (m.mentor && ids.indexOf(m.mentor) === -1) ids.push(m.mentor); });
+  var me = S.me.profile.id;
+  return ids.sort(function (a, b) { return (b === me) - (a === me) || mtName(a).localeCompare(mtName(b), 'ko'); });
+}
+function mtColor(id) { var i = mtList().indexOf(id); return MT_COLS[(i < 0 ? 0 : i) % MT_COLS.length]; }
+function mtName(id) { var m = (PPL.board || []).filter(function (x) { return x.id === id; })[0]; return m ? m.name : '(다른 팀)'; }
+function mtMentees(id) { return (PPL.board || []).filter(function (m) { return m.mentor === id; }).length; }
+function mtBarHtml() {
+  var l = mtList();
+  return '<div class="mt-bar"><button type="button" class="ghost-btn mt-pick" onclick="openMtPick()">🤝 내 멘티 고르기</button>' +
+    (l.length ? '<button type="button" class="mt-f' + (PPL.mt ? '' : ' on') + '" onclick="PPL.mt=null;renderPeople()">모두</button>' + l.map(function (id) {
+      return '<button type="button" class="mt-f' + (PPL.mt === id ? ' on' : '') + '" style="--mt:' + mtColor(id) + '" onclick="PPL.mt=PPL.mt===\'' + id + '\'?null:\'' + id + '\';renderPeople()"><i></i>' + esc(id === S.me.profile.id ? '나' : mtName(id)) + ' ' + mtMentees(id) + '</button>';
+    }).join('') : '<small class="mt-hint">멘토를 정하면 멘토마다 색으로 묶여 보여요</small>') + '</div>';
+}
+function openMtPick() {
+  var me = S.me.profile.id;
+  PPL.mtSel = (PPL.board || []).filter(function (m) { return m.mentor === me; }).map(function (m) { return m.id; });
+  $('itemModalT').textContent = '내 멘티 고르기'; $('itemModalS').textContent = '내가 피드백 해주기로 한 사람을 눌러 고르세요. 다른 멘토가 있던 사람은 나로 바뀌어요';
+  renderMtPick(); openModal('itemModal');
+}
+function renderMtPick() {
+  var me = S.me.profile.id;
+  $('itemBody').innerHTML = pplGroups((PPL.board || []).filter(function (m) { return m.id !== me; })).map(function (g) {
+    return '<div class="mt-pg"><small>' + esc(g[0]) + '</small><div class="mt-pcs">' + g[1].map(function (m) {
+      var on = PPL.mtSel.indexOf(m.id) !== -1, other = m.mentor && m.mentor !== me;
+      return '<button type="button" class="mt-pc' + (on ? ' on' : '') + '" onclick="mtToggle(\'' + m.id + '\')">' + esc(m.name) + (other && !on ? '<small>' + esc(mtName(m.mentor)) + '</small>' : '') + '</button>';
+    }).join('') + '</div></div>';
+  }).join('') + '<button class="btn-primary" id="mtBtn" onclick="saveMtPick()">' + PPL.mtSel.length + '명 저장</button><div class="msg" id="mtMsg"></div>';
+}
+function mtToggle(id) { var i = PPL.mtSel.indexOf(id); if (i === -1) PPL.mtSel.push(id); else PPL.mtSel.splice(i, 1); renderMtPick(); }
+function saveMtPick() {
+  $('mtBtn').disabled = true;
+  api('mentor.save', { team_id: S.team.id, mode: 'mine', mentee_ids: PPL.mtSel }).then(function () { haptic('success'); closeModal('itemModal'); loadPeople(); })
+    .catch(function (err) { $('mtBtn').disabled = false; setMsg('mtMsg', err.message, true); });
+}
+// 사람 팝업: 멘토 바꾸기 (교관 이상 중에서)
+function mtPersonHtml(pid) {
+  var m = (PPL.board || []).filter(function (x) { return x.id === pid; })[0]; if (!m) return '';
+  var staff = (PPL.board || []).filter(function (x) { return (x.rank || 0) >= RANK.INSTRUCTOR && x.id !== pid; });
+  return '<label class="mt-sel"' + (m.mentor ? ' style="--mt:' + mtColor(m.mentor) + '"' : '') + '><i></i>멘토 <select onchange="mtSet(\'' + pid + '\',this.value)"><option value="">없음</option>' +
+    staff.map(function (x) { return '<option value="' + x.id + '"' + (x.id === m.mentor ? ' selected' : '') + '>' + esc(x.name) + (x.id === S.me.profile.id ? ' (나)' : '') + '</option>'; }).join('') + '</select></label>';
+}
+function mtSet(pid, mentor) {
+  api('mentor.save', { team_id: S.team.id, mode: 'set', mentee_ids: [pid], mentor_id: mentor || null }).then(function () {
+    haptic('success'); PPL.board.forEach(function (m) { if (m.id === pid) m.mentor = mentor || null; }); renderPeople(); if (PPL.cur) renderTimeline();
+  }).catch(function (err) { alertMsg(err.message); });
 }
 function pplFind(v) { if (window.event && window.event.isComposing) return; PPL.q = v; PPL.qFocus = true; renderPeople(); PPL.qFocus = false; }
 function openPerson(id) {
@@ -5399,7 +5450,7 @@ function renderTimeline() {
       (grants.length ? grants.map(function (g) { return '<div class="ppl-wr"><span class="tl-d">' + shortD(ymd(new Date(Date.parse(g.at)))) + '</span><div><b>“' + esc(g.comment) + '”</b><small>' + esc(g.by + ' · ' + g.type) + '</small>' +
         (g.xp.length ? '<span class="ppl-xp">' + g.xp.map(function (x) { return '<em>' + esc(x.axis) + ' +' + x.xp + '</em>'; }).join('') + '</span>' : '') + '</div></div>'; }).join('') : '<p class="rec-none">받은 스탯이 없어요</p>') + '</div></div>';
   var tl = $('pplTimeline'), head = tl.querySelector('.b-dhead');
-  head.insertAdjacentHTML('beforeend', '<button type="button" class="ppl-addnote" onclick="openNote({person_id:\'' + p.id + '\'})">+ 특이사항 적기</button>');
+  head.insertAdjacentHTML('beforeend', '<button type="button" class="ppl-addnote" onclick="openNote({person_id:\'' + p.id + '\'})">+ 특이사항 적기</button>' + mtPersonHtml(p.id));
   head.insertAdjacentHTML('afterend', work + '<div class="section-head b-gap"><h2>특이사항·출결</h2></div>');
 }
 function noteStatus(id, up) { api('notes.status', Object.assign({ id: id }, up)).then(function () { haptic('success'); refreshPerson(); }).catch(function (err) { alertMsg(err.message); }); }

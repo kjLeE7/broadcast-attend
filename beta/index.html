@@ -19,7 +19,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261010s">
+  <link rel="stylesheet" href="beta.css?v=20261010t">
 </head>
 <body>
   <div class="app">
@@ -127,6 +127,7 @@
     <!-- ===== 동네지도 (PC 전용, 화면 전체) ===== -->
     <!-- ===== 하늘방송국 (PC 전용): 로비 → 층 → 각자 사무실·방명록 (sky.js) ===== -->
     <section id="skyView" style="display:none;">
+      <button class="back" onclick="goTab('town')">‹ 동네지도</button>
       <h1 class="page-title">하늘방송국</h1>
       <p class="page-desc">로비 안내 데스크에서 층 안내를 듣고, 계단으로 올라가 동료의 사무실에 들러 방명록을 남겨요. 방명록은 쓴 사람과 사무실 주인만 봐요</p>
       <div id="skyArea"></div>
@@ -683,10 +684,6 @@
       <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
       <button type="button" data-t="settings" onclick="pfGo('settings')">설정</button>
     </div>
-    <button class="tab" data-tab="sky" title="하늘방송국" id="skyTab" onclick="goTab('sky')" style="display:none;">
-      <svg viewBox="0 0 24 24"><path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-5h6v5"/><path d="M12 4V1.5M9.5 2.5l5 0"/><path d="M8 11h2M14 11h2"/></svg>
-      <span>하늘방송국</span>
-    </button>
     <button class="tab" data-tab="people" title="인원" id="peopleTab" onclick="goTab('people')" style="display:none;">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="3"/><path d="M7 19.5c.5-3.2 2.5-5.2 5-5.2s4.5 2 5 5.2"/><circle cx="5.5" cy="10" r="2.3"/><path d="M1.8 19c.3-2.4 1.6-4 3.7-4.2"/><circle cx="18.5" cy="10" r="2.3"/><path d="M22.2 19c-.3-2.4-1.6-4-3.7-4.2"/></svg>
       <span>인원</span>
@@ -1031,7 +1028,7 @@
         <button type="button" class="ghost-btn c-ag-add" onclick="svAddQ()">+ 질문 추가</button>
         <label class="field-label">답한 사람 보기</label>
         <div class="sv-anon" id="svAnon">
-          <button type="button" class="on" data-v="1" onclick="svSetAnon(true)"><b>🔒 익명</b><small>만든 사람도 누가 무엇을 답했는지 몰라요. 관리자·과장님만 확인할 수 있어요</small></button>
+          <button type="button" class="on" data-v="1" onclick="svSetAnon(true)"><b>🔒 익명</b><small>만든 사람도 누가 무엇을 답했는지 몰라요</small></button>
           <button type="button" data-v="0" onclick="svSetAnon(false)"><b>🙋 실명</b><small>결과에 이름이 같이 보여요</small></button>
         </div>
         <small class="tp-note">만든 뒤에는 익명·실명을 바꿀 수 없어요</small>
@@ -1180,8 +1177,8 @@
   </div>
 
   <script src="../krmap.js?v=20261001a"></script>
-  <script src="town.js?v=20261007a"></script>
+  <script src="town.js?v=20261010a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261010s"></script>
+  <script src="beta.js?v=20261010t"></script>
 </body>
 </html>

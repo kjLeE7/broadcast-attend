@@ -229,7 +229,7 @@ function street() {
   R(b, P.ol, 459, 42, 42, 15); R(b, '#3e8f8a', 460, 43, 40, 4); R(b, '#5fb3ad', 460, 43, 40, 1); R(b, '#2a1c17', 466, 47, 28, 9);
   for (let s = 0; s < 4; s++) R(b, '#7d7684', 467, 48 + s * 2, 26, 1);
 }
-const LAMPS = [66, 128, 246, 352, 452];
+const LAMPS = [66, 128, 352, 452];
 
 // ---------- 장소 ----------
 const PL = {};
@@ -248,6 +248,13 @@ function build() {
   building('codeone', 78, 44, 9, { name:'코드원 빌딩', roof:'#3d4a5a', roofL:'#5d6a7a', wall:'#8fa1b3', line:'#7d8fa1', awn:'#7aa6e8' });
   building('smc', 136, 46, 2, { name:'SMC', roof:'#6b3b36', roofL:'#8b5b56', wall:'#b0624c', line:'#9a5440', awn:'#e9c46a' });
   building('work', 190, 46, 7, { name:'직장', roof:'#3a4250', roofL:'#5a6270', wall:'#6f8296', line:'#5d7084', awn:'#a3a0a8' });
+  // 하늘방송국 (2026-10-10): 누르면 건물 안(sky.js)으로 들어감. 지붕 위 송신탑
+  building('sky', 241, 32, 8, { name:'하늘방송국', roof:'#2c3550', roofL:'#4a5578', wall:'#5d6f9e', line:'#4c5d8a', awn:'#ff6b5a' });
+  { const bd = buildings.sky, ax = bd.x + 15;
+    R(b, P.ol, ax - 1, bd.top - 18, 4, 15); R(b, '#b9c2d6', ax, bd.top - 17, 2, 14);
+    for (let y = bd.top - 15; y < bd.top - 4; y += 4) R(b, '#8a94ab', ax - 2, y, 6, 1);
+    R(b, P.ol, ax - 1, bd.top - 21, 4, 4); R(b, '#ff6b5a', ax, bd.top - 20, 2, 2);
+    R(b, P.ol, bd.x + 4, bd.top + 3, 24, 6); R(b, '#ff6b5a', bd.x + 5, bd.top + 4, 22, 4); }
   building('chonghoe', 276, 60, 4, { name:'총회 건물', roof:'#4a4e3a', roofL:'#6a6e5a', wall:'#d8c9a8', line:'#c2b28f', awn:'#6cc4a1' });
   building('seongjeon', 368, 72, 10, { name:'과천 성전', roof:'#4b3d55', roofL:'#6b5d75', wall:'#e8e0d0', line:'#d2c8b4', awn:'#d98ad6' });
   place('work', { name:'직장', group:'일상', where:'각자 직장에서 근무 중', rect:[190, 20, 46, 36], door:[213, 60], hiddenOnly:true });
@@ -912,6 +919,8 @@ let root = null, cv = null, ctx = null, tip = null, placesEl = null, legendEl = 
 let dev = 2, hoverId = null, hoverRegion = null, selId = null, selUntil = 0, clockT = 0, lastTs = 0, running = false;
 let regions = [];
 const DISPLAY = "'Gowun Batang','Apple SD Gothic Neo','Malgun Gothic',serif";
+// 장소·건물 이름표는 굵은 고딕 (고운바탕은 작게 그리면 가늘어서 잘 안 보였음, 2026-10-10)
+const LABEL = "'Pretendard Variable','Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif";
 
 let fillMode = false, mainEl = null, stageEl = null, panelEl = null;
 function fit() {
@@ -946,7 +955,7 @@ function pillOn(txt, cx, top, fs, col, dot, placed) {
   return [x, y, ww, hh];
 }
 function tag(parts, x, y, fs, align, bg) {
-  ctx.font = `${fs}px ${DISPLAY}`;
+  ctx.font = `800 ${fs}px ${LABEL}`;
   const pad = fs * .4, hh = fs * 1.3; let tw = 0; for (const p of parts) tw += ctx.measureText(p[0]).width;
   const ww = tw + pad * 2, x0 = Math.round(align === 'right' ? x - ww : align === 'center' ? x - ww / 2 : x), y0 = Math.round(y);
   ctx.fillStyle = bg || 'rgba(23,21,29,.86)'; ctx.fillRect(x0, y0, ww, hh);
@@ -956,18 +965,19 @@ function tag(parts, x, y, fs, align, bg) {
 }
 function drawText(oc) {
   const k = dev, dpr = window.devicePixelRatio || 1, cssK = k / dpr;
-  const fs = Math.max(11, Math.min(14, cssK * 5.4)) * dpr;
+  const fs = Math.max(12, Math.min(15, cssK * 5.8)) * dpr;
   regions = [];
   const toW = r => [r[0] / k, r[1] / k, r[2] / k, r[3] / k];
-  ctx.font = `${fs * .9}px ${DISPLAY}`; ctx.fillStyle = 'rgba(255,255,255,.95)';
-  ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 1 * dpr; ctx.textBaseline = 'middle';
-  for (const id in buildings) { if (id === 'work') continue; const bd = buildings[id]; const tw = ctx.measureText(bd.name).width; ctx.fillText(bd.name, (bd.x + bd.ww / 2) * k - tw / 2, Math.max(5, bd.top - 8) * k); }
-  ctx.shadowOffsetY = 0;
+  ctx.textBaseline = 'middle';
+  // 건물 이름: 어두운 판 위 굵은 글씨 (하늘방송국은 송신탑 위, 누르면 들어감)
+  for (const id in buildings) { if (id === 'work') continue; const bd = buildings[id];
+    const sky = id === 'sky', y = (sky ? Math.max(1, bd.top - 30) : Math.max(1, bd.top - 13)) * k;
+    tag(sky ? [['📡 ' + bd.name, '#ffd77a']] : [[bd.name, '#fbf5e8']], (bd.x + bd.ww / 2) * k, y, fs * .95, 'center', sky ? 'rgba(44,53,80,.95)' : 'rgba(23,21,29,.82)'); }
   // 직장 건물 팻말
   const wb = buildings.work, workers = (oc.all.work || []).filter(p => p.hidden);
   tag([['직장 ', '#f1e8d9'], [workers.length + '명', '#f2b84b']], (wb.x + wb.ww / 2) * k, Math.max(1, wb.top - 13) * k, fs * .9, 'center');
   regions.push({ kind:'work', rect:[wb.x - 2, wb.top - 14, wb.ww + 4, 56 - wb.top + 14], list:workers });
-  ctx.font = `${fs * 1.15}px ${DISPLAY}`;
+  ctx.font = `800 ${fs * 1.15}px ${LABEL}`;
   for (const [nm, x0] of [['인덕원', 6], ['정부과천청사역', 262]]) { const tw = ctx.measureText(nm).width, pd = fs * .4;
     ctx.fillStyle = 'rgba(23,21,29,.8)'; ctx.fillRect(x0 * k, 66 * k, tw + pd * 2, 12 * k); ctx.fillStyle = '#f2b84b'; ctx.fillText(nm, x0 * k + pd, 72 * k); }
   // 방 이름표 + 안에 더 있는 사람 수
@@ -982,7 +992,7 @@ function drawText(oc) {
     if (hid.length) { const rr = tag([['+' + hid.length + '명 더', '#17151d']], (r[0] + r[2] - 3) * k, (r[1] + r[3] - 4) * k - fs * 1.3, fs * .88, 'right', '#f2b84b');
       regions.push({ kind:'more', rect:toW(rr), list:hid, place:pl }); }
   }
-  ctx.font = `${fs * .92}px ${DISPLAY}`; ctx.fillStyle = 'rgba(241,232,217,.85)'; ctx.fillText('스담 · 4층 복도', 10 * k, 204 * k);
+  ctx.font = `700 ${fs * .92}px ${LABEL}`; ctx.fillStyle = 'rgba(241,232,217,.92)'; ctx.fillText('스담 · 4층 복도', 10 * k, 204 * k);
   for (const id in cheers) { const c = cheers[id]; if (clockT >= c.until) { delete cheers[id]; continue; }
     tag([['🎉 수고했어요!', '#17151d']], c.x * k, (c.y - 22 - Math.min(1, 5 - (c.until - clockT)) * 4) * k, fs, 'center', '#f2b84b'); }
   // 자주 하는 말 (look.say, 3개까지): 사람마다 다른 박자로 자주(약 10~18초에 한 번, 4초 동안) 머리 위 말풍선
@@ -1087,8 +1097,10 @@ function roomAt(wx, wy) {
   for (const id in PL) { const pl = PL[id]; if (pl.hiddenOnly) continue; const r = pl.rect; if (wx >= r[0] && wx <= r[0] + r[2] && wy >= r[1] && wy <= r[1] + r[3]) return id; }
   return null;
 }
+function skyAt(wx, wy) { const bd = buildings.sky; return !!(bd && onSky && wx >= bd.x - 2 && wx <= bd.x + bd.ww + 2 && wy >= bd.top - 26 && wy <= 58); }
 function onClick(e) {
   const r = cv.getBoundingClientRect(), wx = (e.clientX - r.left) / r.width * W, wy = (e.clientY - r.top) / r.height * H;
+  if (skyAt(wx, wy)) { onSky(); return; }
   if (hoverId && byId.get(hoverId)) { openZoom(placeOf(byId.get(hoverId).seg.place).id); return; }
   if (hoverRegion) { openZoom(hoverRegion.kind === 'work' ? 'work' : hoverRegion.place.id); return; }
   const id = roomAt(wx, wy); if (id) openZoom(id);
@@ -1137,7 +1149,7 @@ function onMove(e) {
   hoverId = hit ? hit.id : null;
   let rg = null; if (!hit) rg = regions.find(g => wx >= g.rect[0] && wx <= g.rect[0] + g.rect[2] && wy >= g.rect[1] && wy <= g.rect[1] + g.rect[3]) || null;
   hoverRegion = rg;
-  cv.classList.toggle('tw-hover', !!(hit || rg || roomAt(wx, wy)));
+  cv.classList.toggle('tw-hover', !!(hit || rg || roomAt(wx, wy) || skyAt(wx, wy)));
   if (hit) showPersonTip(hit);
   else if (rg) { placeTip(groupTip(rg), rg.rect[0] + rg.rect[2] / 2, rg.rect[1]); tip._rg = rg.kind; tip._id = null; }
   else if (!(selId && clockT < selUntil)) hideTip();
@@ -1275,7 +1287,7 @@ const CSS = `
 function ensureAssets() {
   if (!document.getElementById('tw-css')) { const st = document.createElement('style'); st.id = 'tw-css'; st.textContent = CSS; document.head.appendChild(st); }
 }
-let loadFn = null, refreshTimer = 0, roObs = null;
+let loadFn = null, refreshTimer = 0, roObs = null, onSky = null;
 function refresh() {
   if (!loadFn) return Promise.resolve();
   return Promise.resolve(loadFn()).then(d => { if (d) { setData(d); if (d.refresh_sec) setRefresh(d.refresh_sec * 1000); } }).catch(e => { if (window.console) console.warn('동네지도 불러오기 실패', e); });
@@ -1296,7 +1308,7 @@ function mount(host, opts) {
   opts = opts || {};
   ensureAssets();
   unmount();
-  clockFn = opts.clock || null; maskDetail = opts.maskDetail || (() => false); loadFn = opts.load || null;
+  clockFn = opts.clock || null; maskDetail = opts.maskDetail || (() => false); loadFn = opts.load || null; onSky = opts.onSky || null;
   showNames = opts.names !== false;
   fillMode = !!opts.fill;
   const NOTE = '장소(방·카드)를 누르면 크게 보여요. 캐릭터나 숫자 팻말에 마우스를 올리면 자세히 보여요. 한 방에 9명 이상이면 이름표는 숨겨져요. 일정이 없는 사람은 휴게실, 직장 근무 시간인 사람은 직장 건물에 들어가 있어요.';

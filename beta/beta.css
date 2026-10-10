@@ -2183,3 +2183,32 @@ html.dark .fw-ev.k-초대, html.dark .fw-ev.k-인원교체, html.dark .fw-ev.k-�
 .sv-anon button b { display: block; font-size: 14.5px; }
 .sv-anon button small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 3px; }
 .sv-anon button.on { border-color: var(--accent); background: var(--accent-soft); }
+
+/* PC 왼쪽 메뉴: 하위 메뉴를 여러 개 펼쳐 길어지면 메뉴 안에서 스크롤 (2026-10-10) */
+@media (min-width: 1000px) {
+  body:not(.nav-mini) .b-tabbar { overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+}
+
+/* ===== 멘토·멘티 (2026-10-10) ===== */
+.ppl-it.mt { border-left-color: var(--mt); background: color-mix(in srgb, var(--mt) 7%, transparent); }
+.ppl-it.mt.flag { box-shadow: inset 3px 0 0 var(--bad); }
+.ppl-av.mt-own { box-shadow: 0 0 0 2.5px var(--card), 0 0 0 4.5px var(--mt); }
+.mt-chip { font-style: normal; font-size: 10.5px; font-weight: 700; margin-left: 6px; padding: 1px 6px; border-radius: 99px; color: #fff; background: var(--mt, var(--accent)); vertical-align: 1px; }
+.ppl-it .mt-chip.own { background: var(--card-soft); color: var(--muted); }
+.mt-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.mt-bar .mt-pick { margin: 0 6px 0 0; width: auto; padding: 7px 12px; font-size: 13px; }
+.mt-f { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 5px 11px; font-size: 12.5px; font-weight: 700; color: var(--text); }
+.mt-f i { width: 9px; height: 9px; border-radius: 50%; background: var(--mt); }
+.mt-f.on { border-color: var(--mt, var(--accent)); background: color-mix(in srgb, var(--mt, var(--accent)) 14%, var(--card)); }
+.mt-hint { color: var(--muted); font-size: 12px; }
+.mt-pg { margin-bottom: 10px; } .mt-pg > small { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 5px; }
+.mt-pcs { display: flex; flex-wrap: wrap; gap: 6px; }
+.mt-pc { border: 1.5px solid var(--line); background: var(--card); border-radius: 99px; padding: 6px 12px; font-size: 13.5px; font-weight: 600; color: var(--text); }
+.mt-pc small { margin-left: 5px; font-size: 11px; color: var(--muted); font-weight: 500; }
+.mt-pc.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.mt-sel { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0 8px; font-size: 13px; font-weight: 700; }
+.mt-sel i { width: 10px; height: 10px; border-radius: 50%; background: var(--mt, var(--line)); }
+.mt-sel select { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; background: var(--card); color: var(--text); font: inherit; font-weight: 600; }
+/* 모임 상세: 이름 옆 바로 출결확인 (2026-10-10) */
+.b-qcheck { border: none; background: var(--accent); color: #fff; border-radius: 99px; padding: 6px 12px; font-size: 13px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.b-qcheck:active { transform: scale(.96); }

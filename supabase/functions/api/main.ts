@@ -2851,6 +2851,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const week = Date.now() - 7 * 24 * HOUR;
     const work = await pplWork(ctx, ids, team_id, 1).catch((e) => { console.error("ppl work", e); return { recs: new Map(), grants: new Map() }; });
     const photos = new Map<string, string>((ids.length ? must(await ctx.db.from("people").select("id, photo_url").in("id", ids).not("photo_url", "is", null)) ?? [] : []).map((x: any) => [x.id, x.photo_url]));
+    const ment = new Map<string, string>((must(await ctx.db.from("mentorships").select("mentor_id, mentee_id").eq("team_id", team_id)) ?? []).map((x: any) => [x.mentee_id, x.mentor_id]));
     const out = members.map((m: any) => {
       const ns = (notes as any[]).filter((n) => n.person_id === m.id);
       const open = ns.filter((n) => n.status === "진행 중"), due = ns.filter((n) => n.followup !== "없음" && !n.followup_done_at);
@@ -2858,12 +2859,31 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       const came = a.filter((x) => ["참석", "지각", "조퇴"].includes(x.status)).length;
       let streak = 0; for (let i = a.length - 1; i >= 0 && a[i].status === "불참"; i--) streak++;
       const fresh = ns.filter((n) => Date.parse(n.created_at) > week).length;
-      return { id: m.id, name: m.name, photo: photos.get(m.id) ?? null, position: m.position, rank: m.rank ?? 0, group: m.group, open: open.length, latest: open.sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0]?.title ?? null,
+      return { id: m.id, name: m.name, photo: photos.get(m.id) ?? null, mentor: ment.get(m.id) ?? null, position: m.position, rank: m.rank ?? 0, group: m.group, open: open.length, latest: open.sort((x, y) => (x.created_at < y.created_at ? 1 : -1))[0]?.title ?? null,
         followup: due.length, fresh, rate: a.length ? Math.round(came / a.length * 100) : null, sessions: a.length, streak,
         last_rec: (work.recs.get(m.id) ?? [])[0] ?? null, last_grant: (work.grants.get(m.id) ?? [])[0] ?? null,
         score: fresh * 3 + due.length * 2 + open.length + (streak >= 2 ? 3 : 0) + (a.length && came / a.length < .6 ? 2 : 0) };
     }).sort((x: any, y: any) => y.score - x.score || x.name.localeCompare(y.name));
     return { members: out };
+  },
+  // 멘토 정하기 { team_id, mentee_ids: [...], mentor_id? } (그 팀 교관 이상). mentor_id 비우면 나.
+  // mode 'mine' = 내 멘티 명단을 통째로 (빠진 사람은 내 멘티에서 뺌) / 'set' = 이 사람들의 멘토를 mentor_id로 (null이면 없앰)
+  async "mentor.save"(ctx) {
+    const p = ctx.payload ?? {};
+    await noteStaff(ctx, p.team_id);
+    const members = await noteMembers(ctx, p.team_id), ok = new Map<string, any>(members.map((m: any) => [m.id, m]));
+    const ids = [...new Set((Array.isArray(p.mentee_ids) ? p.mentee_ids : []).map(String))].slice(0, 100) as string[];
+    if (ids.some((id) => !ok.has(id))) throw new HttpError(400, "이 팀 사람만 고를 수 있어요");
+    const mentor = p.mentor_id === null && p.mode === "set" ? null : String(p.mentor_id || ctx.me.id);
+    if (mentor && (ok.get(mentor)?.rank ?? 0) < RANK.INSTRUCTOR) throw new HttpError(400, "멘토는 교관 이상이어야 해요");
+    if (mentor && ids.includes(mentor)) throw new HttpError(400, "자기 자신의 멘토가 될 수는 없어요");
+    await rateLimit(ctx, "mentor", 60, 60);
+    if (p.mode === "mine") must(await ctx.db.from("mentorships").delete().eq("team_id", p.team_id).eq("mentor_id", ctx.me.id).not("mentee_id", "in", `(${ids.length ? ids.join(",") : "00000000-0000-0000-0000-000000000000"})`));
+    if (ids.length) {
+      if (!mentor) must(await ctx.db.from("mentorships").delete().eq("team_id", p.team_id).in("mentee_id", ids));
+      else must(await ctx.db.from("mentorships").upsert(ids.map((id) => ({ team_id: p.team_id, mentor_id: mentor, mentee_id: id, set_by: ctx.me.id })), { onConflict: "team_id,mentee_id" }));
+    }
+    return { ok: true };
   },
   // 한 사람 타임라인 { team_id, person_id } (교관 이상): 특이사항(+운영진 메모) + 출결(불참·지각·조퇴와 사유, 사전 불참), 최근 180일. 열람 기록 남김
   async "people.timeline"(ctx) {

@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름, `project_id`면 그 프로젝트 안 작업), `proj.list/get/save/member/memberRemove/delete`(프로젝트), `proj.timeline/event/eventDelete/notice`(프로젝트 공지·타임라인), `surveys.list/get/create/save/remind/close/delete`(설문), `mytodo.list/save/done/delete`(내 할 일), `practice.list/save/delete`(연습 기록), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `mentor.save`(멘토·멘티), `flow.list/create/update/mark/cancel/parse`(작업 흐름, `project_id`면 그 프로젝트 안 작업), `proj.list/get/save/member/memberRemove/delete`(프로젝트), `proj.timeline/event/eventDelete/notice`(프로젝트 공지·타임라인), `surveys.list/get/create/save/remind/close/delete`(설문), `mytodo.list/save/done/delete`(내 할 일), `practice.list/save/delete`(연습 기록), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -511,7 +511,16 @@
   **타임라인** = 시작·처음 명단·나중 합류(project_members.created_at)·작업 시작·작업 단계 끝·대본/자료 올림(제작진만)·공지·모임(예정 포함, 누르면 `openDashItem`)·기록(`project_events`)을 시간순, 날짜별, 거르기 칩(모두·모임·협업·공지·피드백·결정·사람·아이디어·진행).
   기록 남기기(`proj.event`, `pjEvOpen`): 피드백(누구에게)·협업(어느 과)·협업 모임(과·장소)·초대(누구·역할)·아이디어·건의(제안자)·인원 교체(누가→누구·사유)·결정·기타, 일어난 때를 고름. **아이디어는 명단 누구나**(PD에게 봇 알림), 나머지는 제작진. 지우기 = 쓴 사람·PD(`proj.eventDelete`).
   자동 기록(`projEvent`): 작업 담당자 시작·완료·막힘(kind '진행'), 명단에서 빠짐('빠짐'), 자리 바뀜('자리'), 상태 바뀜('상태').
-  (처음엔 작업 흐름에 붙였다가 같은 날 프로젝트 방으로 옮김. 남은 빈 `flow_events` 표·`notices.flow_id`·`meeting_sessions.flow_id`는 안 씀 — 지우기는 사용자 승인 뒤, 마이그레이션 파일 주석 참고)
+  (처음엔 작업 흐름에 붙였다가 같은 날 프로젝트 방으로 옮김. 그때 생긴 빈 `flow_events` 표·`notices.flow_id`·`meeting_sessions.flow_id`는 사용자 승인 뒤 지움)
+
+### 하늘방송국은 동네지도 안으로 · 메뉴 · 멘토 · 출결확인 (2026-10-10 저녁)
+- **하늘방송국 탭 없앰**: 동네지도 거리에 '하늘방송국' 건물(town.js `building('sky')`, 송신탑·빨간 간판, 직장과 총회 건물 사이, 그 자리 가로등 하나 뺌). 누르면 `Town.mount({ onSky })` → `goTab('sky')`(skyView 위 '‹ 동네지도', 부모 탭 town). 화면 코드 `skyView`·`startSky`는 그대로.
+- **동네지도 이름표 굵게**: 건물·장소·지역 이름표를 고운바탕 → 굵은 프리텐다드(`LABEL`, 800)로, 건물 이름도 어두운 판 위에. 글자 크기 조금 키움(12~15). 사람 이름표·말풍선은 그대로.
+- **PC 왼쪽 메뉴**: 다른 탭을 눌러도 미리 열어 둔 하위 메뉴(개인·업무·관리자)는 안 닫힘(`setTabUI`). 메뉴가 길어지면 메뉴 안에서 스크롤.
+- **멘토·멘티**(인원 탭, `mentorships` team·mentor·mentee, 멘티 한 명당 멘토 한 명, 마이그레이션 `20261010_mentorships.sql`): '🤝 내 멘티 고르기'(`openMtPick`, `mentor.save { mode:'mine' }`) / 사람 팝업 '멘토' 고르기(`mtSet`, mode 'set', 멘토는 그 팀 교관 이상). 그 팀 교관 이상 누구나 바꿈.
+  멘토마다 색(`MT_COLS`, 나 먼저), 멘티 줄 = 그 색 왼쪽 띠·옅은 바탕·'내 멘티'/'멘토 ○○' 칩, 멘토 줄 = 아바타 색 테두리 + '멘티 n명', 위 거르기 칩(모두·나 n·○○ n). `people.board`에 `mentor`.
+- **출결확인**: FAB '출결 확인·마감·알림'(MG.sess) 없앰. 조장 이상이 모임을 열면(당일부터) 이름 옆에 바로 '✓ 출결확인'(`.b-qcheck` → `checkIn`), 이름을 누르면 예전처럼 도착 시각·상태 바꾸기. 마감 버튼·사전체크 알림 상자도 늘 보임.
+- 설문 대상 고르기에 **직책** 줄(`PCFG.sv.pos`, 교관만·팀원만 등). 익명 설명에서 '관리자·과장님만 확인' 문구 뺌(기능은 그대로).
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
