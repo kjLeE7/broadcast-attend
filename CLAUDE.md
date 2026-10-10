@@ -157,7 +157,7 @@
   - main.ts는 상대 경로 import가 없고 `npm:@supabase/supabase-js@2`만 써서 이 두 파일이면 돼요.
 - 고치는 순서: `main.ts` 수정 → 커밋·푸시 → 위처럼 배포 → `get_edge_function`으로 버전 확인 → `public.bot` 호출로 동작 확인.
 - (버전 31까지는 `index.ts` 한 줄이 `raw.githubusercontent.com/.../<커밋SHA>/.../main.ts`를 불러오는 방식이었어요. 저장소가 공개일 때만 됨.)
-- 현재 배포: 커밋 `8d03383`의 main.ts (함수 버전 77, 프로필 사진). 배포 전 `npx esbuild main.ts`로 문법 확인 (2026-10-05 변수 겹침으로 함수가 안 켜진 적 있음). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
+- 현재 배포: 커밋 `e64cce4`의 main.ts (함수 버전 78, 프로젝트 방). main.ts가 400KB가 넘어 `deploy_edge_function`에 통째로 붙이기 어려워서, 저장소가 공개인 동안은 한 줄 방식(raw 주소 + 커밋 SHA)으로 올림. 배포 전 `npx esbuild main.ts`로 문법 확인 (2026-10-05 변수 겹침으로 함수가 안 켜진 적 있음). 저장소가 아직 공개라 한 줄 방식으로 올림. 비공개가 되면 파일 직접 올리기.
 - 타입 검사는 로컬 `tsc`로 해요. `Uint8Array` 관련 TS2769, `req` 관련 TS7006은 알려진 오탐이라 무시해요. (npm/esbuild는 프록시에 막혀요.)
 
 ### 지금 있는 기능(action)
@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름), `mytodo.list/save/done/delete`(내 할 일), `practice.list/save/delete`(연습 기록), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름, `project_id`면 그 프로젝트 안 작업), `proj.list/get/save/member/memberRemove/delete`(프로젝트), `mytodo.list/save/done/delete`(내 할 일), `practice.list/save/delete`(연습 기록), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -488,6 +488,17 @@
 - 텔레그램에서 사진을 숨겼거나 없으면 비움 → 이름 두 글자. 화면: 머리 동그라미·프로필·인원 목록(`photoBg`, `people.board`의 `photo`). CSP img-src에 Supabase 주소 추가. 마이그레이션 `20261009_people_photo.sql`.
 - 텔레그램 파일 주소엔 봇 토큰이 들어가서 앱에 직접 주지 않고 꼭 보관함을 거침.
 
+### 업무 메뉴 셋으로 · 프로젝트 방 (2026-10-10, 함수 버전 78)
+- 업무 하위 메뉴 = **실무 · 작업 · 프로젝트**. 예전 '프로젝트'(작업 흐름, `flowView`, `curTab` 'flow')는 이름만 **'작업'**으로. 새 **'프로젝트'** = `projView`(`curTab` 'proj', 딥링크 `?go=proj&p=<id>`).
+  사용자 생각: 작업 = 일회성 할 일 묶음, 프로젝트 = 웹드라마·성경 오디오드라마·SCJ TV 방송처럼 여러 회차에 걸친 큰 일. 섞이면 안 됨.
+- 마이그레이션 `supabase/migrations/20261010_projects.sql`: `projects.kind`(영상·오디오·방송·행사·기타)·`starts_on`, 표 `project_members`(project_id, person_id unique, role PD|제작진|출연, part 맡은 일·배역), `work_flows.project_id`, `content_files` kind 'project' + `folder`(대본|자료)·`label`. 예전 홈 '프로젝트' 5건(전부 가짜)에 종류·PD를 붙임.
+- 목록(`renderProjList`, `pjCard`): **종류는 색만**(사용자: 큰 글씨 분류 X) — 카드 왼쪽 띠·옅은 바탕(`.pk-0~4`, `--pk/--pkb`, 어둡게 모드 따로) + 위에 작은 색 점 범례. 내 자리 배지(PD·제작진), 못 들어가면 🔒(누르면 'PD에게 말해주세요'). 끝난 건 접어 둠.
+- 방(`renderProjRoom`): '‹ 프로젝트' + 머리(종류·채널·상태·기간·내 자리·진행률·소개) → PC 2칸(왼쪽 **작업** = 기존 `fwCard` 그대로 | 오른쪽 **사람**(자리별 칩, PD는 눌러서 자리·배역 바꾸기/빼기) + **대본·자료**(제작진만, 올리기 칸 `pjUpload`, `pjf-*` 클래스)).
+- 작업 흐름 재사용: `openFlowModal(projectId)`·`FWF.projectId`·`fwReload()`·`fwFind`/`openFlowEdit`가 `PJ.cur.flows`도 찾음. 서버 `flowShape`(목록·방 공통), `flowCanManage`는 프로젝트 작업이면 만든 사람·PD·관리자. `flow.list`는 `project_id is null`만. 알림 버튼 `flowLink(f)`.
+- 할 일: `todos.list` project = 내가 명단에 있는 프로젝트(완료 아닌 것), flowstep/flowwait에 `project` → 누르면 그 방(+ 단계 보고 팝업). 홈 프로젝트 칸은 제목 앞 색 점, 자세히 팝업에 '프로젝트 열기 ›'(`proj_open`).
+- FAB: 목록 = 프로젝트 만들기(교관 이상) / 방 = 작업 만들기(제작진) · 사람 넣기 · 프로젝트 고치기(PD). 지우기는 고치기 팝업 맨 아래(이름을 똑같이 적어야 지워짐).
+- **다음 단계(아직)**: 영상 = 회차·씬 보드(장소·낮밤·인물·소품·촬영 상태) + 촬영일 콜시트(나오는 사람에게만 전날 알림) + 데이터 로그(SSD1·SSD2·NAS 다 체크돼야 포맷 OK). 오디오 = 회차·배역 + 녹음 요청 연결. 방송 = 끝없는 회차·큐시트. 출연자에겐 자기 회차 대본만.
+
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
   ② 비밀값(봇 토큰·서버 키)이 비면 요청 거부 ③ 네트워크 오류 로그에 봇 토큰 안 남김 ④ 과제 링크는 http(s)만(서버·화면) ⑤ 녹음 응답 같은 답이면 알림 안 함·30초 쿨다운
@@ -611,7 +622,7 @@
   - 사람·조직: `org_units`, `churches`, `people`, `people_private`, `positions`, `position_history`, `group_assignments`, `external_roles`
   - 교육: `meeting_types`, `meeting_sessions`(+`closed_at`, `notified_at`, `notify_result`), `attendance`(최종 `status`: 참석/불참/지각/조퇴, 사전 `planned_status/planned_reason/planned_at`, 확인 `arrived_at/checked_by`, 사유 `reason/reason_at`), `checkins`, `checkin_reports`, `assignments`, `assignment_submissions`, `notices`, `session_reviews`
   - 녹음: `availability`(slots smallint[] 0~47, 30분 단위), `weekly_submissions`(week_start = 월요일), `fixed_schedules`, `recording_requests`(제목·코드, 대본은 `nas_ref`로 NAS만 가리킴), `castings`(한 배역에 여러 명 확정 가능), `recording_sessions`(retake_of), `recording_participants`
-  - 홈: `staff_schedules`, `duties`(녹음/사회/촬영/음향편집/기타), `projects`(기획/진행/보류/완료), `tribe_stats`(12지파 행 미리 있음)
+  - 홈: `staff_schedules`, `duties`(녹음/사회/촬영/음향편집/기타), `projects`(기획/진행/보류/완료, 2026-10-10부터 `kind`·`starts_on` + 명단 `project_members`), `tribe_stats`(12지파 행 미리 있음)
   - 동네지도: `places`(code·name·area·building·floor·aliases)
   - 관리: `app_settings`(`weekly_hours` {"from":8,"to":24}, `recording_access`, `late_grace_minutes` 0), `pin_sessions`, `audit_log`, `access_log`
 - 뷰: `v_people_current`, `v_positions_current`
@@ -640,6 +651,9 @@
 - 연말 결산: 본인 것만. 공개일(`recap_open`) 전엔 교관 이상·관리자만 미리보기, 팀 결산은 그 팀 교관 이상(합계만). 공개일은 관리자 명단(`admins`)만 바꿈.
 - 배지(🟡): 보유 목록은 본인 + 그 팀 교관(설정값) 이상. 대표 칭호는 본인이 고른 것만 모두에게. 배지 정의는 팀장 이상(관리자 페이지, 지금은 SQL).
 - 성우 스탯(🟡): 주기·고치기는 그 팀 교관(설정값 `stat_grant_min_level`) 이상, 본인에겐 못 줌. 보기는 본인 + 그 팀 교관 이상. 취소는 준 사람·팀장 이상. 녹음 관계자 예외 없음.
+- 프로젝트(2026-10-10): 만들기 = 과 안 어느 팀이든 교관 이상(만든 사람이 PD). 방에 들어가기 = 명단(PD·제작진·출연) + 과장 이상 + 관리자. 명단 밖 과원은 목록 카드(제목·종류·상태·진행률·PD)만 🔒.
+  PD·관리자 = 고치기·사람 넣기/빼기·지우기(마지막 PD는 못 뺌). 제작진·과장 이상 = 모두 봄(대본·자료 포함)·작업 만들기·파일 올리기. 출연 = 개요·사람·내가 들어간 작업만.
+  프로젝트 대본은 사용자 결정으로 앱 보관함에 올림(제작진만 열기, 5분 주소, 열람 기록, 자동 삭제 없음). 교회 녹음 대본 규칙(NAS)은 그대로.
 - 모임: 만들기·고치기·취소·출결확인·마감은 조장 이상. 출결 상태는 팀원 모두, 사유는 본인·조장 이상. 후기는 댓글처럼 모두 봄(안 쓴 사람 명단만 조장 이상).
 
 ## 6. 조직 계층
