@@ -1652,7 +1652,8 @@ async function myArrivable(ctx: Ctx) {
 const FILE_EXT = ["pdf", "hwp", "hwpx", "doc", "docx", "txt", "rtf"];
 const FILE_MAX = 20 * 1024 * 1024;
 // 올리거나 지울 수 있는 사람 = 그 글을 쓴 사람, 또는 공지 관리(팀 교관·과 팀장 이상)·과제 교관 이상
-async function fileCanEdit(ctx: Ctx, kind: string, id: string) {
+async function fileCanEdit(ctx: Ctx, kind: string, id: string): Promise<any> {
+  if (kind === "project") return (await projNeed(ctx, id, "full")).a;   // 프로젝트: 제작진이 올림
   const t = await readTarget(ctx, kind, id);
   if (t.by === ctx.me.id) return t;
   if (kind === "assignment" ? t.rank >= RANK.INSTRUCTOR : t.canSee) return t;   // 공지: 관리자, 모임: 조장 이상
@@ -1660,6 +1661,7 @@ async function fileCanEdit(ctx: Ctx, kind: string, id: string) {
 }
 // 열 수 있는 사람 = 쓴 사람·관리하는 사람·받는 사람
 async function fileCanOpen(ctx: Ctx, kind: string, id: string) {
+  if (kind === "project") { await projNeed(ctx, id, "full"); return; }   // 프로젝트 대본·자료: PD·제작진·과장 이상·관리자만
   const t = await readTarget(ctx, kind, id);
   if (t.by === ctx.me.id || t.canSee || t.inTarget) return;
   if ((await t.audience()).some((m: any) => m.id === ctx.me.id)) return;
@@ -1826,7 +1828,11 @@ async function flowLoad(ctx: Ctx, flowId: string) {
   if (!f) throw new HttpError(404, "없는 작업 흐름이에요");
   return f;
 }
-async function flowCanManage(ctx: Ctx, f: any) { return f.created_by === ctx.me.id || (await rankIn(ctx, f.team_id)) >= RANK.INSTRUCTOR; }
+async function flowCanManage(ctx: Ctx, f: any) {
+  if (f.created_by === ctx.me.id) return true;
+  if (f.project_id) return (await projAccess(ctx, await projLoad(ctx, f.project_id))).manage;   // 프로젝트 안 작업: 만든 사람·PD·관리자
+  return (await rankIn(ctx, f.team_id)) >= RANK.INSTRUCTOR;
+}
 function stepDone(st: any, ps: any[]) {
   const mine = ps.filter((x) => x.step_id === st.id);
   if (!mine.length) return false;
@@ -1850,19 +1856,19 @@ async function flowSync(ctx: Ctx, flowId: string) {
     must(await ctx.db.from("work_steps").update({ ready_at: now }).eq("id", st.id));
     const ids = ps.filter((x) => x.step_id === st.id && x.person_id && x.state !== "완료").map((x) => x.person_id);
     const who = await withTelegram(ctx, ids);
-    if (who.length) await sendToMembers(who, `🧩 <b>내 차례예요</b> · ${escHtml(f.title)}\n${escHtml(st.title)}${st.due_on ? ` · ${st.due_on.slice(5).replace("-", "/")}까지` : ""}${st.detail ? `\n${escHtml(st.detail)}` : ""}\n앱에서 [시작]·[완료]를 눌러주세요`, appButton("작업 보기", "?go=flow"));
+    if (who.length) await sendToMembers(who, `🧩 <b>내 차례예요</b> · ${escHtml(f.title)}\n${escHtml(st.title)}${st.due_on ? ` · ${st.due_on.slice(5).replace("-", "/")}까지` : ""}${st.detail ? `\n${escHtml(st.detail)}` : ""}\n앱에서 [시작]·[완료]를 눌러주세요`, appButton("작업 보기", flowLink(f)));
   }
   if (steps.length && steps.every((st) => done.has(st.id))) {
     must(await ctx.db.from("work_flows").update({ status: "완료", done_at: now }).eq("id", flowId));
     const boss = await withTelegram(ctx, [f.created_by]);
-    if (boss.length) await sendToMembers(boss, `🎉 <b>작업 흐름이 모두 끝났어요</b>\n${escHtml(f.title)} · ${steps.length}단계`, appButton("작업 보기", "?go=flow"));
+    if (boss.length) await sendToMembers(boss, `🎉 <b>작업 흐름이 모두 끝났어요</b>\n${escHtml(f.title)} · ${steps.length}단계`, appButton("작업 보기", flowLink(f)));
   }
 }
 // 마감 하루 전·지남 알림 (차례가 됐는데 안 끝난 단계, 8시 이후)
 async function cronFlows(ctx: Ctx) {
   const hour = new Date(Date.now() + 9 * HOUR).getUTCHours(); if (hour < 8) return null;
   const today = kstToday(), tomorrow = addDaysStr(today, 1);
-  const steps: any[] = must(await ctx.db.from("work_steps").select("id, title, due_on, reminded_d1_at, reminded_over_at, work_flows!inner(title, status)")
+  const steps: any[] = must(await ctx.db.from("work_steps").select("id, title, due_on, reminded_d1_at, reminded_over_at, work_flows!inner(title, status, project_id)")
     .eq("work_flows.status", "진행").not("ready_at", "is", null).is("done_at", null).not("due_on", "is", null).lte("due_on", tomorrow)) ?? [];
   let d1 = 0, over = 0;
   for (const st of steps) {
@@ -1870,11 +1876,66 @@ async function cronFlows(ctx: Ctx) {
     if (late ? st.reminded_over_at : st.reminded_d1_at) continue;
     const ps: any[] = must(await ctx.db.from("work_step_people").select("person_id").eq("step_id", st.id).neq("state", "완료").not("person_id", "is", null)) ?? [];
     const who = await withTelegram(ctx, ps.map((x) => x.person_id));
-    if (who.length) await sendToMembers(who, `${late ? "⏰ <b>작업 마감이 지났어요</b>" : "📌 <b>작업 마감이 다가와요</b>"} · ${escHtml(st.work_flows.title)}\n${escHtml(st.title)} · ${st.due_on.slice(5).replace("-", "/")}까지`, appButton("작업 보기", "?go=flow"));
+    if (who.length) await sendToMembers(who, `${late ? "⏰ <b>작업 마감이 지났어요</b>" : "📌 <b>작업 마감이 다가와요</b>"} · ${escHtml(st.work_flows.title)}\n${escHtml(st.title)} · ${st.due_on.slice(5).replace("-", "/")}까지`, appButton("작업 보기", flowLink(st.work_flows)));
     must(await ctx.db.from("work_steps").update(late ? { reminded_over_at: new Date().toISOString() } : { reminded_d1_at: new Date().toISOString() }).eq("id", st.id));
     late ? over++ : d1++;
   }
   return { d1, over };
+}
+// 작업 알림 버튼: 프로젝트 안 작업이면 그 프로젝트 방으로
+const flowLink = (f: any) => f?.project_id ? `?go=proj&p=${f.project_id}` : "?go=flow";
+// 작업 흐름 → 화면용 (작업 탭 목록과 프로젝트 방이 같이 씀)
+async function flowShape(ctx: Ctx, flows: any[], manageOf: (f: any) => boolean) {
+  const ids = flows.map((f) => f.id);
+  const steps: any[] = ids.length ? must(await ctx.db.from("work_steps").select("*").in("flow_id", ids).order("sort")) ?? [] : [];
+  const ps: any[] = steps.length ? must(await ctx.db.from("work_step_people").select("*").in("step_id", steps.map((x) => x.id)).order("created_at")) ?? [] : [];
+  const names = await nameMap(ctx, flows.map((f) => f.created_by));
+  return flows.map((f) => ({
+    id: f.id, team_id: f.team_id, project_id: f.project_id ?? null, title: f.title, note: f.note, status: f.status, created_by: f.created_by, by: names.get(f.created_by) ?? "", created_at: f.created_at, done_at: f.done_at,
+    manage: manageOf(f),
+    steps: steps.filter((st) => st.flow_id === f.id).map((st) => ({
+      id: st.id, title: st.title, detail: st.detail, due_on: st.due_on, done_rule: st.done_rule, after: st.after_ids ?? [], ready: !!st.ready_at, done: !!st.done_at,
+      people: ps.filter((x) => x.step_id === st.id).map((x) => ({ id: x.id, person_id: x.person_id, name: x.name, state: x.state, note: x.note, at: x.changed_at })),
+    })),
+  }));
+}
+
+// =====================================================================
+// 프로젝트 (2026-10-10): 여러 회차에 걸친 큰 작업(웹드라마·오디오드라마·정기 방송…). 명단에 있는 사람만 방에 들어감
+// 업무 탭 = 실무 · 작업(작업 흐름) · 프로젝트. 과원은 목록에서 제목·종류·진행률만(🔒), 과장 이상·관리자는 다 봄
+// 자리: PD = 고치기·명단·지우기 / 제작진 = 다 봄(대본·자료 포함)·작업 만들기 / 출연 = 개요·사람·내가 들어간 작업만
+// =====================================================================
+const PROJ_KINDS = ["영상", "오디오", "방송", "행사", "기타"];
+const PROJ_STATUS = ["기획", "진행", "보류", "완료"];
+const PROJ_ROLES = ["PD", "제작진", "출연"];
+const PROJ_FILE_EXT = [...FILE_EXT, "jpg", "jpeg", "png"];   // 대본 + 콘티·참고 이미지
+async function projLoad(ctx: Ctx, id: any) {
+  if (!UUID_RE.test(String(id))) throw new HttpError(400, "프로젝트를 다시 골라주세요");
+  const pr = must(await ctx.db.from("projects").select("*").eq("id", id).maybeSingle());
+  if (!pr) throw new HttpError(404, "없는 프로젝트예요");
+  return pr;
+}
+async function projAccess(ctx: Ctx, pr: any) {
+  const sec = (await sectionUnits(ctx, pr.unit_id))[0];
+  const [mem, admin, secRank] = await Promise.all([
+    ctx.db.from("project_members").select("role, part").eq("project_id", pr.id).eq("person_id", ctx.me.id).maybeSingle(),
+    isAdmin(ctx), rankIn(ctx, sec),
+  ]);
+  const role: string | null = must(mem as any)?.role ?? null;
+  const manage = role === "PD" || admin;
+  const full = manage || role === "제작진" || secRank >= 60;
+  return { role, part: must(mem as any)?.part ?? null, manage, full, see: full || role === "출연", admin, sec };
+}
+async function projNeed(ctx: Ctx, id: any, what: "see" | "full" | "manage") {
+  const pr = await projLoad(ctx, id), a = await projAccess(ctx, pr);
+  if (!a[what]) throw new HttpError(403, what === "manage" ? "PD만 할 수 있어요" : what === "full" ? "이 프로젝트 제작진만 할 수 있어요" : "이 프로젝트 명단에 있는 사람만 들어갈 수 있어요");
+  return { pr, a };
+}
+// 과 안 어느 팀에서든 교관 이상이면 새 프로젝트를 만들 수 있음
+async function projCanCreate(ctx: Ctx, teamId: string) {
+  const units = await sectionUnits(ctx, teamId);
+  const ranks = await Promise.all(units.map((u) => rankIn(ctx, u)));
+  return { units, ok: Math.max(0, ...ranks) >= RANK.INSTRUCTOR };
 }
 
 // 모임 후기: 마감 3시간 전쯤 안 쓴 대상자에게 한 번 (밤 0~8시엔 안 보냄, 만든 지 1시간 안 된 모임은 건너뜀)
@@ -2495,11 +2556,13 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // 올릴 준비 { kind, item_id, name, size, not_church: true } → 보관함에 바로 올리는 1회용 주소
   async "files.prepare"(ctx) {
     const p = ctx.payload ?? {};
-    if (!["notice", "assignment", "session"].includes(p.kind) || !UUID_RE.test(String(p.item_id))) throw new HttpError(400, "글을 다시 골라주세요");
-    if (p.not_church !== true) throw new HttpError(400, "우리 교회 대본은 올릴 수 없어요 (NAS에 두세요)");
+    if (!["notice", "assignment", "session", "project"].includes(p.kind) || !UUID_RE.test(String(p.item_id))) throw new HttpError(400, "글을 다시 골라주세요");
+    const proj = p.kind === "project";   // 프로젝트 대본은 제작진만 여는 보관함이라 올림 (사용자 결정 2026-10-10)
+    if (!proj && p.not_church !== true) throw new HttpError(400, "우리 교회 대본은 올릴 수 없어요 (NAS에 두세요)");
+    if (proj && !["대본", "자료"].includes(p.folder)) throw new HttpError(400, "대본인지 자료인지 골라주세요");
     const name = String(p.name ?? "").replace(/[\\/\u0000-\u001f]/g, "").trim().slice(0, 120);
     const ext = name.split(".").pop()?.toLowerCase() ?? "";
-    if (!name || !FILE_EXT.includes(ext)) throw new HttpError(400, "PDF·한글·워드·텍스트 파일만 올릴 수 있어요");
+    if (!name || !(proj ? PROJ_FILE_EXT : FILE_EXT).includes(ext)) throw new HttpError(400, proj ? "PDF·한글·워드·텍스트·이미지 파일만 올릴 수 있어요" : "PDF·한글·워드·텍스트 파일만 올릴 수 있어요");
     const size = Number(p.size);
     if (!Number.isInteger(size) || size <= 0 || size > FILE_MAX) throw new HttpError(400, "20MB까지 올릴 수 있어요");
     const tgt: any = await fileCanEdit(ctx, p.kind, p.item_id);
@@ -2512,7 +2575,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const up = await ctx.db.storage.from("scripts").createSignedUploadUrl(path);
     if (up.error) throw up.error;
     const row = must(await ctx.db.from("content_files").insert({ kind: p.kind, item_id: p.item_id, path, name, size, uploaded_by: ctx.me.id,
-      expires_at: new Date(base + keep * 24 * HOUR).toISOString() }).select("id, expires_at").single());
+      ...(proj ? { folder: p.folder, label: String(p.label ?? "").trim().slice(0, 40) || null } : {}),
+      expires_at: proj ? "infinity" : new Date(base + keep * 24 * HOUR).toISOString() }).select("id, expires_at").single());
     return { id: row.id, url: up.data.signedUrl, expires_at: row.expires_at };
   },
   // 다 올렸어요 { id }: 보관함에 실제로 있는지 보고 표시
@@ -2552,7 +2616,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   async "files.delete"(ctx) {
     const f = must(await ctx.db.from("content_files").select("id, kind, item_id, path, uploaded_by, deleted_at").eq("id", ctx.payload?.id).maybeSingle());
     if (!f || f.deleted_at) throw new HttpError(404, "없는 파일이에요");
-    if (f.uploaded_by !== ctx.me.id) await fileCanEdit(ctx, f.kind, f.item_id);
+    if (f.uploaded_by !== ctx.me.id) { if (f.kind === "project") await projNeed(ctx, f.item_id, "manage"); else await fileCanEdit(ctx, f.kind, f.item_id); }
     await ctx.db.storage.from("scripts").remove([f.path]);
     must(await ctx.db.from("content_files").update({ deleted_at: new Date().toISOString() }).eq("id", f.id));
     return { ok: true };
@@ -2888,28 +2952,20 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     await requireRank(ctx, ctx.payload.team_id, RANK.MEMBER);
     const sec = await sectionOf(ctx, ctx.payload.team_id);
     const old = new Date(Date.now() - 30 * 86400000).toISOString();
-    const flows: any[] = (must(await ctx.db.from("work_flows").select("*").in("team_id", sec.teamIds).neq("status", "취소")
+    // 프로젝트 안 작업은 그 프로젝트 방에서만 보임 (2026-10-10)
+    const flows: any[] = (must(await ctx.db.from("work_flows").select("*").in("team_id", sec.teamIds).is("project_id", null).neq("status", "취소")
       .order("created_at", { ascending: false }).limit(80)) ?? []).filter((f: any) => f.status === "진행" || (f.done_at ?? "") >= old);
-    const ids = flows.map((f) => f.id);
-    const steps: any[] = ids.length ? must(await ctx.db.from("work_steps").select("*").in("flow_id", ids).order("sort")) ?? [] : [];
-    const ps: any[] = steps.length ? must(await ctx.db.from("work_step_people").select("*").in("step_id", steps.map((x) => x.id)).order("created_at")) ?? [] : [];
-    const names = await nameMap(ctx, flows.map((f) => f.created_by));
     const myRank = await rankIn(ctx, ctx.payload.team_id);
     return {
       can_create: myRank >= RANK.INSTRUCTOR,
-      flows: flows.map((f) => ({
-        id: f.id, team_id: f.team_id, title: f.title, note: f.note, status: f.status, created_by: f.created_by, by: names.get(f.created_by) ?? "", created_at: f.created_at, done_at: f.done_at,
-        manage: f.created_by === ctx.me.id || myRank >= RANK.INSTRUCTOR && f.team_id === ctx.payload.team_id,
-        steps: steps.filter((st) => st.flow_id === f.id).map((st) => ({
-          id: st.id, title: st.title, detail: st.detail, due_on: st.due_on, done_rule: st.done_rule, after: st.after_ids ?? [], ready: !!st.ready_at, done: !!st.done_at,
-          people: ps.filter((x) => x.step_id === st.id).map((x) => ({ id: x.id, person_id: x.person_id, name: x.name, state: x.state, note: x.note, at: x.changed_at })),
-        })),
-      })),
+      flows: await flowShape(ctx, flows, (f) => f.created_by === ctx.me.id || myRank >= RANK.INSTRUCTOR && f.team_id === ctx.payload.team_id),
     };
   },
   async "flow.create"(ctx) {
     const p = ctx.payload ?? {};
-    await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
+    // 프로젝트 안 작업: 그 프로젝트 제작진(PD·제작진·과장 이상·관리자)이면 직책 상관없이 만듦
+    if (p.project_id) { await requireRank(ctx, p.team_id, RANK.MEMBER); await projNeed(ctx, p.project_id, "full"); }
+    else await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
     const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n);
     const title = t(p.title, 80); if (!title) throw new HttpError(400, "작업 이름을 적어주세요");
     const steps = Array.isArray(p.steps) ? p.steps.slice(0, 30) : [];
@@ -2924,7 +2980,7 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
       for (const q of x.people) if (q.person_id && !ok.has(q.person_id)) throw new HttpError(400, "우리 과 사람만 담당으로 고를 수 있어요");
     }
     await rateLimit(ctx, "flow_new", 10, 1440);
-    const f = must(await ctx.db.from("work_flows").insert({ team_id: p.team_id, title, note: t(p.note, 3000) || null, created_by: ctx.me.id }).select("id").single());
+    const f = must(await ctx.db.from("work_flows").insert({ team_id: p.team_id, project_id: p.project_id || null, title, note: t(p.note, 3000) || null, created_by: ctx.me.id }).select("id").single());
     const idOf = new Map<string, string>();
     for (const [i, x] of steps.entries()) {
       const st = must(await ctx.db.from("work_steps").insert({
@@ -2996,7 +3052,8 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
   // 글에서 단계 뽑기 (AI): 원문 + 과 명단 → Claude가 정해진 칸으로 답함. 사람은 명단 번호로만 고르게 해서 엉뚱한 이름이 안 나옴
   async "flow.parse"(ctx) {
     const p = ctx.payload ?? {};
-    await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
+    if (p.project_id) { await requireRank(ctx, p.team_id, RANK.MEMBER); await projNeed(ctx, p.project_id, "full"); }
+    else await requireRank(ctx, p.team_id, RANK.INSTRUCTOR);
     if (!ANTHROPIC_KEY) throw new HttpError(503, "AI 키가 아직 없어요", { code: "no_ai" });
     const text = String(p.text ?? "").trim().slice(0, 3000);
     if (!text) throw new HttpError(400, "원문을 먼저 적어주세요");
@@ -3088,7 +3145,7 @@ ${text}`;
     if (f.created_by !== ctx.me.id && p.state !== "대기" && !quick) {
       const boss = await withTelegram(ctx, [f.created_by]);
       const ic = { 시작: "▶️", 완료: "✅", 막힘: "🆘" }[p.state as "시작"];
-      if (boss.length) await sendToMembers(boss, `${ic} <b>${escHtml(sp.name)}</b> · ${p.state}\n${escHtml(f.title)} › ${escHtml(sp.work_steps.title)}${note ? `\n💬 ${escHtml(note)}` : ""}`, appButton("작업 보기", "?go=flow"));
+      if (boss.length) await sendToMembers(boss, `${ic} <b>${escHtml(sp.name)}</b> · ${p.state}\n${escHtml(f.title)} › ${escHtml(sp.work_steps.title)}${note ? `\n💬 ${escHtml(note)}` : ""}`, appButton("작업 보기", flowLink(f)));
     }
     await flowSync(ctx, f.id);
     return { ok: true };
@@ -3098,6 +3155,133 @@ ${text}`;
     if (!(await flowCanManage(ctx, f))) throw new HttpError(403, "지시자나 그 팀 교관 이상만 할 수 있어요");
     if (ctx.payload?.remove) { must(await ctx.db.from("work_flows").delete().eq("id", f.id)); return { ok: true }; }
     must(await ctx.db.from("work_flows").update({ status: "취소" }).eq("id", f.id));
+    return { ok: true };
+  },
+
+  // ----- 프로젝트 (2026-10-10) -----
+  // 목록 { team_id }: 과의 모든 프로젝트 카드. 들어갈 수 없는 건 제목·종류·상태·진행률·PD만
+  async "proj.list"(ctx) {
+    const { team_id } = ctx.payload ?? {};
+    await requireRank(ctx, team_id, RANK.MEMBER);
+    const { units, ok } = await projCanCreate(ctx, team_id);
+    const rows: any[] = must(await ctx.db.from("projects").select("*").in("unit_id", units).order("created_at", { ascending: false }).limit(100)) ?? [];
+    const mem: any[] = rows.length ? must(await ctx.db.from("project_members").select("project_id, person_id, role").in("project_id", rows.map((r) => r.id))) ?? [] : [];
+    const [admin, secRank] = await Promise.all([isAdmin(ctx), rankIn(ctx, units[0])]);
+    const names = await nameMap(ctx, mem.filter((m) => m.role === "PD").map((m) => m.person_id));
+    const order: Record<string, number> = { 진행: 0, 기획: 1, 보류: 2, 완료: 3 };
+    return {
+      can_create: ok,
+      items: rows.map((r) => {
+        const ms = mem.filter((m) => m.project_id === r.id), my = ms.find((m) => m.person_id === ctx.me.id);
+        const open = !!my || admin || secRank >= 60;
+        return {
+          id: r.id, kind: r.kind, title: r.title, status: r.status, progress: r.progress, starts_on: r.starts_on, due_on: r.due_on, channel: r.channel ?? "",
+          desc: open ? r.description ?? "" : "", pd: ms.filter((m) => m.role === "PD").map((m) => names.get(m.person_id)).filter(Boolean), count: ms.length,
+          my_role: my?.role ?? null, open,
+        };
+      }).sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9)),
+    };
+  },
+  // 방 { id }: 개요 + 사람 + 작업(출연은 내가 들어간 작업만) + 대본·자료(제작진만)
+  async "proj.get"(ctx) {
+    const { pr, a } = await projNeed(ctx, ctx.payload?.id, "see");
+    const mem: any[] = must(await ctx.db.from("project_members").select("id, person_id, role, part, created_at").eq("project_id", pr.id).order("created_at")) ?? [];
+    const roster = await sectionRoster(ctx, pr.unit_id), info = new Map<string, any>(roster.members.map((m: any) => [m.id, m]));
+    const missing = mem.filter((m) => !info.has(m.person_id)).map((m) => m.person_id);
+    const extra = await nameMap(ctx, missing);
+    const old = new Date(Date.now() - 60 * 86400000).toISOString();
+    let flows: any[] = (must(await ctx.db.from("work_flows").select("*").eq("project_id", pr.id).neq("status", "취소").order("created_at", { ascending: false }).limit(60)) ?? [])
+      .filter((f: any) => f.status === "진행" || (f.done_at ?? "") >= old);
+    let shaped = await flowShape(ctx, flows, (f) => f.created_by === ctx.me.id || a.manage);
+    if (!a.full) shaped = shaped.filter((f) => f.steps.some((x: any) => x.people.some((p: any) => p.person_id === ctx.me.id)));
+    const files: any[] = a.full ? must(await ctx.db.from("content_files").select("id, name, size, folder, label, uploaded_by, created_at")
+      .eq("kind", "project").eq("item_id", pr.id).eq("uploaded", true).is("deleted_at", null).order("created_at", { ascending: false })) ?? [] : [];
+    const by = await nameMap(ctx, files.map((f) => f.uploaded_by));
+    const ROLE_ORDER: Record<string, number> = { PD: 0, 제작진: 1, 출연: 2 };
+    return {
+      project: { id: pr.id, kind: pr.kind, title: pr.title, desc: pr.description ?? "", channel: pr.channel ?? "", status: pr.status, progress: pr.progress, starts_on: pr.starts_on, due_on: pr.due_on, created_at: pr.created_at },
+      me: { role: a.role, part: a.part, manage: a.manage, full: a.full },
+      members: mem.map((m) => {
+        const i = info.get(m.person_id);
+        return { id: m.id, person_id: m.person_id, name: i?.name ?? extra.get(m.person_id) ?? "(나간 사람)", position: i?.position ?? "", group: i?.group ?? null, role: m.role, part: m.part ?? "" };
+      }).sort((x, y) => (ROLE_ORDER[x.role] ?? 9) - (ROLE_ORDER[y.role] ?? 9)),
+      flows: shaped,
+      files: files.map((f) => ({ id: f.id, name: f.name, size: f.size, folder: f.folder ?? "자료", label: f.label ?? "", by: by.get(f.uploaded_by) ?? "", at: f.created_at, mine: f.uploaded_by === ctx.me.id })),
+    };
+  },
+  // 만들기·고치기 { id?, team_id, kind, title, desc, channel, status, progress, starts_on, due_on }. 만든 사람이 PD
+  async "proj.save"(ctx) {
+    const p = ctx.payload ?? {};
+    const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n);
+    const title = t(p.title, 80); if (!title) throw new HttpError(400, "프로젝트 이름을 적어주세요");
+    if (!PROJ_KINDS.includes(p.kind)) throw new HttpError(400, "종류를 골라주세요");
+    const status = PROJ_STATUS.includes(p.status) ? p.status : "기획";
+    const progress = p.progress === null || p.progress === "" || p.progress === undefined ? null : Math.max(0, Math.min(100, Math.round(Number(p.progress) || 0)));
+    for (const d of [p.starts_on, p.due_on]) if (d && !isDate(d)) throw new HttpError(400, "날짜가 이상해요");
+    if (p.starts_on && p.due_on && p.due_on < p.starts_on) throw new HttpError(400, "끝나는 날이 시작하는 날보다 앞이에요");
+    const row = { kind: p.kind, title, description: t(p.desc, 2000) || null, channel: t(p.channel, 30) || null, status, progress, starts_on: p.starts_on || null, due_on: p.due_on || null };
+    if (p.id) {
+      const { pr } = await projNeed(ctx, p.id, "manage");
+      must(await ctx.db.from("projects").update(row).eq("id", pr.id));
+      return { id: pr.id };
+    }
+    await requireRank(ctx, p.team_id, RANK.MEMBER);
+    const { units, ok } = await projCanCreate(ctx, p.team_id);
+    if (!ok) throw new HttpError(403, "교관 이상만 프로젝트를 만들 수 있어요");
+    await rateLimit(ctx, "proj_new", 5, 1440);
+    const pr = must(await ctx.db.from("projects").insert({ ...row, unit_id: units[0], owner_id: ctx.me.id, created_by: ctx.me.id }).select("id").single());
+    must(await ctx.db.from("project_members").insert({ project_id: pr.id, person_id: ctx.me.id, role: "PD", added_by: ctx.me.id }));
+    return { id: pr.id };
+  },
+  // 사람 넣기·바꾸기 { project_id, people: [person_id], role, part } (PD만). 새로 들어온 사람에게 봇 알림
+  async "proj.member"(ctx) {
+    const p = ctx.payload ?? {};
+    const { pr, a } = await projNeed(ctx, p.project_id, "manage");
+    if (!PROJ_ROLES.includes(p.role)) throw new HttpError(400, "자리를 골라주세요 (PD·제작진·출연)");
+    const ids = [...new Set((Array.isArray(p.people) ? p.people : []).map(String).filter((x: string) => UUID_RE.test(x)))].slice(0, 40) as string[];
+    if (!ids.length) throw new HttpError(400, "사람을 골라주세요");
+    const roster = await sectionRoster(ctx, pr.unit_id), ok = new Set(roster.members.map((m: any) => m.id));
+    if (ids.some((id) => !ok.has(id))) throw new HttpError(400, "우리 과 사람만 넣을 수 있어요");
+    const part = String(p.part ?? "").trim().slice(0, 40) || null;
+    const have: any[] = must(await ctx.db.from("project_members").select("id, person_id, role").eq("project_id", pr.id)) ?? [];
+    // 마지막 PD를 다른 자리로 바꾸면 방을 관리할 사람이 없어짐
+    const pds = have.filter((m) => m.role === "PD").map((m) => m.person_id);
+    if (p.role !== "PD" && pds.length && pds.every((id) => ids.includes(id)) && !a.admin) throw new HttpError(400, "PD가 한 명은 있어야 해요. 다른 PD를 먼저 넣어주세요");
+    await rateLimit(ctx, "proj_member", 60, 60);
+    const fresh: string[] = [];
+    for (const id of ids) {
+      const cur = have.find((m) => m.person_id === id);
+      if (cur) must(await ctx.db.from("project_members").update({ role: p.role, ...(p.keep_part ? {} : { part }) }).eq("id", cur.id));
+      else { must(await ctx.db.from("project_members").insert({ project_id: pr.id, person_id: id, role: p.role, part, added_by: ctx.me.id })); fresh.push(id); }
+    }
+    const who = (await withTelegram(ctx, fresh)).filter((m: any) => m.id !== ctx.me.id);
+    if (who.length) await sendToMembers(who, `🎬 <b>프로젝트에 들어왔어요</b>\n${escHtml(pr.title)} · ${p.role}${part ? ` (${escHtml(part)})` : ""}\n${escHtml(ctx.me.name)}님이 넣었어요`, appButton("프로젝트 보기", `?go=proj&p=${pr.id}`));
+    return { ok: true, added: fresh.length };
+  },
+  // 사람 빼기 { id: 명단 줄 id } (PD만, 마지막 PD는 못 뺌). 내가 나가기는 본인도 가능
+  async "proj.memberRemove"(ctx) {
+    const id = String(ctx.payload?.id ?? "");
+    if (!UUID_RE.test(id)) throw new HttpError(400, "잘못된 요청이에요");
+    const m = must(await ctx.db.from("project_members").select("*").eq("id", id).maybeSingle());
+    if (!m) throw new HttpError(404, "이미 빠진 사람이에요");
+    const pr = await projLoad(ctx, m.project_id), a = await projAccess(ctx, pr);
+    if (!a.manage && m.person_id !== ctx.me.id) throw new HttpError(403, "PD만 뺄 수 있어요");
+    if (m.role === "PD") {
+      const pds: any[] = must(await ctx.db.from("project_members").select("id").eq("project_id", pr.id).eq("role", "PD")) ?? [];
+      if (pds.length <= 1) throw new HttpError(400, "PD가 한 명은 있어야 해요. 다른 PD를 먼저 넣어주세요");
+    }
+    must(await ctx.db.from("project_members").delete().eq("id", m.id));
+    return { ok: true };
+  },
+  // 지우기 { id } (PD·관리자): 대본·자료 파일, 작업, 명단까지 모두
+  async "proj.delete"(ctx) {
+    const { pr } = await projNeed(ctx, ctx.payload?.id, "manage");
+    const fs: any[] = must(await ctx.db.from("content_files").select("id, path").eq("kind", "project").eq("item_id", pr.id).is("deleted_at", null)) ?? [];
+    if (fs.length) {
+      await ctx.db.storage.from("scripts").remove(fs.map((f) => f.path));
+      must(await ctx.db.from("content_files").update({ deleted_at: new Date().toISOString() }).in("id", fs.map((f) => f.id)));
+    }
+    must(await ctx.db.from("projects").delete().eq("id", pr.id));
     return { ok: true };
   },
 
@@ -3569,9 +3753,9 @@ ${text}`;
     const macts: any[] = must(await ctx.db.from("meeting_actions").select("id, task, due_on").eq("assignee_id", me).is("done_at", null).order("due_on")) ?? [];
     for (const a of macts) items.push({ kind: "mtgaction", id: a.id, name: a.task, due: a.due_on, urgent: !!a.due_on && a.due_on <= addDaysStr(kstToday(), 1) });
     // 작업 흐름: 차례가 된 내 단계 (안 끝난 것)
-    const fsteps: any[] = must(await ctx.db.from("work_step_people").select("id, state, work_steps!inner(title, due_on, ready_at, done_at, work_flows!inner(title, status))")
+    const fsteps: any[] = must(await ctx.db.from("work_step_people").select("id, state, work_steps!inner(title, due_on, ready_at, done_at, work_flows!inner(title, status, project_id))")
       .eq("person_id", me).neq("state", "완료").not("work_steps.ready_at", "is", null).is("work_steps.done_at", null).eq("work_steps.work_flows.status", "진행")) ?? [];
-    for (const a of fsteps) items.push({ kind: "flowstep", id: a.id, name: a.work_steps.title, flow: a.work_steps.work_flows.title, state: a.state, due: a.work_steps.due_on, urgent: !!a.work_steps.due_on && a.work_steps.due_on <= addDaysStr(kstToday(), 1) });
+    for (const a of fsteps) items.push({ kind: "flowstep", id: a.id, project: a.work_steps.work_flows.project_id ?? null, name: a.work_steps.title, flow: a.work_steps.work_flows.title, state: a.state, due: a.work_steps.due_on, urgent: !!a.work_steps.due_on && a.work_steps.due_on <= addDaysStr(kstToday(), 1) });
     // 사흘 안 회의인데 안건에 의견을 다 안 남긴 것
     const soon: any[] = must(await ctx.db.from("meetings").select("id, session_id, meeting_sessions!inner(session_date, title, team_id, target_unit_id, target_people, meeting_types(name))").eq("status", "준비")
       .gte("meeting_sessions.session_date", kstToday()).lte("meeting_sessions.session_date", addDaysStr(kstToday(), 3))) ?? [];
@@ -3600,14 +3784,14 @@ ${text}`;
         ctx.db.from("recording_participants").select("id, role, recording_sessions!inner(id, title, status, scheduled_start, scheduled_end, location, recording_requests(title))")
           .eq("person_id", me).eq("selected", true).eq("recording_sessions.status", "예정").gte("recording_sessions.scheduled_start", new Date(now + 2 * HOUR).toISOString()).lt("recording_sessions.scheduled_start", in14),
         ctx.db.from("duties").select("id, duty_type, title, place, starts_at, ends_at").eq("owner_id", me).gte("ends_at", new Date(now).toISOString()).lt("starts_at", in14).order("starts_at"),
-        ctx.db.from("projects").select("id, title, status, due_on, progress, owner_id, mc_id").or(`owner_id.eq.${me},mc_id.eq.${me}`).neq("status", "완료"),
-        ctx.db.from("work_step_people").select("id, state, work_steps!inner(title, due_on, ready_at, done_at, work_flows!inner(title, status))")
+        ctx.db.from("project_members").select("role, part, projects!inner(id, title, status, due_on, progress)").eq("person_id", me).neq("projects.status", "완료"),
+        ctx.db.from("work_step_people").select("id, state, work_steps!inner(title, due_on, ready_at, done_at, work_flows!inner(title, status, project_id))")
           .eq("person_id", me).is("work_steps.ready_at", null).is("work_steps.done_at", null).eq("work_steps.work_flows.status", "진행"),
       ]);
       for (const a of must(myRec as any) ?? []) { const rs = a.recording_sessions; items.push({ kind: "myrec", later: true, id: a.id, name: rs.recording_requests?.title ?? "녹음", role: a.role, start: Date.parse(rs.scheduled_start), end: rs.scheduled_end ? Date.parse(rs.scheduled_end) : null, place: rs.location ?? "" }); }
       for (const d of must(myDuty as any) ?? []) items.push({ kind: "duty", later: true, id: d.id, name: d.title || d.duty_type, type: d.duty_type, start: d.starts_at ? Date.parse(d.starts_at) : null, end: d.ends_at ? Date.parse(d.ends_at) : null, place: d.place ?? "" });
-      for (const x of must(myProj as any) ?? []) items.push({ kind: "project", later: true, id: x.id, name: x.title, status: x.status, due: x.due_on, progress: x.progress, role: x.owner_id === me ? "담당" : "MC" });
-      for (const w of must(myWait as any) ?? []) items.push({ kind: "flowwait", later: true, id: w.id, name: w.work_steps.title, flow: w.work_steps.work_flows.title, due: w.work_steps.due_on });
+      for (const m of must(myProj as any) ?? []) { const x = m.projects; items.push({ kind: "project", later: true, id: x.id, name: x.title, status: x.status, due: x.due_on, progress: x.progress, role: m.part ? `${m.role} · ${m.part}` : m.role }); }
+      for (const w of must(myWait as any) ?? []) items.push({ kind: "flowwait", later: true, id: w.id, project: w.work_steps.work_flows.project_id ?? null, name: w.work_steps.title, flow: w.work_steps.work_flows.title, due: w.work_steps.due_on });
     } catch (e) { console.error("todos later", e); }
     const order: Record<string, number> = { reason: 0, recask: 1, weekly: 2, checkin: 3, poll: 4, plan: 5, task: 6, notice: 7 };
     items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0) || (order[x.kind] ?? 9) - (order[y.kind] ?? 9));
@@ -4753,7 +4937,7 @@ ${text}`;
       .sort((a: any, b: any) => (a.start ?? Infinity) - (b.start ?? Infinity));
 
     const projects = P.map((r: any) => ({
-      id: r.id, channel: r.channel ?? "", title: r.title, desc: r.description ?? "",
+      id: r.id, kind: r.kind ?? "기타", channel: r.channel ?? "", title: r.title, desc: r.description ?? "",
       owner: names.get(r.owner_id) ?? "", mc: names.get(r.mc_id) ?? "",
       progress: r.progress, due: r.due_on ? kstMs(r.due_on) : null, status: r.status,
     }));
@@ -5397,9 +5581,11 @@ ${text}`;
     } else if (p.src === "project") {
       const x = must(await ctx.db.from("projects").select("*").eq("id", p.id).maybeSingle());
       if (!x || !unitOk(x.unit_id)) throw nf();
-      const nm = await nameMap(ctx, [x.owner_id, x.mc_id, x.created_by]);
-      out = { kind: "프로젝트", type: x.channel ?? "프로젝트", title: x.title, team: label(x.unit_id), start: null, end: null, place: "", desc: x.description ?? "", progress: x.progress, status: x.status, due: x.due_on };
-      rows.push(["채널", x.channel ?? ""], ["상태", x.status ?? ""], ["진행률", x.progress != null ? x.progress + "%" : ""], ["마감", x.due_on ?? ""], ["담당", nm.get(x.owner_id) ?? ""], ["MC", nm.get(x.mc_id) ?? ""], ["등록", nm.get(x.created_by) ?? ""]);
+      const acc = await projAccess(ctx, x);
+      const pdRows: any[] = must(await ctx.db.from("project_members").select("person_id").eq("project_id", x.id).eq("role", "PD")) ?? [];
+      const pdN = await nameMap(ctx, pdRows.map((r) => r.person_id));
+      out = { kind: "프로젝트", type: x.kind ?? "프로젝트", title: x.title, team: label(x.unit_id), start: null, end: null, place: "", desc: acc.see ? x.description ?? "" : "", progress: x.progress, status: x.status, due: x.due_on, proj_open: acc.see, proj_id: x.id };
+      rows.push(["종류", x.kind ?? ""], ["채널", x.channel ?? ""], ["상태", x.status ?? ""], ["진행률", x.progress != null ? x.progress + "%" : ""], ["기간", [x.starts_on, x.due_on].filter(Boolean).join(" ~ ")], ["PD", [...pdN.values()].join(", ")]);
     } else throw new HttpError(400, "잘못된 요청이에요");
     return { ...out, rows: rows.filter((r) => r[1]), staff };
   },
