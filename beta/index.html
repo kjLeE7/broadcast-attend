@@ -19,7 +19,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261010x">
+  <link rel="stylesheet" href="beta.css?v=20261010y">
 </head>
 <body>
   <div class="app">
@@ -146,8 +146,7 @@
     <!-- ===== 출결: 모임 목록 ===== -->
     <section id="listView" style="display:none;">
       <h1 class="page-title" data-ez="소식">소식</h1>
-      <p class="page-desc">공지와 모임·과제 일정을 한 화면에서 봐요</p>
-      <div class="b-attseg news-seg" data-on="attend"></div>
+      <p class="page-desc">공지·설문과 우리 팀 달력을 한 화면에서 봐요</p>
 
       <!-- 사유 입력·사전 체크가 필요한 모임 -->
       <div id="needArea"></div>
@@ -158,6 +157,10 @@
       <!-- 공지 표 (2026-10-10): 누구에게 보낸 공지인지 표시, 누르면 공지 화면에서 펼침 -->
       <div class="section-head"><h2>공지</h2><span class="section-count" id="annTblCount"></span><button type="button" class="sh-more" onclick="goTab('notice')">전체 보기 ›</button></div>
       <div id="annTable"></div>
+
+      <!-- 설문 (2026-10-10): 진행 중인 설문, 누르면 설문 화면 -->
+      <div class="section-head b-gap"><h2>설문</h2><span class="section-count" id="svTblCount"></span><button type="button" class="sh-more" onclick="goTab('survey')">지난 설문 ›</button></div>
+      <div id="svTable"></div>
 
       <!-- 만들기 버튼(FAB): 체크인 만들기(교관 이상) · 모임 만들기(조장 이상) → 팝업 -->
       <div class="b-fabdim" id="attFabDim" onclick="closeFabMenu()"></div>
@@ -176,7 +179,8 @@
       </div>
 
       <!-- 모임·과제 달력 (2026-10-10, 예전 카드 목록 대신) -->
-      <div class="section-head b-gap"><h2>모임·과제 달력</h2><span class="section-count">모임 · 📝 과제 마감</span></div>
+      <div class="section-head b-gap sc-head"><h2>팀 달력</h2><span class="section-count" id="scNote">모임 · 📝 과제 마감</span>
+        <button type="button" class="sc-sw" id="scSw" role="switch" aria-checked="false" onclick="scalMode()"><i></i><span>장소신청</span></button></div>
       <div id="sessCal"></div>
 
       <!-- 체크인 현황 (조장 이상) -->
@@ -1178,6 +1182,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261010b"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261010x"></script>
+  <script src="beta.js?v=20261010y"></script>
 </body>
 </html>

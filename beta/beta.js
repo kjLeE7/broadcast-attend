@@ -342,6 +342,8 @@ function showList() {
 function renderList() {
   renderNeed();
   renderAnnTable();
+  renderSvTable();
+  if (!SV.list && !SV.loading) { SV.loading = true; api('surveys.list', { team_id: S.team.id }).then(function (d) { SV.loading = false; SV.list = d.list; SV.boss = d.boss; renderSvTable(); }).catch(function () { SV.loading = false; }); }
   renderSessCal();
   // 소식 첫 화면: 공지·과제도 같이 불러옴
   if (!N.list && !N.loading) { N.loading = true; api('notices.list', { team_id: S.team.id }).then(function (l) { N.loading = false; N.list = l; renderAnnTable(); loadFiles('notice', l, function () {}); }).catch(function () { N.loading = false; }); }
@@ -5146,7 +5148,7 @@ function bookPlace() {
   api('place.book', p).then(function (r) {
     btn.disabled = false; haptic('success');
     setMsg('plMsg', r.status === '승인' ? '확정됐어요! 그 시간은 이제 내 자리예요' : '신청했어요. 승인되면 알려드려요' + (r.notify && !r.notify.sent ? ' (승인자가 아직 정해지지 않았거나 알림을 못 받았어요)' : ''));
-    $('plPurpose').value = ''; PLC.date = p.date; loadPlace();
+    $('plPurpose').value = ''; PLC.date = p.date; loadPlace(); PCAL.cache = {}; if (curTab === 'attend' && SCAL.place) renderSessCal();
     setTimeout(function () { closeModal('placeModal'); }, 1300);
   }).catch(function (err) { btn.disabled = false; setMsg('plMsg', err.message, true); });
 }
@@ -5269,6 +5271,8 @@ function actItems() {
       if (inst) add('plus', '체크인 만들기', openCiModal);
       if (lead && C.list.length) add('eye', '체크인 현황', mgToggle('ci', renderCheckins), MG.ci);
       if (annTeams().length) add('plus', '공지 쓰기', openAnnEdit);
+      add('plus', '설문 만들기', openSvModal);
+      add('plus', '장소 신청', function () { openPlaceAt(SCAL.sel || todayStr()); });
       if (inst) add('plus', '과제 내기', openHwModal);
     }
   }
@@ -6293,7 +6297,7 @@ function openDashItem(src, id) {
       (d.desc ? '<p class="di-desc">' + esc(d.desc) + '</p>' : '') +
       (d.rows.length ? '<div class="di-rows">' + d.rows.map(function (r) { return '<div><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b></div>'; }).join('') + '</div>' : '') +
       (d.masked ? '<p class="di-lock">🔒 ' + esc(d.kind) + '의 자세한 내용(제목·사람·장소)은 교관 이상만 볼 수 있어요</p>' : '') + '</div>' +
-      (d.open_session ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');inTeam(function(){goTab(\'attend\');refreshSessions().then(function(){openSession(\'' + d.open_session + '\')})})">모임 화면으로 ›</button>' : '') +
+      (d.open_session ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');openSessFromPop(\'' + d.open_session + '\')">모임 자세히 (출결·후기) ›</button>' : '') +
       (d.open_rec && recAllowed() ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');RC.pending=\'' + d.open_rec + '\';goTab(\'rec\')">녹음 요청 자세히 ›</button>' : '') +
       (d.proj_open ? '<button class="ghost-btn di-go" onclick="closeModal(\'itemModal\');openProject(\'' + d.proj_id + '\')">프로젝트 열기 ›</button>' : '');
     $('itemBody').innerHTML = shown ? '<div class="di-in">' + h + '</div>' : h;
@@ -6885,6 +6889,8 @@ function createSurvey() {
 // 소식 안 칩: 소식 · 공지 전체 · 과제 · 장소 신청 · 설문. 시간취합은 개인 › 업무가능 시간의 + 메뉴로
 // =====================================================================
 function newsSeg(on) {
+  // 소식 안 칩은 없앰 (2026-10-10 밤) → 다른 화면에선 '‹ 소식'만
+  return '<button class="back" onclick="showListTab()">‹ 소식</button>';
   return [['attend', '소식', 'showListTab()'], ['notice', '공지 전체', "goTab('notice')"], ['task', '과제', "goTask('notice')"], ['place', '장소 신청', "goTab('place')"], ['survey', '설문', "goTab('survey')"]].map(function (x) {
     return '<button class="wkchip' + (x[0] === on ? ' active' : '') + '" onclick="' + x[2] + '">' + x[1] + '</button>';
   }).join('');
@@ -6944,6 +6950,7 @@ function scalStatus(s) {
 }
 function renderSessCal() {
   var box = $('sessCal'); if (!box || !S.team) return;
+  if (SCAL.place) { renderPlaceCal(); return; }
   var now = new Date(); if (!SCAL.ym) SCAL.ym = ymOf(now);
   var p = SCAL.ym.split('-'), y = +p[0], m = +p[1] - 1, first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
   if (!SCAL.sel) SCAL.sel = ymOf(now) === SCAL.ym ? todayStr() : ymd(first);
@@ -6980,14 +6987,15 @@ $('sessCal').addEventListener('click', function (e) {
   var nav = e.target.closest('.mc-nav'); if (nav) { scalMove(+nav.getAttribute('data-m')); return; }
   var it = e.target.closest('.sc-it');
   if (it) {
-    if (it.getAttribute('data-sess')) { var id = it.getAttribute('data-sess'); if (!byId(S.sessions, id)) { var c = (SCAL.cache[SCAL.ym] || []).filter(function (s) { return s.id === id; })[0]; if (c) S.sessions.push(c); } openSession(id); }
-    else { var tid = it.getAttribute('data-task'); A.current = null; goTask('notice'); var tries = 0; (function open() { if (A.list && byId(A.list, tid)) openTask(tid); else if (tries++ < 20) setTimeout(open, 150); })(); }
+    if (it.getAttribute('data-sess')) { var id = it.getAttribute('data-sess'); if (!byId(S.sessions, id)) { var c = (SCAL.cache[SCAL.ym] || []).filter(function (s) { return s.id === id; })[0]; if (c) S.sessions.push(c); } openDashItem('session', id); }
+    else if (it.getAttribute('data-task')) taskPop(it.getAttribute('data-task'));
+    else if (it.getAttribute('data-book')) openPlaceAt(SCAL.sel);
     return;
   }
   var d = e.target.closest('.mc-d'); if (d) {
     SCAL.sel = d.getAttribute('data-k'); renderSessCal();
     var evs = scalItems(SCAL.ym).filter(function (x) { return x.date === SCAL.sel; });
-    if (evs.length === 1 && isWide()) { if (evs[0].k === 'sess') openSession(evs[0].s.id); }
+    if (!SCAL.place && evs.length === 1 && isWide()) { if (evs[0].k === 'sess') openDashItem('session', evs[0].s.id); else taskPop(evs[0].a.id); }
   }
 });
 // 시간취합: 업무가능 시간 화면의 + 메뉴에서. 처음엔 무엇이 다른지 설명
@@ -7000,4 +7008,90 @@ function openPollIntro() {
     '<button class="btn-primary" onclick="closeModal(\'itemModal\');goTab(\'poll\')">시간취합 열기</button>' +
     '<button class="ghost-btn" style="margin-top:8px" onclick="closeModal(\'itemModal\');goTab(\'poll\');setTimeout(openTpModal,300)">바로 새로 만들기</button>';
   openModal('itemModal');
+}
+
+
+// ----- 소식: 설문 표 · 과제 팝업 · 팀 달력 '장소신청' 보기 (2026-10-10 밤) -----
+function renderSvTable() {
+  var box = $('svTable'); if (!box) return;
+  if (!SV.list) { box.innerHTML = '<div class="b-wait">불러오는 중...</div>'; return; }
+  var open = SV.list.filter(function (s) { return s.open; }), todo = open.filter(function (s) { return s.is_target && !s.answered; }).length;
+  $('svTblCount').textContent = todo ? '답할 설문 ' + todo : '';
+  box.innerHTML = open.length ? '<div class="card at-tbl">' + open.map(function (s) {
+    var st = !s.is_target ? '<span class="at-s">' + s.responded + '/' + s.count + '</span>' : s.answered ? '<span class="at-s">✓</span>' : '<span class="at-s"><em>답하기</em></span>';
+    return '<button type="button" class="at-row" onclick="SV.pending=\'' + s.id + '\';goTab(\'survey\')"><span class="at-who ' + (s.anonymous ? 'w-proj' : 'w-grp') + '"><i>' + (s.anonymous ? '🔒' : '🙋') + '</i>' + (s.anonymous ? '익명' : '실명') + '</span>' +
+      '<b class="at-t">' + esc(s.title) + '</b><span class="at-d">~' + mdOf(s.deadline) + '</span>' + st + '</button>';
+  }).join('') + '</div>' : '<div class="empty"><b>진행 중인 설문이 없어요</b>+ 버튼 \'설문 만들기\'로 누구나 만들 수 있어요</div>';
+}
+function taskPop(id) {
+  var a = byId(A.list || [], id); if (!a) return;
+  var st = taskState(a);
+  $('itemModalT').textContent = a.title;
+  $('itemModalS').textContent = '과제' + (a.category ? ' · ' + a.category : '');
+  $('itemBody').innerHTML = '<div class="di k-etc"><div class="di-when">' + (a.due_at ? '마감 ' + dtLabel(a.due_at) : '마감 없음') + '<small>' + esc(st.t) + '</small></div>' +
+    (a.description ? '<p class="di-desc">' + esc(a.description) + '</p>' : '') +
+    '<div class="di-rows">' + [['대상', a.target_label || (a.target_unit_id ? groupName(a.target_unit_id) + '만' : S.team.name + ' 전체')], ['낸 사람', a.author || ''],
+      a.submitted_count != null ? ['제출', a.submitted_count + '명'] : null].filter(function (r) { return r && r[1]; }).map(function (r) { return '<div><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b></div>'; }).join('') + '</div></div>' +
+    '<button class="btn-primary di-go" onclick="closeModal(\'itemModal\');A.current=null;goTask(\'notice\');setTimeout(function(){openTask(\'' + esc(a.id) + '\')},200)">' + (a.my ? '내 제출 보기 ›' : '과제 열고 제출하기 ›') + '</button>';
+  openModal('itemModal');
+}
+function scalMode() {
+  SCAL.place = !SCAL.place;
+  $('scSw').classList.toggle('on', SCAL.place); $('scSw').setAttribute('aria-checked', SCAL.place ? 'true' : 'false');
+  $('scNote').textContent = SCAL.place ? '날짜마다 어느 팀이 어느 장소를 쓰는지' : '모임 · 📝 과제 마감';
+  renderSessCal();
+}
+var PCAL = { cache: {}, teams: [] };
+var TEAM_COLS = ['#3F6A8A', '#B07A2A', '#4E7A55', '#7A4F8C'];
+function pcalColor(teamId) { var i = PCAL.teams.map(function (t) { return t.id; }).indexOf(teamId); return i < 0 ? '#8a8578' : TEAM_COLS[i % TEAM_COLS.length]; }
+function renderPlaceCal() {
+  var box = $('sessCal'), now = new Date(); if (!SCAL.ym) SCAL.ym = ymOf(now);
+  var ym = SCAL.ym, d0 = PCAL.cache[ym];
+  if (!d0) {
+    box.innerHTML = '<div class="mc card"><div class="b-wait">장소 신청을 불러오는 중...</div></div>';
+    api('place.month', { team_id: S.team.id, month: ym }).then(function (d) { PCAL.cache[ym] = d.bookings; PCAL.teams = d.teams; if (SCAL.place && SCAL.ym === ym) renderPlaceCal(); })
+      .catch(function (err) { box.innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+    return;
+  }
+  var p = ym.split('-'), y = +p[0], m = +p[1] - 1, first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
+  if (!SCAL.sel) SCAL.sel = ymOf(now) === ym ? todayStr() : ymd(first);
+  var weeks = Math.ceil((first.getDay() + days) / 7), start = new Date(y, m, 1 - first.getDay()), byDay = {}, today = todayStr();
+  d0.forEach(function (b) { var k = ymd(new Date(b.starts_at)); (byDay[k] = byDay[k] || []).push(b); });
+  var ev = function (b) { return '<span class="mc-ev pc-ev' + (b.status === '대기' ? ' wait' : '') + '" style="--k:' + pcalColor(b.team_id) + ';--kb:color-mix(in srgb,' + pcalColor(b.team_id) + ' 14%,var(--card))"><em>' + hmMs(Date.parse(b.starts_at)) + '</em>' + esc(b.place) + '</span>'; };
+  var cells = '';
+  for (var i = 0; i < weeks * 7; i++) {
+    var d = new Date(start); d.setDate(start.getDate() + i);
+    var k = ymd(d), evs = byDay[k] || [], hol = SCHED_HOLIDAYS[pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())];
+    cells += '<button type="button" class="mc-d' + (d.getMonth() !== m ? ' out' : '') + (k === today ? ' today' : '') + (k === SCAL.sel ? ' sel' : '') +
+      (hol || d.getDay() === 0 ? ' red' : d.getDay() === 6 ? ' blue' : '') + '" data-k="' + k + '">' +
+      '<span class="mc-n"><i>' + d.getDate() + '</i>' + (hol ? '<small>' + hol + '</small>' : '') + '</span>' +
+      '<span class="mc-evs">' + evs.slice(0, 3).map(ev).join('') + (evs.length > 3 ? '<span class="mc-more">+' + (evs.length - 3) + '</span>' : '') + '</span>' +
+      '<span class="mc-dots">' + evs.slice(0, 4).map(function (b) { return '<i style="--k:' + pcalColor(b.team_id) + '"></i>'; }).join('') + '</span></button>';
+  }
+  var sel = byDay[SCAL.sel] || [], sd = parseDate(SCAL.sel);
+  var detail = '<div class="mc-dh">' + (sd.getMonth() + 1) + '월 ' + sd.getDate() + '일 ' + WD[sd.getDay()] + '요일' + (sel.length ? ' · 장소 ' + sel.length + '건' : '') +
+      (SCAL.sel >= today ? '<button type="button" class="sh-more pc-add" onclick="openPlaceAt(\'' + SCAL.sel + '\')">+ 이 날 장소 신청</button>' : '') + '</div>' +
+    (sel.length ? sel.map(function (b) {
+      return '<div class="mc-it pc-it' + (b.status === '대기' ? ' wait' : '') + '" style="--k:' + pcalColor(b.team_id) + ';--kb:color-mix(in srgb,' + pcalColor(b.team_id) + ' 10%,var(--card))"><span class="mc-t">' + hmMs(Date.parse(b.starts_at)) + '–' + hmMs(Date.parse(b.ends_at)) + '</span>' +
+        '<div><b>' + esc(b.place) + ' <span class="pc-team">' + esc(b.team) + '</span>' + (b.status === '대기' ? ' <em class="rc-adjtag">승인 기다림</em>' : '') + '</b><small>' + esc([b.purpose, b.name + (b.mine ? ' (나)' : '')].filter(Boolean).join(' · ')) + '</small></div></div>';
+    }).join('') : '<div class="mc-none">이날은 장소 신청이 없어요</div>');
+  box.innerHTML = '<div class="mc card sc-cal">' +
+    '<div class="mc-top"><button type="button" class="mc-nav" data-m="-1" aria-label="지난달">‹</button><b>' + y + '년 ' + (m + 1) + '월</b>' +
+      '<button type="button" class="mc-nav" data-m="1" aria-label="다음 달">›</button>' + (ym !== ymOf(now) ? '<button type="button" class="mc-nav mc-today" data-m="0">오늘</button>' : '') +
+      '<span class="sc-leg">' + PCAL.teams.map(function (t) { return '<i style="--k:' + pcalColor(t.id) + '"></i>' + esc(t.name); }).join('') + '<i class="pc-wait"></i>승인 기다림</span></div>' +
+    '<div class="mc-wd"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>' +
+    '<div class="mc-grid">' + cells + '</div><div class="mc-detail">' + detail + '</div>' +
+    '<p class="pc-mine"><button type="button" class="sh-more" onclick="goTab(\'place\')">내 신청 보기·취소 ›</button></p></div>';
+}
+// 장소 신청 팝업 (그 날짜로). 장소 목록이 없으면 먼저 받음
+function openPlaceAt(date) {
+  var go = function () { PLC.date = date >= todayStr() ? date : todayStr(); openPlaceModal(); };
+  if (PLC.d) { go(); return; }
+  api('place.list', { team_id: S.team.id, date: date }).then(function (d) { PLC.d = d; go(); }).catch(function (err) { alertMsg(err.message); });
+}
+
+// 팝업 '모임 자세히': 소식 탭에서 그 모임 열기
+function openSessFromPop(id) {
+  var go = function () { if (byId(S.sessions, id)) openSession(id); else refreshSessions().then(function () { if (byId(S.sessions, id)) openSession(id); }); };
+  if (curTab === 'attend') go(); else { goTab('attend'); setTimeout(go, 50); }
 }

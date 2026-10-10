@@ -2719,6 +2719,25 @@ const actions: Record<string, (ctx: Ctx) => Promise<unknown>> = {
     const nm = (b: any) => ({ ...b, name: names.get(b.person_id) ?? "", mine: b.person_id === ctx.me.id });
     return { date, places: (plc ?? []).map((p: any) => ({ ...p, rule: PLACE_KIND[p.approval] })), bookings: (books ?? []).map(nm), mine: mine ?? [], approve: approve.map(nm) };
   },
+  // 달력용 { team_id, month: "YYYY-MM" } → 그달(앞뒤 1주) 대기·승인 신청: 장소·팀·무엇·신청자 (소식 › 팀 달력 '장소신청' 보기, 2026-10-10)
+  async "place.month"(ctx) {
+    const { team_id, month } = ctx.payload ?? {};
+    await requireRank(ctx, team_id, RANK.MEMBER);
+    if (!/^\d{4}-\d\d$/.test(String(month))) throw new HttpError(400, "달을 다시 골라주세요");
+    const [y, m] = String(month).split("-").map(Number);
+    const from = new Date(kstMs(`${month}-01`) - 7 * 86400000).toISOString(), to = new Date(Date.UTC(y, m, 8) - 9 * HOUR).toISOString();
+    const sec = await sectionOf(ctx, team_id);
+    const [plc, books] = await Promise.all([
+      ctx.db.from("places").select("code, name").then(must),
+      ctx.db.from("place_bookings").select("id, place_code, starts_at, ends_at, purpose, team_id, person_id, status").in("status", ["대기", "승인"]).lt("starts_at", to).gt("ends_at", from).order("starts_at").limit(500).then(must),
+    ]);
+    const pn = new Map((plc ?? []).map((p: any) => [p.code, p.name])), names = await nameMap(ctx, (books ?? []).map((b: any) => b.person_id));
+    return {
+      teams: sec.kids.map((k: any) => ({ id: k.id, name: k.name })),
+      bookings: (books ?? []).map((b: any) => ({ id: b.id, place: pn.get(b.place_code) ?? b.place_code, starts_at: b.starts_at, ends_at: b.ends_at, purpose: b.purpose, status: b.status,
+        team: sec.unitName.get(b.team_id) ?? "방송예술과", team_id: b.team_id, name: names.get(b.person_id) ?? "", mine: b.person_id === ctx.me.id })),
+    };
+  },
   // 신청 { team_id, place_code, date, from: "HH:MM", to: "HH:MM", purpose } → 스담 등은 바로 승인, 녹음실·외부는 대기 + 승인자 알림
   async "place.book"(ctx) {
     const p = ctx.payload ?? {};
