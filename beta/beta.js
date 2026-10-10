@@ -340,15 +340,12 @@ function showList() {
 }
 
 function renderList() {
-  var today = todayStr();
-  var up = S.sessions.filter(function (s) { return s.session_date >= today; });
-  var past = S.sessions.filter(function (s) { return s.session_date < today; }).reverse();
-  $('upCount').textContent = up.length ? up.length + '개' : '';
-  $('upList').innerHTML = up.length ? up.map(sessionCard).join('')
-    : '<div class="empty"><b>예정된 모임이 없어요</b>' + (S.team.rank >= RANK.GROUP_LEADER ? '위에서 새로 만들 수 있어요' : '모임이 잡히면 여기에 보여요') + '</div>';
-  $('pastList').innerHTML = past.length ? past.map(sessionCard).join('')
-    : '<div class="empty"><b>최근 지난 모임이 없어요</b></div>';
   renderNeed();
+  renderAnnTable();
+  renderSessCal();
+  // 소식 첫 화면: 공지·과제도 같이 불러옴
+  if (!N.list && !N.loading) { N.loading = true; api('notices.list', { team_id: S.team.id }).then(function (l) { N.loading = false; N.list = l; renderAnnTable(); loadFiles('notice', l, function () {}); }).catch(function () { N.loading = false; }); }
+  if (!A.list && !A.loading) { A.loading = true; api('assignments.list', { team_id: S.team.id }).then(function (l) { A.loading = false; A.list = l; renderSessCal(); }).catch(function () { A.loading = false; }); }
 }
 
 // 위쪽 알림: 지각·불참 사유 미입력 / 아직 사전 체크 안 한 모임
@@ -1331,18 +1328,15 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { if (t === 'sky') return 'town'; if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' || t === 'proj' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' || t === 'survey' ? 'notice' : t; }
+function parentTab(t) { if (t === 'sky') return 'town'; if (t === 'poll') return 'profile'; if (t === 'task') return taskFrom === 'profile' ? 'profile' : 'attend'; if (t === 'notice' || t === 'survey' || t === 'place' || t === 'mtg') return 'attend'; if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' || t === 'proj' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' || t === 'survey' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
   goTab('task');
 }
 function renderTaskSeg() {
-  var seg = taskFrom === 'profile' ? [] : [['공지', "goTab('notice')", 0], ['과제', '', 1], ['설문', "goTab('survey')", 0]];
-  $('taskSeg').innerHTML = seg.map(function (x) {
-    return '<button class="wkchip' + (x[2] ? ' active' : '') + '"' + (x[1] ? ' onclick="' + x[1] + '"' : '') + '>' + x[0] + '</button>';
-  }).join('');
-  $('taskSeg').style.display = seg.length ? '' : 'none';
+  $('taskSeg').innerHTML = taskFrom === 'profile' ? '' : newsSeg('task');
+  $('taskSeg').style.display = taskFrom === 'profile' ? 'none' : '';
   $('taskDesc').textContent = taskFrom === 'profile' ? '나에게 하달된 과제예요. 눌러서 제출해주세요' : '과제를 눌러 제출하고, 제출 현황을 봐요';
 }
 // 아래 탭 '개인': 누르면 하위 메뉴(나의 기록·내 과제·업무가능 시간·시간취합)
@@ -1384,12 +1378,13 @@ function setTabUI(t) {
   try { sessionStorage.setItem('betaTab', t); sessionStorage.setItem('betaTaskFrom', taskFrom); } catch (e) {}
   var pt = parentTab(t);
   document.querySelectorAll('#tabbar .tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === pt); });
-  var sub = t === 'task' && taskFrom !== 'profile' ? '' : t;
+  var sub = t === 'task' && taskFrom !== 'profile' ? '' : t === 'poll' ? 'weekly' : t;
   document.querySelectorAll('#pfSub button, #recSub button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === sub); });
   document.querySelectorAll('#admSub button, #admSeg button').forEach(function (b) { var on = t === 'admin' && b.getAttribute('data-t') === 'adm-' + ADMSEC; b.classList.toggle('on', on); b.classList.toggle('active', on); });
   // PC 펼친 메뉴: 지금 화면의 하위 메뉴는 펼치고, 미리 열어 둔 다른 하위 메뉴는 그대로 둠 (2026-10-10)
   if (!pfFloating()) { if (pt === 'profile') togglePfSub(true); if (pt === 'rec') togglePfSub(true, 'recSub'); if (pt === 'admin') togglePfSub(true, 'admSub'); }
   if (t === 'task') renderTaskSeg();
+  document.querySelectorAll('.news-seg').forEach(function (el) { el.innerHTML = newsSeg(el.getAttribute('data-on')); });
   Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).style.display = k === t ? '' : 'none'; });
   $('teamTabs').style.display = t !== 'weekly' && t !== 'poll' && t !== 'home' && t !== 'town' && t !== 'rec' && t !== 'profile' && t !== 'dues' && t !== 'sky' && t !== 'admin' && t !== 'mtg' && t !== 'pmonth' && t !== 'flow' && t !== 'proj' && t !== 'mytodo' && t !== 'approve' && t !== 'practice' && t !== 'settings' && S.me && S.me.teams.length > 1 ? 'flex' : 'none';
   document.body.classList.toggle('town-mode', t === 'town');
@@ -2525,6 +2520,7 @@ function openReads(kind, id) {
 }
 
 function renderNotices() {
+  renderAnnTable();
   if (!N.list.length) { $('annList').innerHTML = '<div class="empty"><b>아직 공지가 없어요</b>공지가 올라오면 여기에 보여요</div>'; return; }
   $('annList').innerHTML = N.list.map(function (n) {
     var open = N.open === n.id;
@@ -5250,12 +5246,15 @@ function actItems() {
       if (lead) add('plus', '모임 만들기', openSessModal);
       if (inst) add('plus', '체크인 만들기', openCiModal);
       if (lead && C.list.length) add('eye', '체크인 현황', mgToggle('ci', renderCheckins), MG.ci);
+      if (annTeams().length) add('plus', '공지 쓰기', openAnnEdit);
+      if (inst) add('plus', '과제 내기', openHwModal);
     }
   }
   if (t === 'attend' && !S.current) add('edit', '특이사항 알리기', function () { openNote({}); });
   if (t === 'mtg' && MT.d && MT.d.meeting.status !== '끝') add('plus', '안건 올리기', function () { openItem(); });
   if (t === 'people') { if (PPL.cur) add('edit', PPL.cur.person.name + '님 특이사항 적기', function () { openNote({ person_id: PPL.cur.person.id }); }); add('plus', '특이사항 적기', function () { openNote({ staff: true }); }); }
   if (t === 'poll' && !PL.cur) add('plus', '시간취합 만들기', openTpModal);
+  if (t === 'weekly') add('list', '시간취합 (모일 시간 찾기)', openPollIntro);
   if (t === 'survey' && !SV.cur) add('plus', '설문 만들기', openSvModal);
   if (t === 'place' && PLC.d) add('plus', '장소 신청', function () { openPlaceModal(); });
   if (t === 'notice') {
@@ -6856,4 +6855,127 @@ function createSurvey() {
     SV.pending = r.id; SV.list = null; SV.cur = null; loadSurveys();
     setTimeout(function () { setMsg('svMsg', ''); closeModal('svModal'); }, 1400);
   }).catch(function (err) { btn.disabled = false; setMsg('svMsg', err.message, true); });
+}
+
+
+// =====================================================================
+// 소식 (2026-10-10): '일정' 탭을 없애고 소식 하나로. 위 = 공지 표, 아래 = 모임·과제 달력
+// 소식 안 칩: 소식 · 공지 전체 · 과제 · 장소 신청 · 설문. 시간취합은 개인 › 업무가능 시간의 + 메뉴로
+// =====================================================================
+function newsSeg(on) {
+  return [['attend', '소식', 'showListTab()'], ['notice', '공지 전체', "goTab('notice')"], ['task', '과제', "goTask('notice')"], ['place', '장소 신청', "goTab('place')"], ['survey', '설문', "goTab('survey')"]].map(function (x) {
+    return '<button class="wkchip' + (x[0] === on ? ' active' : '') + '" onclick="' + x[2] + '">' + x[1] + '</button>';
+  }).join('');
+}
+function showListTab() { if (curTab === 'attend') showList(); else goTab('attend'); }
+function pfTask() { if (pfFloating()) { togglePfSub(false); togglePfSub(false, 'recSub'); togglePfSub(false, 'admSub'); } toggleMePop(false); A.current = null; goTask('profile'); }
+// 공지가 누구에게 간 것인지: [아이콘, 글자, 색 이름]
+function annWho(n) {
+  if (n.projects) return ['🎬', n.projects.title, 'proj'];
+  if (n.target_names && n.target_names.length) return ['🎖', n.target_names.join('·') + '만', 'rank'];
+  if (n.target_unit_id) return ['👥', groupName(n.target_unit_id) + '만', 'grp'];
+  if (n.target_label) return ['👥', n.target_label, 'grp'];
+  if (n.scope === 'section') return ['🏛', '방예과 전체', 'sec'];
+  if (n.scope === 'team') return ['📣', S.team.name + ' 전체', 'team'];
+  return ['📨', '나에게', 'grp'];
+}
+function renderAnnTable() {
+  var box = $('annTable'); if (!box) return;
+  if (!N.list) { box.innerHTML = '<div class="b-wait">불러오는 중...</div>'; return; }
+  var l = N.list.slice().sort(function (a, b) { return (a.seen ? 1 : 0) - (b.seen ? 1 : 0) || (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0) || (a.published_at < b.published_at ? 1 : -1); }).slice(0, 6);
+  var unread = N.list.filter(function (n) { return !n.seen; }).length;
+  $('annTblCount').textContent = unread ? '안 읽음 ' + unread : '';
+  box.innerHTML = l.length ? '<div class="card at-tbl">' + l.map(function (n) {
+    var w = annWho(n);
+    return '<button type="button" class="at-row' + (n.seen ? '' : ' new') + '" onclick="annOpen(\'' + esc(n.id) + '\')">' +
+      '<span class="at-who w-' + w[2] + '"><i>' + w[0] + '</i>' + esc(w[1]) + '</span>' +
+      '<b class="at-t">' + (n.is_pinned ? '📌 ' : '') + esc(n.title) + '</b>' +
+      '<span class="at-d">' + mdOf(n.published_at) + '</span><span class="at-s">' + (n.seen ? '✓' : '<em>새 글</em>') + '</span></button>';
+  }).join('') + '</div>' : '<div class="empty"><b>아직 공지가 없어요</b></div>';
+}
+function annOpen(id) { N.open = id; goTab('notice'); }
+// ----- 모임·과제 달력 -----
+var SCAL = { ym: null, sel: null, cache: {} };
+function scalItems(ym) {
+  var list = (SCAL.cache[ym] || S.sessions || []).map(function (s) { return { k: 'sess', s: s, date: s.session_date, t: s.start_time ? hm(s.start_time) : '', title: sessionName(s) }; });
+  (A.list || []).forEach(function (a) { if (a.due_at) { var d = new Date(a.due_at); list.push({ k: 'task', a: a, date: ymd(d), t: hmD(d), title: a.title }); } });
+  return list.filter(function (x) { return x.date.slice(0, 7) === ym || true; });
+}
+function scalMove(n) {
+  var now = new Date();
+  if (n === 0) { SCAL.ym = ymOf(now); SCAL.sel = todayStr(); }
+  else { var p = SCAL.ym.split('-'); SCAL.ym = ymOf(new Date(+p[0], +p[1] - 1 + n, 1)); SCAL.sel = null; }
+  // 불러 둔 범위(지난 2주~두 달 뒤) 밖의 달은 그 달만 따로 받음
+  var ym = SCAL.ym, p2 = ym.split('-'), from = ym + '-01', to = ymd(new Date(+p2[0], +p2[1], 0));
+  if (!SCAL.cache[ym] && (from < addDays(-14) || to > addDays(60))) {
+    api('sessions.list', { team_id: S.team.id, from: ymd(new Date(+p2[0], +p2[1] - 1, -6)), to: ymd(new Date(+p2[0], +p2[1], 7)) }).then(function (l) { SCAL.cache[ym] = l || []; if (SCAL.ym === ym) renderSessCal(); }).catch(function () {});
+  }
+  renderSessCal();
+}
+function scalStatus(s) {
+  var ph = phaseOf(s), m = s.mine || {};
+  if (ph === 'cancel') return 'cx';
+  if (!s.is_target) return 'na';
+  if (m.status) return m.status === '참석' ? 'ok' : 'warn';
+  if (m.planned_status) return 'ok';
+  return ph === 'before' ? 'todo' : 'na';
+}
+function renderSessCal() {
+  var box = $('sessCal'); if (!box || !S.team) return;
+  var now = new Date(); if (!SCAL.ym) SCAL.ym = ymOf(now);
+  var p = SCAL.ym.split('-'), y = +p[0], m = +p[1] - 1, first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
+  if (!SCAL.sel) SCAL.sel = ymOf(now) === SCAL.ym ? todayStr() : ymd(first);
+  var weeks = Math.ceil((first.getDay() + days) / 7), start = new Date(y, m, 1 - first.getDay()), byDay = {}, today = todayStr();
+  scalItems(SCAL.ym).forEach(function (x) { (byDay[x.date] = byDay[x.date] || []).push(x); });
+  Object.keys(byDay).forEach(function (k) { byDay[k].sort(function (a, b) { return (a.k === 'task') - (b.k === 'task') || (a.t < b.t ? -1 : 1); }); });
+  var ev = function (x) { return x.k === 'task' ? '<span class="mc-ev sc-task">📝 ' + esc(x.title) + '</span>' : '<span class="mc-ev sc-s st-' + scalStatus(x.s) + '"><em>' + x.t + '</em>' + esc(x.title) + '</span>'; };
+  var cells = '';
+  for (var i = 0; i < weeks * 7; i++) {
+    var d = new Date(start); d.setDate(start.getDate() + i);
+    var k = ymd(d), evs = byDay[k] || [], hol = SCHED_HOLIDAYS[pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())];
+    cells += '<button type="button" class="mc-d' + (d.getMonth() !== m ? ' out' : '') + (k === today ? ' today' : '') + (k === SCAL.sel ? ' sel' : '') +
+      (hol || d.getDay() === 0 ? ' red' : d.getDay() === 6 ? ' blue' : '') + '" data-k="' + k + '">' +
+      '<span class="mc-n"><i>' + d.getDate() + '</i>' + (hol ? '<small>' + hol + '</small>' : '') + '</span>' +
+      '<span class="mc-evs">' + evs.slice(0, 3).map(ev).join('') + (evs.length > 3 ? '<span class="mc-more">+' + (evs.length - 3) + '</span>' : '') + '</span>' +
+      '<span class="mc-dots">' + evs.slice(0, 4).map(function (x) { return '<i class="' + (x.k === 'task' ? 'sc-task' : 'sc-s st-' + scalStatus(x.s)) + '"></i>'; }).join('') + '</span></button>';
+  }
+  var sel = byDay[SCAL.sel] || [], sd = parseDate(SCAL.sel);
+  var detail = '<div class="mc-dh">' + (sd.getMonth() + 1) + '월 ' + sd.getDate() + '일 ' + WD[sd.getDay()] + '요일' + (sel.length ? ' · ' + sel.length + '건' : '') + '</div>' +
+    (sel.length ? sel.map(function (x) {
+      if (x.k === 'task') return '<button type="button" class="mc-it sc-it" data-task="' + esc(x.a.id) + '"><span class="mc-t">' + x.t + '</span><div><b>📝 ' + esc(x.title) + '</b><small>과제 마감 · ' + esc(taskState(x.a).t) + '</small></div></button>';
+      var s = x.s, m = s.mine || {}, st = phaseOf(s) === 'cancel' ? '취소' : m.status || (m.planned_status ? '사전 ' + m.planned_status : s.is_target ? (phaseOf(s) === 'before' ? '사전체크 전' : '확인 전') : '대상 아님');
+      return '<button type="button" class="mc-it sc-it" data-sess="' + esc(s.id) + '"><span class="mc-t">' + (x.t || '종일') + '</span><div><b>' + esc(x.title) + '</b><small>' +
+        esc([timePlace(s), s.target_label || (s.target_unit_id ? groupName(s.target_unit_id) : ''), st].filter(Boolean).join(' · ')) + '</small></div></button>';
+    }).join('') : '<div class="mc-none">이날은 모임·과제가 없어요</div>');
+  box.innerHTML = '<div class="mc card sc-cal">' +
+    '<div class="mc-top"><button type="button" class="mc-nav" data-m="-1" aria-label="지난달">‹</button><b>' + y + '년 ' + (m + 1) + '월</b>' +
+      '<button type="button" class="mc-nav" data-m="1" aria-label="다음 달">›</button>' + (SCAL.ym !== ymOf(now) ? '<button type="button" class="mc-nav mc-today" data-m="0">오늘</button>' : '') +
+      '<span class="sc-leg"><i class="st-todo"></i>사전체크 전<i class="st-ok"></i>참석<i class="st-warn"></i>지각·불참<i class="sc-task"></i>과제</span></div>' +
+    '<div class="mc-wd"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>' +
+    '<div class="mc-grid">' + cells + '</div><div class="mc-detail">' + detail + '</div></div>';
+}
+$('sessCal').addEventListener('click', function (e) {
+  var nav = e.target.closest('.mc-nav'); if (nav) { scalMove(+nav.getAttribute('data-m')); return; }
+  var it = e.target.closest('.sc-it');
+  if (it) {
+    if (it.getAttribute('data-sess')) { var id = it.getAttribute('data-sess'); if (!byId(S.sessions, id)) { var c = (SCAL.cache[SCAL.ym] || []).filter(function (s) { return s.id === id; })[0]; if (c) S.sessions.push(c); } openSession(id); }
+    else { var tid = it.getAttribute('data-task'); A.current = null; goTask('notice'); var tries = 0; (function open() { if (A.list && byId(A.list, tid)) openTask(tid); else if (tries++ < 20) setTimeout(open, 150); })(); }
+    return;
+  }
+  var d = e.target.closest('.mc-d'); if (d) {
+    SCAL.sel = d.getAttribute('data-k'); renderSessCal();
+    var evs = scalItems(SCAL.ym).filter(function (x) { return x.date === SCAL.sel; });
+    if (evs.length === 1 && isWide()) { if (evs[0].k === 'sess') openSession(evs[0].s.id); }
+  }
+});
+// 시간취합: 업무가능 시간 화면의 + 메뉴에서. 처음엔 무엇이 다른지 설명
+function openPollIntro() {
+  $('itemModalT').textContent = '시간취합이 뭐예요?';
+  $('itemModalS').textContent = '업무가능 시간과 비슷하지만 쓰임이 달라요';
+  $('itemBody').innerHTML = '<div class="pi-cmp"><div class="card"><b>🕒 업무가능 시간</b><p>매주 내가 <u>언제든 일할 수 있는 시간</u>을 미리 칠해 두는 것.<br>녹음·촬영 같은 실무를 배정할 때 운영진이 봐요. 모두가 매주 내요.</p></div>' +
+    '<div class="card"><b>📅 시간취합</b><p><u>특정 모임 하나</u>를 잡으려고 고른 사람들에게 후보 날짜 중 되는 시간을 묻는 것.<br>누구나 만들 수 있고, 다 같이 되는 시간을 찾아 줘요. 마감이 지나면 결과가 와요.</p></div></div>' +
+    '<p class="pi-ex">예) "웹드라마 대본 리딩, 다음 주 중 언제 모일까?" → 시간취합</p>' +
+    '<button class="btn-primary" onclick="closeModal(\'itemModal\');goTab(\'poll\')">시간취합 열기</button>' +
+    '<button class="ghost-btn" style="margin-top:8px" onclick="closeModal(\'itemModal\');goTab(\'poll\');setTimeout(openTpModal,300)">바로 새로 만들기</button>';
+  openModal('itemModal');
 }

@@ -2212,3 +2212,47 @@ html.dark .fw-ev.k-초대, html.dark .fw-ev.k-인원교체, html.dark .fw-ev.k-�
 /* 모임 상세: 이름 옆 바로 출결확인 (2026-10-10) */
 .b-qcheck { border: none; background: var(--accent); color: #fff; border-radius: 99px; padding: 6px 12px; font-size: 13px; font-weight: 800; white-space: nowrap; cursor: pointer; }
 .b-qcheck:active { transform: scale(.96); }
+
+/* ===== 소식: 공지 표 + 모임·과제 달력 (2026-10-10) ===== */
+.section-head .sh-more { margin-left: auto; border: none; background: none; color: var(--accent); font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; }
+.at-tbl { padding: 4px 0; overflow: hidden; }
+.at-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 44px; align-items: center; gap: 12px; width: 100%; padding: 11px 16px; border: none; border-top: 1px solid var(--line); background: none; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
+.at-row:first-child { border-top: none; }
+.at-row:hover { background: var(--card-soft); }
+.at-row.new .at-t { font-weight: 800; }
+.at-who { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 6px; border-radius: 99px; font-size: 12px; font-weight: 800; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+  --w: var(--accent); color: var(--w); background: color-mix(in srgb, var(--w) 13%, var(--card)); border: 1px solid color-mix(in srgb, var(--w) 35%, transparent); }
+.at-who i { font-style: normal; font-size: 13px; }
+.at-who.w-sec { --w: #B07A2A; }
+.at-who.w-team { --w: #3F6A8A; }
+.at-who.w-rank { --w: #8C3B3B; }
+.at-who.w-grp { --w: #4E7A55; }
+.at-who.w-proj { --w: #7A4F8C; }
+html.dark .at-who.w-sec { --w: #D9A955; } html.dark .at-who.w-team { --w: #7FA9C8; } html.dark .at-who.w-rank { --w: #E08A8A; } html.dark .at-who.w-grp { --w: #84B38B; } html.dark .at-who.w-proj { --w: #B48CC4; }
+.at-t { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.at-d { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.at-s { text-align: right; font-size: 12px; color: var(--muted); }
+.at-s em { font-style: normal; font-weight: 800; color: #fff; background: var(--bad, #B03A2E); border-radius: 99px; padding: 1px 7px; font-size: 11px; }
+@media (max-width: 640px) {
+  .at-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 10px 14px; }
+  .at-who { grid-column: 1; grid-row: 1; justify-self: start; }
+  .at-t { grid-column: 1 / -1; grid-row: 2; }
+  .at-d { grid-column: 2; grid-row: 1; }
+  .at-s { display: none; }
+}
+.sc-cal .mc-top { flex-wrap: wrap; }
+.sc-leg { margin-left: auto; display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
+.sc-leg i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 3px; vertical-align: -1px; background: var(--k); }
+.sc-s, .sc-leg .st-todo, .sc-leg .st-ok, .sc-leg .st-warn { --k: var(--accent); --kb: var(--accent-soft); }
+.sc-s.st-ok, .sc-leg .st-ok { --k: #4E7A55; --kb: #E3EEE3; }
+.sc-s.st-warn, .sc-leg .st-warn { --k: #C08A1E; --kb: #F6EBD3; }
+.sc-s.st-todo, .sc-leg .st-todo { --k: #C0573E; --kb: #F7E3DC; }
+.sc-s.st-na { --k: #9a9488; --kb: var(--card-soft); }
+.sc-s.st-cx { --k: #9a9488; --kb: transparent; text-decoration: line-through; opacity: .6; }
+.sc-task, .sc-leg .sc-task { --k: #7A4F8C; --kb: #EEE4F2; }
+html.dark .sc-s.st-ok, html.dark .sc-s.st-warn, html.dark .sc-s.st-todo, html.dark .sc-task { --kb: color-mix(in srgb, var(--k) 24%, var(--card)); }
+.mc-it.sc-it { --k: var(--accent); --kb: var(--card-soft); width: 100%; text-align: left; font: inherit; color: var(--text); border-top: none; border-right: none; border-bottom: none; cursor: pointer; }
+.pi-cmp { display: grid; gap: 8px; }
+.pi-cmp .card b { display: block; font-size: 15px; margin-bottom: 4px; }
+.pi-cmp .card p { margin: 0; font-size: 13.5px; line-height: 1.6; }
+.pi-ex { font-size: 13px; color: var(--muted); margin: 10px 0 14px; }

@@ -19,7 +19,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261010v">
+  <link rel="stylesheet" href="beta.css?v=20261010w">
 </head>
 <body>
   <div class="app">
@@ -145,15 +145,19 @@
 
     <!-- ===== 출결: 모임 목록 ===== -->
     <section id="listView" style="display:none;">
-      <h1 class="page-title" data-ez="모임·출결">함께한 자리</h1>
-      <p class="page-desc">모임을 눌러 오늘의 자리를 남겨주세요</p>
-      <div class="b-attseg"><button class="wkchip active" onclick="showList()">모임</button><button class="wkchip" onclick="goTab('poll')">시간취합</button><button class="wkchip" onclick="goTab('place')">장소 신청</button></div>
+      <h1 class="page-title" data-ez="소식">소식</h1>
+      <p class="page-desc">공지와 모임·과제 일정을 한 화면에서 봐요</p>
+      <div class="b-attseg news-seg" data-on="attend"></div>
 
       <!-- 사유 입력·사전 체크가 필요한 모임 -->
       <div id="needArea"></div>
 
       <!-- 오늘·내일 체크인 (기상·출발·도착) -->
       <div id="ciArea"></div>
+
+      <!-- 공지 표 (2026-10-10): 누구에게 보낸 공지인지 표시, 누르면 공지 화면에서 펼침 -->
+      <div class="section-head"><h2>공지</h2><span class="section-count" id="annTblCount"></span><button type="button" class="sh-more" onclick="goTab('notice')">전체 보기 ›</button></div>
+      <div id="annTable"></div>
 
       <!-- 만들기 버튼(FAB): 체크인 만들기(교관 이상) · 모임 만들기(조장 이상) → 팝업 -->
       <div class="b-fabdim" id="attFabDim" onclick="closeFabMenu()"></div>
@@ -171,11 +175,9 @@
         <button class="fab" type="button" onclick="attFabTap()" aria-label="만들기" title="만들기"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
       </div>
 
-      <div class="section-head"><h2>다가오는 모임</h2><span class="section-count" id="upCount"></span></div>
-      <div id="upList"></div>
-
-      <div class="section-head b-gap"><h2>지난 모임</h2><span class="section-count">최근 2주</span></div>
-      <div id="pastList"></div>
+      <!-- 모임·과제 달력 (2026-10-10, 예전 카드 목록 대신) -->
+      <div class="section-head b-gap"><h2>모임·과제 달력</h2><span class="section-count">모임 · 📝 과제 마감</span></div>
+      <div id="sessCal"></div>
 
       <!-- 체크인 현황 (조장 이상) -->
       <div id="ciBoardWrap" style="display:none;">
@@ -208,7 +210,7 @@
     <section id="reportView" style="display:none;">
       <h1 class="page-title">한 달의 발자취</h1>
       <p class="page-desc" id="rpDesc">한 달 동안의 출결을 사람마다 모아봐요</p>
-      <div class="b-attseg"><button class="wkchip" onclick="showList()">모임</button><button class="wkchip" onclick="goTab('poll')">시간취합</button><button class="wkchip" onclick="goTab('place')">장소 신청</button></div>
+      <button class="back" onclick="showList()">‹ 소식</button>
       <div class="b-month">
         <button type="button" onclick="moveMonth(-1)">‹</button>
         <b id="rpMonth"></b>
@@ -222,7 +224,7 @@
     <section id="noticeView" style="display:none;">
       <h1 class="page-title" data-ez="공지·과제">전하는 말</h1>
       <p class="page-desc">우리 팀 공지와 방송예술과 전체 공지예요</p>
-      <div class="b-attseg"><button class="wkchip active" onclick="goTab('notice')">공지</button><button class="wkchip" onclick="goTask('notice')">과제</button><button class="wkchip" onclick="goTab('survey')">설문</button></div>
+      <div class="b-attseg news-seg" data-on="notice"></div>
       <div id="annList"></div>
 
       <div class="b-fab" id="annFab" style="display:none;">
@@ -236,7 +238,7 @@
     <section id="surveyView" style="display:none;">
       <h1 class="page-title">마음을 묻는 시간</h1>
       <p class="page-desc">설문에 답하고, 내가 만든 설문의 결과를 봐요</p>
-      <div class="b-attseg"><button class="wkchip" onclick="goTab('notice')">공지</button><button class="wkchip" onclick="goTask('notice')">과제</button><button class="wkchip active">설문</button></div>
+      <div class="b-attseg news-seg" data-on="survey"></div>
       <div id="svArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
 
@@ -462,11 +464,11 @@
 
     <!-- ===== 시간취합 (가능시간 투표: 누구나 만들고 대상자가 칸을 칠함) ===== -->
 
-    <!-- ===== 장소 신청 (일정 › 장소 신청) ===== -->
+    <!-- ===== 장소 신청 (소식 › 장소 신청) ===== -->
     <section id="placeView" style="display:none;">
       <h1 class="page-title">자리 맡기</h1>
       <p class="page-desc">스담 방은 먼저 신청한 사람이 써요. 녹음실은 엔지니어팀장님, 총회 대회의실·과천 성전 10층은 과장·부과장님이 승인해요</p>
-      <div class="b-attseg"><button class="wkchip" onclick="goTab('attend')">모임</button><button class="wkchip" onclick="goTab('poll')">시간취합</button><button class="wkchip active">장소 신청</button></div>
+      <div class="b-attseg news-seg" data-on="place"></div>
       <div class="b-fab" id="placeFab"><button class="fab" type="button" onclick="openPlaceModal()" aria-label="장소 신청" title="장소 신청"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></div>
       <div id="placeArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
@@ -583,7 +585,7 @@
       <div id="pollList">
         <h1 class="page-title">함께할 시간 찾기</h1>
         <p class="page-desc">모일 사람을 고르고 후보 날짜를 정하면, 각자 되는 시간을 칠해서 다 같이 되는 때를 찾아요</p>
-        <div class="b-attseg"><button class="wkchip" onclick="goTab('attend')">모임</button><button class="wkchip active">시간취합</button><button class="wkchip" onclick="goTab('place')">장소 신청</button></div>
+        <button class="back" onclick="goTab('weekly')">‹ 업무가능 시간</button>
         <div class="b-fab" id="pollFab">
           <button class="fab" type="button" onclick="openTpModal()" aria-label="시간취합 만들기" title="시간취합 만들기"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
@@ -648,13 +650,9 @@
       <svg viewBox="0 0 24 24"><path d="M2 21h20"/><path d="M4 21V10l5-4 5 4v11"/><path d="M14 21V8l3-3 3 3v13"/><path d="M7 13h4M7 17h4M17 11v.01M17 15v.01"/></svg>
       <span>동네지도</span>
     </button>
-    <button class="tab" data-tab="attend" title="일정" onclick="goTab('attend')">
-      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8.5 13.5l2.5 2.5 4.5-5"/></svg>
-      <span data-ez="모임">일정</span>
-    </button>
-    <button class="tab" data-tab="notice" title="소식" onclick="goTab('notice')">
+    <button class="tab" data-tab="attend" title="소식" onclick="goTab('attend')">
       <svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg>
-      <span data-ez="공지·과제">소식</span>
+      <span data-ez="소식">소식</span>
     </button>
     <button class="tab" data-tab="rec" title="업무" id="recTab" onclick="togglePfSub(undefined, 'recSub')" style="display:none;">
       <svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M16 3v3h3"/><path d="M9 10h7M9 14h7M9 18h4"/></svg>
@@ -680,6 +678,7 @@
       <button type="button" data-t="mytodo" onclick="pfGo('mytodo')">할 일</button>
       <button type="button" data-t="practice" onclick="pfGo('practice')">연습 기록</button>
       <button type="button" data-t="pmonth" onclick="pfGo('pmonth')">월간 리포트</button>
+      <button type="button" data-t="task" onclick="pfTask()">내 과제</button>
       <button type="button" data-t="weekly" onclick="pfGo('weekly')">업무가능 시간</button>
       <button type="button" data-t="dues" onclick="pfGo('dues')">회비</button>
       <button type="button" data-t="settings" onclick="pfGo('settings')">설정</button>
@@ -1179,6 +1178,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261010b"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261010v"></script>
+  <script src="beta.js?v=20261010w"></script>
 </body>
 </html>
