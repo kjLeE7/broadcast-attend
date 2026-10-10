@@ -1202,6 +1202,79 @@ async function cronPolls(ctx: Ctx) {
   return out;
 }
 
+// ----- 설문조사 (2026-10-10): 과원 누구나 만듦. 익명이면 만든 사람도 누가 무엇을 답했는지 모름 -----
+// 관리자 명단·과장 이상만 '실명 보기'(열람 기록). 결과는 질문마다 따로 모아서 내보냄(한 사람의 답을 묶어 보내지 않아 짝 맞추기 못 함)
+const SV_TYPES = ["text", "one", "many", "scale"];
+async function surveyRow(ctx: Ctx, id: any) {
+  if (!UUID_RE.test(String(id))) throw new HttpError(400, "잘못된 설문이에요");
+  const s = must(await ctx.db.from("surveys").select("*").eq("id", id).maybeSingle());
+  if (!s) throw new HttpError(404, "없는 설문이에요");
+  return s;
+}
+async function surveyBoss(ctx: Ctx, s: any) {
+  if (await isAdmin(ctx)) return true;
+  return (await rankIn(ctx, (await sectionOf(ctx, s.team_id)).sectionId)) >= 60;
+}
+const svOpen = (s: any) => s.status === "진행" && Date.parse(s.deadline) > Date.now();
+function svButton(id: string, text = "설문 답하기") {
+  return { inline_keyboard: [[{ text, web_app: { url: `${MINIAPP_URL}?sv=${id}` } }]] };
+}
+// 답 검사: 질문 종류에 맞는 값만 남김
+function svClean(qs: any[], raw: any) {
+  const out: Record<string, any> = {};
+  for (const q of qs) {
+    const v = raw?.[q.id];
+    let a: any = null;
+    if (q.type === "text") a = String(v ?? "").trim().slice(0, 1000) || null;
+    else if (q.type === "one") a = Number.isInteger(v) && v >= 0 && v < q.options.length ? v : null;
+    else if (q.type === "many") { a = Array.isArray(v) ? [...new Set(v.filter((x: any) => Number.isInteger(x) && x >= 0 && x < q.options.length))].sort() : []; if (!a.length) a = null; }
+    else if (q.type === "scale") a = Number.isInteger(v) && v >= 1 && v <= 5 ? v : null;
+    if (a === null) { if (q.required) throw new HttpError(400, `'${q.q.slice(0, 20)}' 질문에 답해주세요`); continue; }
+    out[q.id] = a;
+  }
+  return out;
+}
+async function svWaiting(ctx: Ctx, s: any) {
+  const ans: any[] = must(await ctx.db.from("survey_answers").select("person_id").eq("survey_id", s.id)) ?? [];
+  const done = new Set(ans.map((a) => a.person_id));
+  return (s.target_people ?? []).filter((id: string) => !done.has(id));
+}
+async function svRemind(ctx: Ctx, s: any, lead: string) {
+  const people = await withTelegram(ctx, (await svWaiting(ctx, s)).filter((id: string) => id !== s.created_by));
+  return await sendToMembers(people, `${lead}\n\n「${escHtml(s.title)}」${s.anonymous ? " · 익명" : ""}\n마감 ${msLabel(Date.parse(s.deadline))}`, svButton(s.id));
+}
+// 10분마다: 마감 24시간 전 안 한 사람에게 한 번(밤 제외), 마감 지나면 '마감' + 만든 사람에게 응답 수
+async function cronSurveys(ctx: Ctx) {
+  const now = Date.now(), night = new Date(now + 9 * HOUR).getUTCHours() < 8;
+  const rows: any[] = must(await ctx.db.from("surveys").select("*").eq("status", "진행").lte("deadline", new Date(now + 24 * HOUR).toISOString())) ?? [];
+  for (const s of rows) {
+    try {
+      if (Date.parse(s.deadline) <= now) {
+        must(await ctx.db.from("surveys").update({ status: "마감", closed_at: new Date().toISOString() }).eq("id", s.id));
+        const n = (s.target_people ?? []).length - (await svWaiting(ctx, s)).length;
+        const owner = await withTelegram(ctx, [s.created_by]);
+        if (owner.length) await sendToMembers(owner, `<b>📋 설문이 마감됐어요</b>\n「${escHtml(s.title)}」 ${n}/${(s.target_people ?? []).length}명 응답`, svButton(s.id, "결과 보기"));
+      } else if (!s.reminded_at && !night && Date.parse(s.created_at) < Date.parse(s.deadline) - 24 * HOUR) {
+        must(await ctx.db.from("surveys").update({ reminded_at: new Date().toISOString() }).eq("id", s.id));
+        await svRemind(ctx, s, "<b>🔔 설문 마감이 다가와요</b>\n아직 답하지 않았어요");
+      }
+    } catch (e) { console.error("survey cron", s.id, e); }
+  }
+}
+
+// ----- 프로젝트 타임라인 (2026-10-10): 공지·모임을 프로젝트에 잇기 -----
+// teamId = 글·모임의 팀(또는 과) → 같은 과 프로젝트만
+async function projRef(ctx: Ctx, teamId: string, projectId: any) {
+  if (!projectId) return null;
+  const pr = await projLoad(ctx, projectId);
+  if ((await sectionUnits(ctx, teamId))[0] !== pr.unit_id) throw new HttpError(400, "우리 과 프로젝트가 아니에요");
+  return pr.id as string;
+}
+const PROJ_EV_KINDS = ["피드백", "협업", "협업 모임", "초대", "아이디어", "인원 교체", "결정", "기타"];
+async function projEvent(ctx: Ctx, projectId: string, row: any) {
+  await ctx.db.from("project_events").insert({ project_id: projectId, auto: true, created_by: ctx.me.id, ...row });
+}
+
 // 10분마다 pg_cron이 부름: 72시간 전·24시간 전이 된 모임에 자동 알림 + 업무가능 독촉
 async function cronReminders(db: any) {
   const ctx = { db, me: { id: null, name: "자동 알림" }, payload: {} } as unknown as Ctx;
@@ -1235,6 +1308,7 @@ async function cronReminders(db: any) {
   try { flows = await cronFlows(ctx); } catch (e) { console.error("flows", e); }
   try { await cronMyTodos(ctx); } catch (e) { console.error("my todos", e); }
   try { await cronReviews(ctx); } catch (e) { console.error("reviews", e); }
+  try { await cronSurveys(ctx); } catch (e) { console.error("surveys", e); }
   return { sessions: out, weekly, polls, dues, files, meetings, flows };
 }
 
@@ -3140,6 +3214,7 @@ ${text}`;
     // 같은 상태를 또 누르면(두 번 탭·느린 응답) 아무것도 안 함 — 지시자에게 같은 알림이 여러 번 가지 않게 (2026-10-07)
     if (sp.state === p.state && (sp.note ?? null) === (p.state === "막힘" || p.state === "완료" ? note : null)) return { ok: true, same: true };
     must(await ctx.db.from("work_step_people").update({ state: p.state, note: p.state === "막힘" || p.state === "완료" ? note : null, changed_at: new Date().toISOString() }).eq("id", sp.id));
+    if (p.state !== "대기" && f.project_id) await projEvent(ctx, f.project_id, { kind: "진행", who: sp.name, role: `${f.title} › ${sp.work_steps.title}`.slice(0, 80), body: p.state + (note ? " · " + note : "") });
     // 1분 안에 같은 사람이 상태를 이리저리 바꾸면(잘못 누름) 알림은 처음 한 번만
     const quick = sp.changed_at && Date.now() - Date.parse(sp.changed_at) < 60000;
     if (f.created_by !== ctx.me.id && p.state !== "대기" && !quick) {
@@ -3157,7 +3232,6 @@ ${text}`;
     must(await ctx.db.from("work_flows").update({ status: "취소" }).eq("id", f.id));
     return { ok: true };
   },
-
   // ----- 프로젝트 (2026-10-10) -----
   // 목록 { team_id }: 과의 모든 프로젝트 카드. 들어갈 수 없는 건 제목·종류·상태·진행률·PD만
   async "proj.list"(ctx) {
@@ -3223,6 +3297,7 @@ ${text}`;
     if (p.id) {
       const { pr } = await projNeed(ctx, p.id, "manage");
       must(await ctx.db.from("projects").update(row).eq("id", pr.id));
+      if (pr.status !== status) await projEvent(ctx, pr.id, { kind: "상태", body: `${pr.status} → ${status}` });
       return { id: pr.id };
     }
     await requireRank(ctx, p.team_id, RANK.MEMBER);
@@ -3251,7 +3326,10 @@ ${text}`;
     const fresh: string[] = [];
     for (const id of ids) {
       const cur = have.find((m) => m.person_id === id);
-      if (cur) must(await ctx.db.from("project_members").update({ role: p.role, ...(p.keep_part ? {} : { part }) }).eq("id", cur.id));
+      if (cur) {
+        must(await ctx.db.from("project_members").update({ role: p.role, ...(p.keep_part ? {} : { part }) }).eq("id", cur.id));
+        if (cur.role !== p.role) await projEvent(ctx, pr.id, { kind: "자리", who: (await nameMap(ctx, [id])).get(id) ?? "", role: p.role, body: `${cur.role} → ${p.role}` });
+      }
       else { must(await ctx.db.from("project_members").insert({ project_id: pr.id, person_id: id, role: p.role, part, added_by: ctx.me.id })); fresh.push(id); }
     }
     const who = (await withTelegram(ctx, fresh)).filter((m: any) => m.id !== ctx.me.id);
@@ -3271,6 +3349,7 @@ ${text}`;
       if (pds.length <= 1) throw new HttpError(400, "PD가 한 명은 있어야 해요. 다른 PD를 먼저 넣어주세요");
     }
     must(await ctx.db.from("project_members").delete().eq("id", m.id));
+    await projEvent(ctx, pr.id, { kind: "빠짐", who: (await nameMap(ctx, [m.person_id])).get(m.person_id) ?? "", role: m.role + (m.part ? ` · ${m.part}` : "") });
     return { ok: true };
   },
   // 지우기 { id } (PD·관리자): 대본·자료 파일, 작업, 명단까지 모두
@@ -3283,6 +3362,101 @@ ${text}`;
     }
     must(await ctx.db.from("projects").delete().eq("id", pr.id));
     return { ok: true };
+  },
+
+  // 프로젝트 공지·타임라인 { id }: 이어진 공지 + 시작부터 모든 일을 시간순으로 (모임·공지·작업·사람·파일·기록)
+  async "proj.timeline"(ctx) {
+    const { pr, a } = await projNeed(ctx, ctx.payload?.id, "see");
+    const [memR, nR, mR, eR, fR, fileR] = await Promise.all([
+      ctx.db.from("project_members").select("person_id, role, part, created_at").eq("project_id", pr.id),
+      ctx.db.from("notices").select("id, title, body, published_at, created_by, target_people, is_pinned").eq("project_id", pr.id).order("published_at", { ascending: false }),
+      ctx.db.from("meeting_sessions").select(SESSION_COLS).eq("project_id", pr.id).neq("status", "취소"),
+      ctx.db.from("project_events").select("*").eq("project_id", pr.id).order("at"),
+      ctx.db.from("work_flows").select("id, title, created_at, created_by, done_at, status, work_steps(sort, title, done_at)").eq("project_id", pr.id).neq("status", "취소"),
+      a.full ? ctx.db.from("content_files").select("name, folder, label, uploaded_by, created_at").eq("kind", "project").eq("item_id", pr.id).eq("uploaded", true).is("deleted_at", null) : Promise.resolve({ data: [], error: null }),
+    ]);
+    const mem: any[] = must(memR as any) ?? [], evs: any[] = must(eR as any) ?? [], flows: any[] = must(fR as any) ?? [], files: any[] = must(fileR as any) ?? [];
+    // 공지: 받는 사람을 좁힌 공지는 그 사람·쓴 사람·제작진만
+    const notices = (must(nR as any) ?? []).filter((n: any) => a.full || n.created_by === ctx.me.id || !n.target_people?.length || n.target_people.includes(ctx.me.id));
+    const meets: any[] = must(mR as any) ?? [];
+    const names = await nameMap(ctx, [pr.created_by, ...mem.map((m) => m.person_id), ...notices.map((n: any) => n.created_by), ...evs.map((e) => e.created_by), ...meets.map((s) => s.created_by), ...flows.map((f) => f.created_by), ...files.map((f) => f.uploaded_by)]);
+    const nm = (id: string) => names.get(id) ?? "";
+    const tl: any[] = [{ src: "auto", kind: "시작", at: pr.created_at, title: "프로젝트 시작", body: pr.description ? String(pr.description).slice(0, 300) : null, by: nm(pr.created_by) }];
+    // 합류: 만들 때 같이 들어온 사람은 하나로, 그 뒤엔 한 사람씩 (자리·맡은 역)
+    const t0 = Date.parse(pr.created_at), first = mem.filter((m) => Date.parse(m.created_at) - t0 < 5 * 60000);
+    if (first.length) tl.push({ src: "auto", kind: "초대", at: pr.created_at, title: first.map((m) => `${nm(m.person_id)}(${m.role})`).join(", ") });
+    for (const m of mem) if (!first.includes(m)) tl.push({ src: "auto", kind: "초대", at: m.created_at, title: `${nm(m.person_id)} 합류`, role: m.role + (m.part ? ` · ${m.part}` : "") });
+    for (const f of flows) {
+      tl.push({ src: "auto", kind: "작업", at: f.created_at, title: `작업 시작 · ${f.title}`, by: nm(f.created_by) });
+      for (const st of f.work_steps ?? []) if (st.done_at) tl.push({ src: "auto", kind: "단계", at: st.done_at, title: `${f.title} › ${st.title} 끝` });
+      if (f.done_at) tl.push({ src: "auto", kind: "단계", at: f.done_at, title: `작업 모두 끝 · ${f.title}` });
+    }
+    for (const f of files) tl.push({ src: "auto", kind: "파일", at: f.created_at, title: `${f.folder ?? "자료"} 올림 · ${f.label || f.name}`, by: nm(f.uploaded_by) });
+    for (const n of notices) tl.push({ src: "notice", kind: "공지", id: n.id, at: n.published_at, title: n.title, body: n.body ? String(n.body).slice(0, 300) : null, by: nm(n.created_by) });
+    for (const s of meets) {
+      const at = sessionStart(s) ?? kstMs(s.session_date);
+      tl.push({ src: "meet", kind: "모임", id: s.id, at: new Date(at).toISOString(), title: sessionName(s), place: s.location, by: nm(s.created_by), soon: at > Date.now() });
+    }
+    for (const e of evs) tl.push({ src: e.auto ? "auto" : "ev", id: e.id, kind: e.kind, at: e.at, who: e.who, who2: e.who2, dept: e.dept, role: e.role, place: e.place, body: e.body, by: nm(e.created_by),
+      del: !e.auto && (e.created_by === ctx.me.id || a.manage), soon: Date.parse(e.at) > Date.now() });
+    tl.sort((x, y) => Date.parse(x.at) - Date.parse(y.at));
+    return {
+      can_add: a.full,
+      notices: notices.map((n: any) => ({ id: n.id, title: n.title, body: n.body, at: n.published_at, by: nm(n.created_by), pinned: n.is_pinned, mine: n.created_by === ctx.me.id })),
+      timeline: tl,
+    };
+  },
+  // 기록 남기기 { project_id, kind, at:"YYYY-MM-DDTHH:MM", who, who2, dept, role, place, body }: 아이디어는 명단에 있는 누구나, 나머지는 제작진(PD·제작진·과장 이상·관리자)
+  async "proj.event"(ctx) {
+    const p = ctx.payload ?? {};
+    if (!PROJ_EV_KINDS.includes(p.kind)) throw new HttpError(400, "기록 종류를 골라주세요");
+    const { pr, a } = await projNeed(ctx, p.project_id, p.kind === "아이디어" ? "see" : "full");
+    const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n) || null;
+    const row: any = { project_id: pr.id, kind: p.kind, who: t(p.who, 40), who2: t(p.who2, 40), dept: t(p.dept, 40), role: t(p.role, 40), place: t(p.place, 40), body: t(p.body, 1000), created_by: ctx.me.id };
+    const m = String(p.at ?? "").match(/^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)$/);
+    if (m) row.at = new Date(kstMs(m[1], m[2])).toISOString();
+    const need: Record<string, [string, string][]> = {
+      피드백: [["who", "누구에게 받았는지"], ["body", "피드백 내용을"]], 협업: [["dept", "어느 과·부서와인지"]], "협업 모임": [["dept", "어느 과·부서와인지"]],
+      초대: [["who", "누구를 초대했는지"]], 아이디어: [["body", "아이디어 내용을"]], "인원 교체": [["who", "누가 빠지는지"], ["who2", "누구로 바뀌는지"]], 결정: [["body", "정한 내용을"]], 기타: [["body", "내용을"]],
+    };
+    for (const [k, label] of need[p.kind]) if (!row[k]) throw new HttpError(400, `${label} 적어주세요`);
+    if (p.kind === "아이디어" && !row.who) row.who = ctx.me.name;
+    await rateLimit(ctx, "proj_ev", 60, 60);
+    must(await ctx.db.from("project_events").insert(row));
+    // 아이디어·건의는 PD에게 알림
+    if (p.kind === "아이디어" && !a.manage) {
+      const pds: any[] = must(await ctx.db.from("project_members").select("person_id").eq("project_id", pr.id).eq("role", "PD")) ?? [];
+      const who = await withTelegram(ctx, pds.map((x) => x.person_id).filter((id) => id !== ctx.me.id));
+      if (who.length) await sendToMembers(who, `💡 <b>${escHtml(row.who)}님의 아이디어</b> · ${escHtml(pr.title)}\n${escHtml(row.body)}`, appButton("프로젝트 보기", `?go=proj&p=${pr.id}`));
+    }
+    return { ok: true };
+  },
+  async "proj.eventDelete"(ctx) {
+    if (!UUID_RE.test(String(ctx.payload?.id))) throw new HttpError(400, "잘못된 요청이에요");
+    const e = must(await ctx.db.from("project_events").select("id, project_id, created_by, auto").eq("id", ctx.payload.id).maybeSingle());
+    if (!e || e.auto) throw new HttpError(404, "지울 수 없는 기록이에요");
+    const { a } = await projNeed(ctx, e.project_id, "see");
+    if (e.created_by !== ctx.me.id && !a.manage) throw new HttpError(403, "쓴 사람이나 PD만 지울 수 있어요");
+    must(await ctx.db.from("project_events").delete().eq("id", e.id));
+    return { ok: true };
+  },
+  // 프로젝트 공지 { project_id, title, body, is_pinned, roles?: [PD·제작진·출연] } (제작진). 명단 사람에게만 보이고 봇 알림
+  async "proj.notice"(ctx) {
+    const p = ctx.payload ?? {};
+    const { pr } = await projNeed(ctx, p.project_id, "full");
+    const title = String(p.title ?? "").trim().slice(0, 100); if (!title) throw new HttpError(400, "제목을 적어주세요");
+    const roles = (Array.isArray(p.roles) && p.roles.length ? p.roles : PROJ_ROLES).filter((r: string) => PROJ_ROLES.includes(r));
+    if (!roles.length) throw new HttpError(400, "받을 사람을 골라주세요");
+    const mem: any[] = must(await ctx.db.from("project_members").select("person_id, role").eq("project_id", pr.id)) ?? [];
+    const targets = [...new Set([ctx.me.id, ...mem.filter((m) => roles.includes(m.role)).map((m) => m.person_id)])];
+    await rateLimit(ctx, "proj_notice", 10, 1440);
+    const row = must(await ctx.db.from("notices").insert({
+      team_id: pr.unit_id, title, body: String(p.body ?? "").trim().slice(0, 3000) || null, is_pinned: !!p.is_pinned, project_id: pr.id,
+      target_people: targets, target_label: `${pr.title.slice(0, 30)} ${roles.length === PROJ_ROLES.length ? "명단 전원" : roles.join("·")}`, created_by: ctx.me.id,
+    }).select("id").single());
+    const who = await withTelegram(ctx, targets.filter((id) => id !== ctx.me.id));
+    const r = await sendToMembers(who, `📢 <b>프로젝트 공지</b> · ${escHtml(pr.title)}\n\n<b>${escHtml(title)}</b>${p.body ? "\n" + escHtml(String(p.body).slice(0, 300)) : ""}`, appButton("프로젝트 보기", `?go=proj&p=${pr.id}`));
+    return { id: row.id, sent: r.sent };
   },
 
   async "mtg.get"(ctx) {
@@ -3634,6 +3808,7 @@ ${text}`;
       location: String(p.location ?? "").trim().slice(0, 40) || null,
       description: String(p.description ?? "").trim().slice(0, 2000) || null,
       review_due: parseReviewDue(p.review_due),
+      project_id: await projRef(ctx, p.team_id, p.project_id),
       target_unit_id: p.target_unit_id || null,
       team_id: p.team_id,
       created_by: ctx.me.id,
@@ -3777,6 +3952,10 @@ ${text}`;
       const due = Date.parse(p.deadline);
       items.push({ kind: "poll", id: p.id, name: p.title, due: p.deadline, urgent: due - now < 24 * HOUR });
     }
+    // 설문: 대상인데 아직 안 한 것
+    const svs: any[] = must(await ctx.db.from("surveys").select("id, title, deadline").contains("target_people", [me]).eq("status", "진행").gt("deadline", new Date(now).toISOString())) ?? [];
+    const svDone: any[] = svs.length ? must(await ctx.db.from("survey_answers").select("survey_id").eq("person_id", me).in("survey_id", svs.map((x) => x.id))) ?? [] : [];
+    for (const v of svs) if (!svDone.some((x) => x.survey_id === v.id)) items.push({ kind: "survey", id: v.id, name: v.title, due: v.deadline, urgent: Date.parse(v.deadline) - now < 24 * HOUR });
     // '할 일' 화면용 (later: 지금 할 일·배지에는 안 셈): 앞으로 2주 내 녹음·업무, 내 담당 프로젝트, 아직 차례가 아닌 작업 단계
     try {
       const in14 = new Date(now + 14 * 86400000).toISOString();
@@ -3881,6 +4060,7 @@ ${text}`;
     await requireRank(ctx, before.team_id, RANK.GROUP_LEADER);
     const patch = pick(ctx.payload, ["title", "session_date", "start_time", "end_time", "location", "place_mode", "status", "description"]);
     if ("review_due" in (ctx.payload ?? {})) { patch.review_due = parseReviewDue(ctx.payload.review_due); patch.review_reminded_at = null; }
+    if ("project_id" in (ctx.payload ?? {})) patch.project_id = await projRef(ctx, before.team_id, ctx.payload.project_id);
     if ("status" in patch && !["예정", "취소"].includes(patch.status)) throw new HttpError(400, "상태가 올바르지 않습니다");
     if ("session_date" in patch && !isDate(patch.session_date)) throw new HttpError(400, "날짜가 올바르지 않습니다");
     if ("title" in patch) patch.title = String(patch.title ?? "").trim().slice(0, 60) || null;
@@ -4404,7 +4584,7 @@ ${text}`;
     const rank = await rankIn(ctx, team_id);
     if (rank < RANK.MEMBER) throw new HttpError(403, "권한이 없습니다");
     const units = await teamAndSection(ctx, team_id);
-    const NCOLS = "id, team_id, title, body, target_unit_id, target_positions, target_people, target_label, is_pinned, published_at, created_by";
+    const NCOLS = "id, team_id, title, body, target_unit_id, target_positions, target_people, target_label, is_pinned, published_at, created_by, project_id, projects(title)";
     const [rows, elsewhere, groups, posRes] = await Promise.all([
       ctx.db.from("notices").select(NCOLS)
         .in("team_id", units).order("is_pinned", { ascending: false }).order("published_at", { ascending: false }).limit(60),
@@ -4861,6 +5041,127 @@ ${text}`;
     const p = await pollRow(ctx, ctx.payload.id);
     if (p.created_by !== ctx.me.id) throw new HttpError(403, "만든 사람만 지울 수 있어요");
     must(await ctx.db.from("time_polls").delete().eq("id", p.id));
+    return { ok: true };
+  },
+
+  // ----- 설문조사 -----
+  // 내가 만들었거나 대상인 설문 (+ 관리자·과장은 과의 모든 설문): 진행 중 + 마감 30일 안
+  async "surveys.list"(ctx) {
+    const me = ctx.me.id, since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const sec = await sectionOf(ctx, ctx.payload.team_id);
+    const boss = await isAdmin(ctx) || (await rankIn(ctx, sec.sectionId)) >= 60;
+    const qs = [
+      ctx.db.from("surveys").select("*").eq("created_by", me).gte("deadline", since),
+      ctx.db.from("surveys").select("*").contains("target_people", [me]).gte("deadline", since),
+    ];
+    if (boss) qs.push(ctx.db.from("surveys").select("*").in("team_id", sec.teamIds).gte("deadline", since));
+    const map = new Map<string, any>();
+    for (const r of await Promise.all(qs)) for (const s of must(r as any) ?? []) map.set(s.id, s);
+    const list = [...map.values()], ids = list.map((s) => s.id);
+    const ans: any[] = ids.length ? must(await ctx.db.from("survey_answers").select("survey_id, person_id").in("survey_id", ids)) ?? [] : [];
+    const owners = await nameMap(ctx, list.map((s) => s.created_by));
+    return {
+      boss,
+      list: list.map((s) => ({
+        id: s.id, title: s.title, anonymous: s.anonymous, deadline: s.deadline, open: svOpen(s), target_label: s.target_label,
+        owner: owners.get(s.created_by) ?? "", is_mine: s.created_by === me, is_target: (s.target_people ?? []).includes(me),
+        count: (s.target_people ?? []).length, responded: ans.filter((a) => a.survey_id === s.id).length,
+        answered: ans.some((a) => a.survey_id === s.id && a.person_id === me), qn: (s.questions ?? []).length,
+      })).sort((x, y) => Number(y.open) - Number(x.open) || (x.open ? Date.parse(x.deadline) - Date.parse(y.deadline) : Date.parse(y.deadline) - Date.parse(x.deadline))),
+    };
+  },
+  // 설문 하나: 질문·내 답 + (볼 수 있으면) 질문마다 모은 결과. names: true = 관리자·과장 실명 보기(열람 기록)
+  async "surveys.get"(ctx) {
+    const s = await surveyRow(ctx, ctx.payload.id), me = ctx.me.id;
+    const mine = s.created_by === me, target = (s.target_people ?? []).includes(me), boss = await surveyBoss(ctx, s);
+    if (!mine && !target && !boss) throw new HttpError(403, "이 설문의 대상이 아니에요");
+    const rows: any[] = must(await ctx.db.from("survey_answers").select("person_id, answers").eq("survey_id", s.id)) ?? [];
+    const my = rows.find((r) => r.person_id === me);
+    const canResults = mine || boss || s.share_results && target && !!my;
+    const out: any = {
+      id: s.id, title: s.title, purpose: s.purpose, questions: s.questions, anonymous: s.anonymous, share_results: s.share_results,
+      deadline: s.deadline, open: svOpen(s), target_label: s.target_label, owner: (await nameMap(ctx, [s.created_by])).get(s.created_by) ?? "",
+      is_mine: mine, is_target: target, boss, count: (s.target_people ?? []).length, responded: rows.length,
+      mine: my?.answers ?? null, can_results: canResults,
+    };
+    if (!canResults) return out;
+    // 질문마다 따로: 보기별 수·점수 평균·글 답(익명이면 이름 없이, 글자순으로 섞음)
+    out.stats = (s.questions ?? []).map((q: any) => {
+      const vals = rows.map((r) => r.answers?.[q.id]).filter((v) => v !== undefined && v !== null);
+      if (q.type === "text") return { n: vals.length, texts: vals.map(String).sort((a, b) => a.localeCompare(b)) };
+      if (q.type === "scale") { const c = [1, 2, 3, 4, 5].map((k) => vals.filter((v) => v === k).length); return { n: vals.length, counts: c, avg: vals.length ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : null }; }
+      return { n: vals.length, counts: q.options.map((_: any, i: number) => vals.filter((v) => q.type === "many" ? Array.isArray(v) && v.includes(i) : v === i).length) };
+    });
+    // 이름: 실명 설문은 결과를 보는 사람 모두, 익명 설문은 관리자·과장이 '실명 보기'를 눌렀을 때만
+    const reveal = !s.anonymous || boss && ctx.payload.names === true;
+    if (reveal) {
+      if (s.anonymous) await logAccess(ctx, "survey.names", "surveys", s.id);
+      const names = await nameMap(ctx, s.target_people ?? []);
+      out.rows = rows.map((r) => ({ name: names.get(r.person_id) ?? "(대상 밖)", answers: r.answers })).sort((a, b) => a.name.localeCompare(b.name));
+      out.waiting = (s.target_people ?? []).filter((id: string) => !rows.some((r) => r.person_id === id)).map((id: string) => names.get(id) ?? "").sort();
+    }
+    return out;
+  },
+  // 만들기: { team_id, target_people…, title, purpose, questions, anonymous, share_results, deadline:"YYYY-MM-DDTHH:MM"(한국 시간) }
+  async "surveys.create"(ctx) {
+    const p = ctx.payload ?? {};
+    const t = (v: any, n: number) => String(v ?? "").trim().slice(0, n);
+    const title = t(p.title, 80); if (!title) throw new HttpError(400, "설문 제목을 적어주세요");
+    if (!Array.isArray(p.target_people)) throw new HttpError(400, "대상자를 골라주세요");
+    const targets = (await pickedPeople(ctx, p, RANK.MEMBER, RANK.MEMBER))!;
+    const raw = Array.isArray(p.questions) ? p.questions.slice(0, 30) : [];
+    const questions = raw.map((q: any, i: number) => {
+      const type = SV_TYPES.includes(q?.type) ? q.type : "text";
+      const options = type === "one" || type === "many" ? (Array.isArray(q.options) ? q.options : []).map((o: any) => t(o, 60)).filter(Boolean).slice(0, 12) : [];
+      return { id: "q" + (i + 1), type, q: t(q?.q, 200), options, required: !!q?.required };
+    });
+    if (!questions.length) throw new HttpError(400, "질문을 하나 이상 적어주세요");
+    for (const [i, q] of questions.entries()) {
+      if (!q.q) throw new HttpError(400, `${i + 1}번 질문을 적어주세요`);
+      if ((q.type === "one" || q.type === "many") && q.options.length < 2) throw new HttpError(400, `${i + 1}번 질문의 보기를 두 개 이상 적어주세요`);
+    }
+    const m = String(p.deadline ?? "").match(/^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)$/);
+    if (!m) throw new HttpError(400, "마감 시각을 골라주세요");
+    const due = kstMs(m[1], m[2]);
+    if (!(due > Date.now())) throw new HttpError(400, "마감은 지금 이후로 골라주세요");
+    if (due > Date.now() + 60 * 24 * HOUR) throw new HttpError(400, "마감은 두 달 안으로 골라주세요");
+    await rateLimit(ctx, "survey_new", 5, 24 * 60);
+    const row = must(await ctx.db.from("surveys").insert({
+      team_id: p.team_id, title, purpose: t(p.purpose, 1000) || null, questions, anonymous: p.anonymous !== false, share_results: !!p.share_results,
+      target_people: targets, target_label: labelOf(p), deadline: new Date(due).toISOString(), created_by: ctx.me.id,
+    }).select("id, anonymous").single());
+    const who = await withTelegram(ctx, targets.filter((id) => id !== ctx.me.id));
+    const r = await sendToMembers(who, `<b>📋 설문조사</b>${row.anonymous ? " · 익명" : ""}\n\n「${escHtml(title)}」\n${escHtml(ctx.me.name)}님이 의견을 여쭤요. 질문 ${questions.length}개\n마감 ${msLabel(due)}`, svButton(row.id));
+    return { id: row.id, sent: r.sent, failed: r.failed };
+  },
+  // 내 답 저장(마감 전까지 고침): { id, answers: {질문id: 값} }
+  async "surveys.save"(ctx) {
+    const s = await surveyRow(ctx, ctx.payload.id);
+    if (!(s.target_people ?? []).includes(ctx.me.id)) throw new HttpError(403, "이 설문의 대상이 아니에요");
+    if (!svOpen(s)) throw new HttpError(409, "마감된 설문이에요");
+    const answers = svClean(s.questions ?? [], ctx.payload.answers);
+    must(await ctx.db.from("survey_answers").upsert({ survey_id: s.id, person_id: ctx.me.id, answers }, { onConflict: "survey_id,person_id" }));
+    return { ok: true };
+  },
+  // 안 한 사람에게 다시 알림 (만든 사람, 10분에 한 번). 누가 안 했는지는 익명이면 알려주지 않음
+  async "surveys.remind"(ctx) {
+    const s = await surveyRow(ctx, ctx.payload.id);
+    if (s.created_by !== ctx.me.id) throw new HttpError(403, "만든 사람만 알림을 보낼 수 있어요");
+    if (!svOpen(s)) throw new HttpError(409, "마감된 설문이에요");
+    await rateLimit(ctx, "survey_remind:" + s.id, 1, 10);
+    const r = await svRemind(ctx, s, `<b>🔔 ${escHtml(ctx.me.name)}님이 설문 답을 기다려요</b>`);
+    return { sent: r.sent };
+  },
+  async "surveys.close"(ctx) {
+    const s = await surveyRow(ctx, ctx.payload.id);
+    if (s.created_by !== ctx.me.id && !(await surveyBoss(ctx, s))) throw new HttpError(403, "만든 사람만 마감할 수 있어요");
+    must(await ctx.db.from("surveys").update({ status: "마감", closed_at: new Date().toISOString() }).eq("id", s.id));
+    return { ok: true };
+  },
+  async "surveys.delete"(ctx) {
+    const s = await surveyRow(ctx, ctx.payload.id);
+    if (s.created_by !== ctx.me.id && !(await surveyBoss(ctx, s))) throw new HttpError(403, "만든 사람만 지울 수 있어요");
+    must(await ctx.db.from("surveys").delete().eq("id", s.id));
     return { ok: true };
   },
 

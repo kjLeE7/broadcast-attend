@@ -19,7 +19,7 @@
   <!-- 기존 앱 디자인을 그대로 쓰고, 베타에 필요한 것만 beta.css로 덧붙임 -->
   <!-- 고친 뒤 텔레그램에서 옛날 화면이 보이면 v= 숫자를 바꿔주세요 -->
   <link rel="stylesheet" href="../style.css?v=20261003k">
-  <link rel="stylesheet" href="beta.css?v=20261010a">
+  <link rel="stylesheet" href="beta.css?v=20261010s">
 </head>
 <body>
   <div class="app">
@@ -221,7 +221,7 @@
     <section id="noticeView" style="display:none;">
       <h1 class="page-title" data-ez="공지·과제">전하는 말</h1>
       <p class="page-desc">우리 팀 공지와 방송예술과 전체 공지예요</p>
-      <div class="b-attseg"><button class="wkchip active" onclick="goTab('notice')">공지</button><button class="wkchip" onclick="goTask('notice')">과제</button></div>
+      <div class="b-attseg"><button class="wkchip active" onclick="goTab('notice')">공지</button><button class="wkchip" onclick="goTask('notice')">과제</button><button class="wkchip" onclick="goTab('survey')">설문</button></div>
       <div id="annList"></div>
 
       <div class="b-fab" id="annFab" style="display:none;">
@@ -229,6 +229,14 @@
           <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
         </button>
       </div>
+    </section>
+
+    <!-- ===== 설문조사 (소식 › 설문): 과원 누구나 만듦. 익명이면 만든 사람도 누가 답했는지 모름 ===== -->
+    <section id="surveyView" style="display:none;">
+      <h1 class="page-title">마음을 묻는 시간</h1>
+      <p class="page-desc">설문에 답하고, 내가 만든 설문의 결과를 봐요</p>
+      <div class="b-attseg"><button class="wkchip" onclick="goTab('notice')">공지</button><button class="wkchip" onclick="goTask('notice')">과제</button><button class="wkchip active">설문</button></div>
+      <div id="svArea"><div class="b-wait">불러오는 중...</div></div>
     </section>
 
     <!-- ===== 과제 ===== -->
@@ -825,6 +833,8 @@
         </div>
         <label class="field-label" for="cDesc">내용 <span class="hint">수업·스터디 내용 등 (선택)</span></label>
         <textarea id="cDesc" rows="4" maxlength="2000" placeholder="예) 3과 발성 연습 · 대본 2쪽까지 읽어오기"></textarea>
+        <div class="fw-link" style="display:none;"><label class="field-label" for="cProj">프로젝트 <span class="hint">선택 · 고르면 그 프로젝트 타임라인에 보여요</span></label>
+        <div class="select-wrap"><select id="cProj"></select></div></div>
         <label class="field-label" for="cReviewDue">후기 마감 <span class="hint">비우면 모임 날 자정까지 · 대상자가 모임을 통해 느낀 점을 적어요</span></label>
         <input type="datetime-local" id="cReviewDue" class="b-input">
         <label class="b-check-line"><input type="checkbox" id="cNotify" checked><span>대상자에게 텔레그램 알림 보내기</span></label>
@@ -1004,6 +1014,38 @@
       <div class="b-modal-body" id="statBody"></div>
     </div>
   </div>
+  <div class="b-modal" id="svModal" aria-hidden="true">
+    <div class="b-modal-dim" onclick="closeModal()"></div>
+    <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="svModalT">
+      <div class="b-modal-head">
+        <div><h1 id="svModalT">설문 만들기</h1><p>대상자에게 봇으로 알림이 가요</p></div>
+        <button class="b-modal-x" type="button" onclick="closeModal()" aria-label="닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <div class="b-modal-body">
+        <label class="field-label" for="svTitle">설문 제목</label>
+        <input type="text" id="svTitle" class="b-input" maxlength="80" placeholder="예) 10월 정규수업 만족도">
+        <label class="field-label" for="svPurpose">설문 취지 <span class="hint">왜 묻는지 · 어디에 쓰는지</span></label>
+        <textarea id="svPurpose" rows="3" maxlength="1000" placeholder="예) 다음 학기 수업 방식을 정하려고 여쭤요"></textarea>
+        <label class="field-label">질문</label>
+        <div id="svQs"></div>
+        <button type="button" class="ghost-btn c-ag-add" onclick="svAddQ()">+ 질문 추가</button>
+        <label class="field-label">답한 사람 보기</label>
+        <div class="sv-anon" id="svAnon">
+          <button type="button" class="on" data-v="1" onclick="svSetAnon(true)"><b>🔒 익명</b><small>만든 사람도 누가 무엇을 답했는지 몰라요. 관리자·과장님만 확인할 수 있어요</small></button>
+          <button type="button" data-v="0" onclick="svSetAnon(false)"><b>🙋 실명</b><small>결과에 이름이 같이 보여요</small></button>
+        </div>
+        <small class="tp-note">만든 뒤에는 익명·실명을 바꿀 수 없어요</small>
+        <label class="check-row"><input type="checkbox" id="svShare"><span>답한 사람도 모아 본 결과를 볼 수 있게</span></label>
+        <label class="field-label" for="svDue">마감</label>
+        <input type="datetime-local" id="svDue">
+        <small class="tp-note">마감 24시간 전에 아직 안 한 사람에게 한 번 더 알려요</small>
+        <label class="field-label">대상</label>
+        <div id="svPick"></div>
+        <button class="btn-primary" id="svBtn" onclick="createSurvey()">설문 만들고 알림 보내기</button>
+        <div class="msg" id="svMsg"></div>
+      </div>
+    </div>
+  </div>
   <div class="b-modal" id="tpModal" aria-hidden="true">
     <div class="b-modal-dim" onclick="closeModal()"></div>
     <div class="b-modal-box" role="dialog" aria-modal="true" aria-labelledby="tpModalT">
@@ -1140,6 +1182,6 @@
   <script src="../krmap.js?v=20261001a"></script>
   <script src="town.js?v=20261007a"></script>
   <script src="sky.js?v=20261006f"></script>
-  <script src="beta.js?v=20261010a"></script>
+  <script src="beta.js?v=20261010s"></script>
 </body>
 </html>

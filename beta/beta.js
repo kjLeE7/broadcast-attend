@@ -105,10 +105,11 @@ function showState(title, desc) {
 var DEEP_SESSION = (function () { try { return new URLSearchParams(location.search).get('s'); } catch (e) { return null; } })();
 // 업무가능 독촉 알림의 버튼: ?go=weekly&ws=월요일
 // 시간취합 알림의 버튼: ?poll=취합id
+var DEEP_SV = (function () { try { return new URLSearchParams(location.search).get('sv'); } catch (e) { return null; } })();
 var DEEP_POLL = (function () { try { return new URLSearchParams(location.search).get('poll'); } catch (e) { return null; } })();
 var DEEP_WEEK = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'weekly' ? (q.get('ws') || (new Date().getDay() === 0 ? mondayOf('next') : 'this')) : null; } catch (e) { return null; } })();
 // 봇 채팅 답장의 버튼: ?go=attend|notice|poll|profile → 그 탭으로
-var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'proj', 'rec', 'mytodo', 'approve'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
+var DEEP_TAB = (function () { try { var g = new URLSearchParams(location.search).get('go'); return ['attend', 'notice', 'poll', 'profile', 'dues', 'place', 'admin', 'people', 'pmonth', 'flow', 'proj', 'rec', 'mytodo', 'approve', 'survey'].indexOf(g) !== -1 ? g : null; } catch (e) { return null; } })();
 // 프로젝트 알림의 버튼: ?go=proj&p=프로젝트id → 그 방으로
 var DEEP_PROJ = (function () { try { var q = new URLSearchParams(location.search); return q.get('go') === 'proj' ? q.get('p') : null; } catch (e) { return null; } })();
 function openDeepSession(id) {
@@ -159,6 +160,11 @@ function boot() {
       RC.pending = DEEP_REC; DEEP_REC = null;
       try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
       Promise.resolve(selectTeam(me.teams[0].id)).then(function () { goTab('rec'); });
+    }
+    else if (DEEP_SV) {
+      var svId = DEEP_SV; DEEP_SV = null;
+      try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+      Promise.resolve(selectTeam(me.teams[0].id)).then(function () { SV.pending = svId; goTab('survey'); });
     }
     else if (DEEP_POLL) {
       var pollId = DEEP_POLL; DEEP_POLL = null;
@@ -433,7 +439,8 @@ var PCFG = {
   hw: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER },
   ci: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER },
   ann: { min: RANK.INSTRUCTOR, all: RANK.TEAM_LEADER, pos: true, dynAll: true },
-  tp: { min: RANK.MEMBER, all: RANK.MEMBER, people: true }   // 시간취합: 과 사람 누구나, 언제나 사람 목록으로
+  tp: { min: RANK.MEMBER, all: RANK.MEMBER, people: true },   // 시간취합: 과 사람 누구나, 언제나 사람 목록으로
+  sv: { min: RANK.MEMBER, all: RANK.MEMBER, people: true }    // 설문: 과 사람 누구나
 };
 var PK = {};
 // 팀은 여러 개 고를 수 있음(다른 팀과 함께하는 모임·공지 등). keys = 고른 팀 id들, all = 과 전체
@@ -665,6 +672,7 @@ function tplDel(k, id) {
 
 function openSessModal() {
   fillTypeSelect();
+  pjSelect('cProj', $('cProj').value);
   tplLoad('c');
   if (!$('cDate').value) $('cDate').value = todayStr();
   setMsg('cMsg', '');
@@ -751,6 +759,7 @@ function createSession() {
     location: getPlace() || null,
     description: $('cDesc').value.trim() || null,
     review_due: $('cReviewDue').value || null,
+    project_id: $('cProj').value || null,
     notify: $('cNotify').checked,
     checkin_items: cCiItems()
   };
@@ -780,7 +789,7 @@ function createSession() {
     });
     if (s.team_id === S.team.id) S.sessions.push(s);
     S.sessions.sort(function (a, b) { return a.session_date + (a.start_time || '') < b.session_date + (b.start_time || '') ? -1 : 1; });
-    ['cTitle', 'cStart', 'cEnd', 'cDesc', 'cReviewDue'].forEach(function (id) { $(id).value = ''; }); setPlace('');
+    ['cTitle', 'cStart', 'cEnd', 'cDesc', 'cReviewDue', 'cProj'].forEach(function (id) { $(id).value = ''; }); setPlace(''); if (p.project_id) PJ.tl = null;
     $('cType').value = ''; pkReset('c'); setCCiItems([]); $('cAgenda').innerHTML = ''; cAgSync();
     btn.disabled = false;
     // 체크인이 같이 생겼으면 출결 위 체크인 카드도 새로
@@ -1302,7 +1311,7 @@ function alertMsg(m) { try { if (tg && tg.showAlert) { tg.showAlert(m); return; 
 // 하단 탭
 // =====================================================================
 var curTab = 'home';
-var VIEWS = { proj: 'projView', home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView', approve: 'approveView', practice: 'practiceView', settings: 'settingsView' };
+var VIEWS = { proj: 'projView', home: 'homeView', town: 'townView', attend: 'attendWrap', notice: 'noticeView', task: 'taskView', weekly: 'weeklyView', rec: 'recView', profile: 'profileView', poll: 'pollView', dues: 'duesView', sky: 'skyView', place: 'placeView', admin: 'adminView', people: 'peopleView', mtg: 'mtgView', pmonth: 'pmonthView', flow: 'flowView', mytodo: 'mytodoView', approve: 'approveView', practice: 'practiceView', settings: 'settingsView', survey: 'surveyView' };
 function goTab(t) {
   if (t === curTab) return;
   if (curTab === 'rec' && RC.current) closeRec();
@@ -1322,14 +1331,14 @@ function goTab(t) {
 // 과제·업무가능은 아래 탭에 없음: 과제는 공지 안(또는 프로필 '내 과제'), 업무가능은 프로필 안. 아래 탭은 그 부모가 켜짐
 var taskFrom = 'notice';
 // 탭 묶음 (2026-10-06): 업무가능 → 업무, 시간취합 → 일정(출결), 회비 → 개인, 과제 → 소식(공지)
-function parentTab(t) { if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' || t === 'proj' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' ? 'notice' : t; }
+function parentTab(t) { if ((t === 'people' || t === 'approve' || t === 'admin') && document.body.classList.contains('adm-inmenu')) return 'rec'; if (t === 'practice' || t === 'settings') return 'profile'; return t === 'flow' || t === 'proj' ? 'rec' : t === 'weekly' ? 'profile' : t === 'poll' || t === 'place' || t === 'mtg' ? 'attend' : t === 'dues' || t === 'pmonth' || t === 'mytodo' ? 'profile' : t === 'task' || t === 'survey' ? 'notice' : t; }
 function goTask(from) {
   taskFrom = from;
   if (curTab === 'task') { setTabUI('task'); loadTasks(); return; }
   goTab('task');
 }
 function renderTaskSeg() {
-  var seg = taskFrom === 'profile' ? [] : [['공지', "goTab('notice')", 0], ['과제', '', 1]];
+  var seg = taskFrom === 'profile' ? [] : [['공지', "goTab('notice')", 0], ['과제', '', 1], ['설문', "goTab('survey')", 0]];
   $('taskSeg').innerHTML = seg.map(function (x) {
     return '<button class="wkchip' + (x[2] ? ' active' : '') + '"' + (x[1] ? ' onclick="' + x[1] + '"' : '') + '>' + x[0] + '</button>';
   }).join('');
@@ -1411,6 +1420,7 @@ function refreshTab() {
   else if (curTab === 'approve') loadApprove();
   else if (curTab === 'practice') loadPractice();
   else if (curTab === 'settings') renderSettings();
+  else if (curTab === 'survey') loadSurveys();
   else if (curTab === 'pmonth') { if (!P.month) P.month = curMonth(); loadPfReport(); }
 }
 
@@ -2090,6 +2100,7 @@ function editSession() {
   setTm('cStart', hm(s.start_time)); setTm('cEnd', hm(s.end_time));
   setPlace(s.location || ''); $('cDesc').value = s.description || '';
   $('cReviewDue').value = s.review_due ? isoLocal(s.review_due) : '';
+  pjSelect('cProj', s.project_id || '');
   setCCiItems(sessCiItems(s));
   $('cNotify').checked = false; $('cNotify').nextElementSibling.textContent = '바뀐 날짜·시간·장소를 대상자에게 알리기';
   if (s.closed_at) setMsg('cMsg', '출결이 마감된 모임이에요. 시작 시간을 바꾸면 도착 확인한 사람의 참석·지각을 새 시간으로 다시 매겨요');
@@ -2099,8 +2110,8 @@ function editSession() {
 function saveSessEdit() {
   var s = S.current; if (!s || s.id !== EDIT.id) return;
   var cand = { title: $('cTitle').value.trim() || null, session_date: $('cDate').value, start_time: $('cStart').value || null,
-    end_time: $('cEnd').value || null, location: getPlace() || null, description: $('cDesc').value.trim() || null, review_due: $('cReviewDue').value || null };
-  var cur = { review_due: s.review_due ? isoLocal(s.review_due) : null, title: s.title || null, session_date: s.session_date, start_time: s.start_time ? hm(s.start_time) : null,
+    end_time: $('cEnd').value || null, location: getPlace() || null, description: $('cDesc').value.trim() || null, review_due: $('cReviewDue').value || null, project_id: $('cProj').value || null };
+  var cur = { project_id: s.project_id || null, review_due: s.review_due ? isoLocal(s.review_due) : null, title: s.title || null, session_date: s.session_date, start_time: s.start_time ? hm(s.start_time) : null,
     end_time: s.end_time ? hm(s.end_time) : null, location: s.location || null, description: s.description || null };
   if (!cand.session_date) { setMsg('cMsg', '날짜를 골라주세요!', true); return; }
   if (!cand.start_time) { setMsg('cMsg', '시작 시간을 넣어주세요!', true); return; }
@@ -2524,6 +2535,7 @@ function renderNotices() {
         '<span class="chip">' + (n.target_label ? esc(n.target_label) : n.scope === 'section' ? '방송예술과 전체' : esc(S.team.name)) + '</span>' +
         (n.target_names && n.target_names.length ? '<span class="chip">' + esc(n.target_names.join('·')) + '만</span>' : '') +
         (n.target_unit_id ? '<span class="chip">' + esc(groupName(n.target_unit_id)) + '만</span>' : '') +
+        (n.projects ? '<span class="chip fw-chip">🎬 ' + esc(n.projects.title) + '</span>' : '') +
         '<span class="ann-date">' + mdOf(n.published_at) + '</span></div>' +
       '<div class="ann-title">' + esc(n.title) + '<i class="ann-chev">' + (open ? '▴' : '▾') + '</i></div>' +
       (open ? (n.body ? '<div class="ann-body">' + esc(n.body) + '</div>' : '') + fileChips('notice', n.id) +
@@ -4031,6 +4043,7 @@ function todoRow(t, i) {
       if (t.kind === 'flowstep') return row(i, '🧩', t.flow + ' · ' + t.name, (t.state === '막힘' ? '막힘 · ' : t.state === '시작' ? '하는 중 · ' : '내 차례 · ') + (t.due ? t.due.slice(5).replace('-', '/') + '까지 · ' : '') + '눌러서 보고', t.urgent);
       if (t.kind === 'mtgaction') return row(i, '📋', '회의에서 맡은 일 · ' + t.name, t.due ? t.due.slice(5).replace('-', '/') + '까지 · 눌러서 완료' : '눌러서 완료', t.urgent);
       if (t.kind === 'mtgprep') return row(i, '🗂', '회의 안건 의견 · ' + t.name, shortD(t.date) + ' 회의 · 안건 ' + t.left + '개 남음', t.urgent);
+      if (t.kind === 'survey') return row(i, '📋', '설문 답하기 · ' + t.name, '마감 ' + mdw(Date.parse(t.due)) + ' ' + hmMs(Date.parse(t.due)), t.urgent);
       if (t.kind === 'poll') return row(i, '📅', '가능시간 입력 · ' + t.name, '마감 ' + mdw(Date.parse(t.due)) + ' ' + hmMs(Date.parse(t.due)), t.urgent);
       if (t.kind === 'recarrive') return row(i, '🎙', '녹음실 도착 · ' + t.name, hmMs(t.start) + ' 시작' + (t.place ? ' · ' + t.place : '') + ' · 도착하면 눌러주세요', true);
       if (t.kind === 'recrun') return row(i, t.step === 'start' ? '▶' : '✅', (t.step === 'start' ? '녹음 시작 보고 · ' : '녹음 종료 보고 · ') + t.name, hmMs(t.start) + ' 시작' + (t.place ? ' · ' + t.place : ''), true);
@@ -4065,6 +4078,7 @@ function openTodo(i) {
   }
   if (t.kind === 'mtgaction') { if (confirm('「' + t.name + '」 끝냈나요?')) api('mtg.actionDone', { id: t.id }).then(function () { haptic('success'); refreshTodos(true); }).catch(function (err) { alertMsg(err.message); }); return; }
   if (t.kind === 'mtgprep') { inTeam(function () { openMeeting(t.id); }); return; }
+  if (t.kind === 'survey') { SV.pending = t.id; if (curTab === 'survey') loadSurveys(); else goTab('survey'); return; }
   if (t.kind === 'poll') { PL.pending = t.id; if (curTab === 'poll') loadPolls(); else goTab('poll'); return; }
   if (t.kind === 'reason' || t.kind === 'plan') {
     inTeam(function () { goTab('attend'); return refreshSessions().then(function () { if (byId(S.sessions, t.id)) openSession(t.id); }); });
@@ -5244,6 +5258,7 @@ function actItems() {
   if (t === 'mtg' && MT.d && MT.d.meeting.status !== '끝') add('plus', '안건 올리기', function () { openItem(); });
   if (t === 'people') { if (PPL.cur) add('edit', PPL.cur.person.name + '님 특이사항 적기', function () { openNote({ person_id: PPL.cur.person.id }); }); add('plus', '특이사항 적기', function () { openNote({ staff: true }); }); }
   if (t === 'poll' && !PL.cur) add('plus', '시간취합 만들기', openTpModal);
+  if (t === 'survey' && !SV.cur) add('plus', '설문 만들기', openSvModal);
   if (t === 'place' && PLC.d) add('plus', '장소 신청', function () { openPlaceModal(); });
   if (t === 'notice') {
     if (annTeams().length) add('plus', '공지 쓰기', openAnnEdit);
@@ -5836,7 +5851,7 @@ function fwParseRules(text) {
 // 프로젝트 (업무 › 프로젝트, 2026-10-10): 여러 회차에 걸친 큰 작업. 명단에 있는 사람만 방에 들어감
 // 목록 = 종류별 색 카드(큰 글씨 분류 없이 색만), 방 = 개요 · 사람 · 작업(전용 작업 흐름) · 대본·자료(제작진만)
 // =====================================================================
-var PJ = { list: null, can: false, id: null, cur: null, pending: null, pendingStep: null, folder: '대본' };
+var PJ = { list: null, can: false, id: null, cur: null, pending: null, pendingStep: null, folder: '대본', view: 'room', tl: null, filt: 'all' };
 var PJ_KIND = { '영상': '영상 제작', '오디오': '오디오 제작', '방송': '정기 방송', '행사': '행사·공연', '기타': '기타' };
 var PJ_KINDS = ['영상', '오디오', '방송', '행사', '기타'];
 var PJ_ROLE_TX = { 'PD': '고치기·사람 넣기·지우기', '제작진': '대본·자료까지 모두 보고 작업을 만들어요', '출연': '개요·사람·내가 들어간 작업만 봐요' };
@@ -5874,10 +5889,10 @@ function renderProjList() {
 function openProject(id) {
   var p = (PJ.list || []).filter(function (x) { return x.id === id; })[0];
   if (p && !p.open) { alertMsg('「' + p.title + '」은 명단에 있는 사람만 들어갈 수 있어요' + (p.pd.length ? '. 참여하려면 PD(' + p.pd.join('·') + ')에게 말해주세요' : '')); return; }
-  PJ.id = id; PJ.cur = null;
+  PJ.id = id; PJ.cur = null; PJ.view = 'room'; PJ.tl = null; PJ.filt = 'all';
   if (curTab !== 'proj') goTab('proj'); else loadProjRoom();
 }
-function closeProject() { PJ.id = null; PJ.cur = null; loadProjList(); window.scrollTo(0, 0); setTimeout(renderAct, 0); }
+function closeProject() { PJ.id = null; PJ.cur = null; PJ.view = 'room'; PJ.tl = null; loadProjList(); window.scrollTo(0, 0); setTimeout(renderAct, 0); }
 function loadProjRoom() {
   $('projList').style.display = 'none'; $('projRoom').style.display = '';
   if (!PJ.cur || PJ.cur.project.id !== PJ.id) $('projRoom').innerHTML = '<div class="b-wait">불러오는 중...</div>';
@@ -5885,6 +5900,7 @@ function loadProjRoom() {
   return api('proj.get', { id: id }).then(function (d) {
     if (PJ.id !== id) return;
     PJ.cur = d; renderProjRoom(); renderAct();
+    if (PJ.view !== 'room' || !PJ.tl) loadPjTl();
     if (PJ.pendingStep) { var sp = PJ.pendingStep; PJ.pendingStep = null; fwAct(sp); }
   }).catch(function (err) {
     $('projRoom').innerHTML = '<button type="button" class="pj-back" onclick="closeProject()">‹ 프로젝트</button><div class="empty"><b>들어갈 수 없어요</b>' + esc(err.message) + '</div>';
@@ -5925,7 +5941,8 @@ function renderProjRoom() {
       '<h1 class="page-title">' + esc(p.title) + '</h1>' +
       '<div class="pj-hm"><span class="pj-st">' + esc(p.status) + '</span>' + (pjPeriod(p) ? '<span>' + pjPeriod(p) + '</span>' : '') + (me.role ? '<span>내 자리 · ' + esc(me.role) + (me.part ? ' (' + esc(me.part) + ')' : '') + '</span>' : '<span>보기 권한</span>') + '</div>' +
       '<div class="pj-hbar">' + pjBar(p) + '</div>' +
-      (p.desc ? '<p class="pj-hd">' + esc(p.desc) + '</p>' : '') + '</div>' +
+      (p.desc ? '<p class="pj-hd">' + esc(p.desc) + '</p>' : '') + '</div>' + pjSeg() +
+    (PJ.view !== 'room' ? pjTabHtml() :
     '<div class="pj-room">' +
       '<div class="pj-main"><div class="section-head b-gap"><h2>작업</h2><span class="section-count">' + (open.length ? open.length + '건 진행 중' : '') + '</span></div>' +
         (open.length ? open.map(fwCard).join('') : '<p class="rec-none">' + (me.full ? '진행 중인 작업이 없어요. 오른쪽 아래 + 에서 \'작업 만들기\'' : '나에게 온 작업이 없어요') + '</p>') +
@@ -5933,7 +5950,7 @@ function renderProjRoom() {
       '<div class="pj-side"><div class="section-head b-gap"><h2>사람</h2><span class="section-count">' + d.members.length + '명</span></div>' +
         '<div class="card pj-people">' + (people || '<p class="rec-none">아직 명단이 없어요</p>') + (me.manage ? '<button type="button" class="ghost-btn pm-add" onclick="openPmModal()">+ 사람 넣기</button>' : '') + '</div>' +
         files + '</div>' +
-    '</div>';
+    '</div>');
 }
 // ----- 만들기·고치기 -----
 var PJF = { kind: '영상', status: '기획', editId: null };
@@ -6079,7 +6096,7 @@ var MY_CATS = [
   ['🎙 녹음', ['recask', 'recarrive', 'recrun', 'myrec']],
   ['🧩 작업·프로젝트·업무', ['flowstep', 'duty', 'project', 'flowwait']],
   ['🕒 업무가능·시간취합', ['weekly', 'poll']],
-  ['📚 과제·공지', ['task', 'notice']],
+  ['📚 과제·공지·설문', ['task', 'notice', 'survey']],
   ['🗳 승인', ['approve']]
 ];
 function myCatsHtml() {
@@ -6470,3 +6487,322 @@ function renderPractice() {
 
 // 텔레그램 프로필 사진(서버가 avatars 보관함에 둔 작은 사진)을 동그라미 배경으로. 없으면 이름 두 글자 그대로
 function photoBg(url) { return url && /^https:\/\//.test(url) ? ' style="background-image:url(&quot;' + esc(url) + '&quot;)" data-photo="1"' : ''; }
+
+// =====================================================================
+// 프로젝트 방 [방 | 공지 | 타임라인] (2026-10-10)
+// 타임라인 = 시작부터 모임·공지·작업·사람·대본/자료·피드백·협업·아이디어·인원 교체를 시간순으로
+// =====================================================================
+var PJ_EV = {
+  '시작': ['🚩', '시작'], '초대': ['🙋', '합류'], '빠짐': ['👋', '빠짐'], '자리': ['🔀', '자리 바뀜'], '상태': ['🏷', '상태'], '작업': ['🧩', '작업'], '단계': ['✅', '작업'], '진행': ['▶', '진행'],
+  '파일': ['📄', '대본·자료'], '공지': ['📢', '공지'], '모임': ['👥', '모임'], '피드백': ['💬', '피드백'], '협업': ['🤝', '협업'], '협업 모임': ['🤝', '협업 모임'],
+  '아이디어': ['💡', '아이디어·건의'], '인원 교체': ['🔁', '인원 교체'], '결정': ['📌', '결정'], '기타': ['📝', '메모']
+};
+var PJ_FILT = [['all', '모두'], ['meet', '모임·협업', ['모임', '협업', '협업 모임']], ['notice', '공지', ['공지']], ['fb', '피드백·결정', ['피드백', '결정', '기타']],
+  ['people', '사람', ['초대', '빠짐', '자리', '인원 교체']], ['idea', '아이디어', ['아이디어']], ['prog', '진행', ['시작', '상태', '작업', '단계', '진행', '파일']]];
+function pjSeg() {
+  var v = PJ.view || 'room', n = PJ.tl && !PJ.tl.err ? PJ.tl.notices.length : 0;
+  return '<div class="fw-seg pj-seg">' + [['room', '방'], ['notice', '공지' + (n ? ' ' + n : '')], ['tl', '타임라인']].map(function (x) {
+    return '<button type="button" class="' + (v === x[0] ? 'on' : '') + '" onclick="pjView(\'' + x[0] + '\')">' + x[1] + '</button>';
+  }).join('') + '</div>';
+}
+function pjView(v) {
+  PJ.view = v; renderProjRoom(); renderAct();
+  if (v !== 'room' && !PJ.tl) loadPjTl();
+}
+function loadPjTl() {
+  var id = PJ.id;
+  return api('proj.timeline', { id: id }).then(function (d) { if (PJ.id === id) { PJ.tl = d; if (PJ.cur) renderProjRoom(); } })
+    .catch(function (err) { if (PJ.id === id) { PJ.tl = { err: err.message }; if (PJ.cur) renderProjRoom(); } });
+}
+function pjTabHtml() {
+  var d = PJ.tl, me = PJ.cur.me;
+  if (!d) return '<div class="b-wait">불러오는 중...</div>';
+  if (d.err) return '<div class="empty"><b>불러오지 못했어요</b>' + esc(d.err) + '</div>';
+  if (PJ.view === 'notice') {
+    return (me.full ? '<button type="button" class="ghost-btn fw-add" onclick="openPjNotice()">📢 프로젝트 공지 쓰기</button>' : '') +
+      (d.notices.length ? '<div class="card">' + d.notices.map(function (n) {
+        return '<details class="fw-ann"><summary>' + (n.pinned ? '📌 ' : '') + '<b>' + esc(n.title) + '</b><small>' + mdOf(n.at) + ' · ' + esc(n.by) + '</small></summary>' + (n.body ? '<p>' + esc(n.body) + '</p>' : '') + '</details>';
+      }).join('') + '</div>' : '<p class="rec-none">아직 프로젝트 공지가 없어요' + (me.full ? '. 위 버튼으로 명단 사람들에게 공지할 수 있어요' : '') + '</p>');
+  }
+  var fk = PJ.filt || 'all', grp = PJ_FILT.filter(function (x) { return x[0] === fk; })[0];
+  var list = d.timeline.filter(function (e) { return fk === 'all' || grp[2].indexOf(e.kind) !== -1; });
+  var h = '<div class="fw-tlbar"><div class="fw-filt">' + PJ_FILT.map(function (x) {
+    return '<button type="button" class="' + (fk === x[0] ? 'on' : '') + '" onclick="PJ.filt=\'' + x[0] + '\';renderProjRoom()">' + x[1] + '</button>';
+  }).join('') + '</div><div class="fw-tladd">' +
+    (d.can_add ? '<button type="button" class="ghost-btn" onclick="pjEvOpen()">+ 기록 남기기</button>' : '') +
+    '<button type="button" class="ghost-btn" onclick="pjEvOpen(\'아이디어\')">💡 아이디어 내기</button></div></div>';
+  if (!list.length) return h + '<p class="rec-none">아직 기록이 없어요</p>';
+  var day = '';
+  h += '<ol class="fw-tl">';
+  list.forEach(function (e) {
+    var t = new Date(e.at), dk = ymd(t);
+    if (dk !== day) { day = dk; h += '<li class="fw-tl-day">' + t.getFullYear() + '.' + (t.getMonth() + 1) + '.' + t.getDate() + ' (' + WD[t.getDay()] + ')</li>'; }
+    var ic = PJ_EV[e.kind] || ['•', e.kind], tx = pjEvText(e);
+    var click = e.src === 'meet' ? ' onclick="openDashItem(\'session\',\'' + e.id + '\')"' : e.src === 'notice' ? ' onclick="pjView(\'notice\')"' : '';
+    h += '<li class="fw-ev k-' + esc(e.kind.replace(' ', '')) + (e.soon ? ' soon' : '') + (click ? ' go' : '') + '"' + click + '><span class="fw-ev-ic">' + ic[0] + '</span><div class="fw-ev-b">' +
+      '<div class="fw-ev-h"><em>' + esc(ic[1]) + (e.soon ? ' · 예정' : '') + '</em><time>' + hmMs(t.getTime()) + '</time>' +
+      (e.del ? '<button type="button" class="fw-ev-x" onclick="event.stopPropagation();pjEvDel(\'' + e.id + '\')" aria-label="기록 지우기">✕</button>' : '') + '</div>' +
+      '<b>' + esc(tx[0]) + '</b>' + (tx[1] ? '<p>' + esc(tx[1]) + '</p>' : '') + (e.by && (e.src !== 'auto' || e.kind === '작업' || e.kind === '파일' || e.kind === '시작') ? '<small>' + (e.src === 'ev' ? '기록 ' : '') + esc(e.by) + '</small>' : '') + '</div></li>';
+  });
+  return h + '</ol>';
+}
+// [제목, 설명]
+function pjEvText(e) {
+  var k = e.kind, b = e.body || '';
+  if (k === '피드백') return [e.who + '의 피드백', b];
+  if (k === '협업') return [e.dept + '와(과) 협업', b];
+  if (k === '협업 모임') return [e.dept + '와(과) 모임' + (e.place ? ' · ' + e.place : ''), b];
+  if (k === '초대' && e.src === 'ev') return [e.who + ' 초대' + (e.role ? ' · ' + e.role : ''), b];
+  if (k === '아이디어') return [e.who + '님 제안', b];
+  if (k === '인원 교체') return [e.who + ' → ' + e.who2 + (e.role ? ' · ' + e.role : ''), b ? '사유: ' + b : ''];
+  if (k === '진행') return [e.who + ' · ' + (e.role || ''), b];
+  if (k === '빠짐') return [e.who + ' 빠짐' + (e.role ? ' · ' + e.role : ''), b];
+  if (k === '자리') return [e.who + ' 자리 바뀜', b];
+  if (k === '상태') return ['상태 ' + b, ''];
+  if (k === '결정') return ['결정', b];
+  if (k === '기타' && e.src === 'ev') return ['메모', b];
+  return [(e.title || '') + (e.role ? ' · ' + e.role : '') + (e.place ? ' · ' + e.place : ''), b];
+}
+// 기록 남기기 팝업: 종류마다 칸이 달라짐
+var PJ_EVF = {
+  '피드백': [['who', '누구에게 받았나요', '예) 문화부장님, 과장님'], ['body', '피드백 내용', '받은 말을 그대로 적어주세요']],
+  '협업': [['dept', '어느 과·부서와', '예) 찬양과, 홍보부'], ['body', '무엇을 같이 하나요 (선택)', '']],
+  '협업 모임': [['dept', '어느 과·부서와', '예) 찬양과'], ['place', '장소 (선택)', '예) 스담'], ['body', '무슨 얘기를 했나요 (선택)', '']],
+  '초대': [['who', '누구를', '이름'], ['role', '어떤 역할로', '예) 내레이션, 편집'], ['body', '덧붙일 말 (선택)', '']],
+  '아이디어': [['who', '제안한 사람', '비우면 나'], ['body', '아이디어·건의 내용', '']],
+  '인원 교체': [['who', '누가', '빠지는 사람'], ['who2', '누구로', '새로 맡는 사람'], ['role', '맡은 역할 (선택)', ''], ['body', '사유', '']],
+  '결정': [['body', '정한 내용', '']], '기타': [['body', '내용', '']]
+};
+function pjEvOpen(kind) {
+  var d = PJ.tl || {}, kinds = d.can_add ? Object.keys(PJ_EVF) : ['아이디어'];
+  kind = kind || '피드백';
+  var now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  $('itemModalT').textContent = kinds.length === 1 ? '아이디어 내기' : '기록 남기기';
+  $('itemModalS').textContent = kind === '아이디어' ? '타임라인에 남고 PD에게 알림이 가요' : '타임라인에 남아요. 프로젝트 명단에 있는 사람이 봐요';
+  $('itemBody').innerHTML = (kinds.length > 1 ? '<div class="fw-evk">' + kinds.map(function (k) {
+    return '<button type="button" class="' + (k === kind ? 'on' : '') + '" onclick="pjEvOpen(\'' + k + '\')">' + PJ_EV[k][0] + ' ' + PJ_EV[k][1] + '</button>';
+  }).join('') + '</div>' : '') +
+    PJ_EVF[kind].map(function (x) {
+      return '<label class="field-label" for="pje_' + x[0] + '">' + x[1] + '</label>' + (x[0] === 'body'
+        ? '<textarea id="pje_body" rows="3" maxlength="1000" placeholder="' + esc(x[2]) + '"></textarea>'
+        : '<input type="text" id="pje_' + x[0] + '" class="b-input" maxlength="40" placeholder="' + esc(x[2]) + '"' + (x[0] === 'who' || x[0] === 'who2' ? ' list="pjNames"' : '') + '>');
+    }).join('') +
+    '<datalist id="pjNames">' + (PJ.cur ? PJ.cur.members : []).map(function (m) { return '<option value="' + esc(m.name) + '">'; }).join('') + '</datalist>' +
+    '<label class="field-label" for="pje_at">언제</label><input type="datetime-local" id="pje_at" class="b-input" value="' + now + '">' +
+    '<button class="btn-primary" id="pjeBtn" onclick="pjEvSave(\'' + kind + '\')">남기기</button><div class="msg" id="pjeMsg"></div>';
+  openModal('itemModal');
+}
+function pjEvSave(kind) {
+  var p = { project_id: PJ.id, kind: kind, at: $('pje_at').value };
+  PJ_EVF[kind].forEach(function (x) { p[x[0]] = $('pje_' + x[0]).value.trim(); });
+  $('pjeBtn').disabled = true;
+  api('proj.event', p).then(function () { haptic('success'); closeModal('itemModal'); PJ.view = 'tl'; loadPjTl(); })
+    .catch(function (err) { $('pjeBtn').disabled = false; setMsg('pjeMsg', err.message, true); });
+}
+function pjEvDel(id) {
+  if (!confirm('이 기록을 지울까요?')) return;
+  api('proj.eventDelete', { id: id }).then(function () { loadPjTl(); }).catch(function (err) { alertMsg(err.message); });
+}
+// 프로젝트 공지 쓰기 (제작진): 명단에서 자리별로 받을 사람
+function openPjNotice() {
+  $('itemModalT').textContent = '프로젝트 공지 쓰기';
+  $('itemModalS').textContent = '고른 자리의 명단 사람에게 봇으로 알림이 가요';
+  $('itemBody').innerHTML = '<label class="field-label">받는 사람</label><div class="fw-evk" id="pjnRoles">' + ['PD', '제작진', '출연'].map(function (r) {
+    var n = PJ.cur.members.filter(function (m) { return m.role === r; }).length;
+    return '<button type="button" class="on" data-r="' + r + '" onclick="this.classList.toggle(\'on\')">' + r + ' ' + n + '</button>';
+  }).join('') + '</div>' +
+    '<label class="field-label" for="pjnTitle">제목</label><input type="text" id="pjnTitle" class="b-input" maxlength="100" placeholder="예) 1화 녹음 일정 확정">' +
+    '<label class="field-label" for="pjnBody">내용</label><textarea id="pjnBody" rows="5" maxlength="3000"></textarea>' +
+    '<label class="check-row"><input type="checkbox" id="pjnPin"><span>📌 맨 위에 고정</span></label>' +
+    '<button class="btn-primary" id="pjnBtn" onclick="savePjNotice()">공지 올리기</button><div class="msg" id="pjnMsg"></div>';
+  openModal('itemModal');
+}
+function savePjNotice() {
+  var roles = [].slice.call(document.querySelectorAll('#pjnRoles button.on')).map(function (b) { return b.getAttribute('data-r'); });
+  var p = { project_id: PJ.id, title: $('pjnTitle').value.trim(), body: $('pjnBody').value.trim(), is_pinned: $('pjnPin').checked, roles: roles };
+  if (!p.title) { setMsg('pjnMsg', '제목을 적어주세요!', true); return; }
+  if (!roles.length) { setMsg('pjnMsg', '받을 자리를 하나 이상 골라주세요', true); return; }
+  $('pjnBtn').disabled = true;
+  api('proj.notice', p).then(function (r) {
+    haptic('success'); setMsg('pjnMsg', '올렸어요! ' + r.sent + '명에게 알림을 보냈어요'); N.list = null; PJ.view = 'notice'; loadPjTl();
+    setTimeout(function () { closeModal('itemModal'); }, 1000);
+  }).catch(function (err) { $('pjnBtn').disabled = false; setMsg('pjnMsg', err.message, true); });
+}
+// 모임 팝업의 '프로젝트' 고르기 (내가 들어갈 수 있는 프로젝트)
+function pjSelect(id, val) {
+  var fill = function () {
+    var l = (PJ.list || []).filter(function (p) { return p.open || p.id === val; });
+    $(id).innerHTML = '<option value="">없음</option>' + l.map(function (p) { return '<option value="' + p.id + '">' + esc(p.title) + (p.status === '완료' ? ' (완료)' : '') + '</option>'; }).join('');
+    $(id).value = val || '';
+    $(id).closest('.fw-link').style.display = l.length ? '' : 'none';
+  };
+  fill();
+  if (!PJ.list && S.team) api('proj.list', { team_id: S.team.id }).then(function (d) { PJ.list = d.items; PJ.can = d.can_create; fill(); }).catch(function () {});
+}
+
+// =====================================================================
+// 설문조사 (2026-10-10): 소식 › 설문. 과원 누구나 만듦
+// 익명: 만든 사람도 결과를 질문마다 따로만 봄(이름·시각 없음). 관리자·과장만 '실명 보기'
+// =====================================================================
+var SV = { list: null, cur: null, pending: null, ans: {}, boss: false };
+var SV_TY = [['text', '글로 답하기'], ['one', '하나 고르기'], ['many', '여러 개 고르기'], ['scale', '점수 1~5']];
+function loadSurveys() {
+  if (!S.team) return;
+  if (SV.cur && !SV.pending) { renderSurvey(); return; }
+  api('surveys.list', { team_id: S.team.id }).then(function (d) {
+    SV.list = d.list; SV.boss = d.boss;
+    if (SV.pending) { var id = SV.pending; SV.pending = null; openSurvey(id); } else renderSurveys();
+  }).catch(function (err) { $('svArea').innerHTML = '<div class="empty"><b>불러오지 못했어요</b>' + esc(err.message) + '</div>'; });
+}
+function svCard(s) {
+  var st = !s.open ? { t: '마감', c: 'st-none' } : !s.is_target ? { t: '진행 중', c: 'st-none' } : s.answered ? { t: '답함', c: 'st-참석' } : { t: '답하기 전', c: 'st-불참' };
+  return '<button class="b-session b-task" onclick="openSurvey(\'' + s.id + '\')"><div class="b-info">' +
+    '<span class="chip">' + (s.anonymous ? '🔒 익명' : '🙋 실명') + '</span>' + (s.is_mine ? '<span class="chip b-cat">내가 만듦</span>' : '') +
+    '<b>' + esc(s.title) + '</b><span>질문 ' + s.qn + '개 · 마감 ' + dtLabel(s.deadline) + (s.is_mine ? '' : ' · ' + esc(s.owner)) + '</span></div>' +
+    '<div class="b-side"><span class="st ' + st.c + '">' + st.t + '</span><small>응답 ' + s.responded + '/' + s.count + '명</small></div></button>';
+}
+function renderSurveys() {
+  var open = SV.list.filter(function (s) { return s.open; }), past = SV.list.filter(function (s) { return !s.open; });
+  $('svArea').innerHTML = '<div class="section-head"><h2>진행 중</h2><span class="section-count">' + (open.length ? open.length + '개' : '') + '</span></div>' +
+    (open.length ? open.map(svCard).join('') : '<div class="empty"><b>진행 중인 설문이 없어요</b>+ 버튼으로 누구나 설문을 만들 수 있어요</div>') +
+    '<div class="section-head b-gap"><h2>마감된 설문</h2><span class="section-count">최근 30일</span></div>' +
+    (past.length ? past.map(svCard).join('') : '<div class="empty"><b>최근 마감된 설문이 없어요</b></div>');
+}
+function openSurvey(id, names) {
+  $('svArea').innerHTML = '<div class="b-wait">불러오는 중...</div>';
+  window.scrollTo(0, 0);
+  api('surveys.get', { id: id, names: !!names }).then(function (d) {
+    SV.cur = d; SV.ans = JSON.parse(JSON.stringify(d.mine || {})); renderSurvey();
+  }).catch(function (err) { $('svArea').innerHTML = '<button class="back" onclick="closeSurvey()">‹ 설문 목록</button><div class="empty"><b>열 수 없어요</b>' + esc(err.message) + '</div>'; });
+}
+function closeSurvey() { SV.cur = null; if (SV.list) renderSurveys(); else loadSurveys(); }
+function renderSurvey() {
+  var d = SV.cur, canAns = d.is_target && d.open;
+  var h = '<button class="back" onclick="closeSurvey()">‹ 설문 목록</button><div class="b-dhead"><h1>' + esc(d.title) + '</h1><p>' + esc(d.owner) + ' · 마감 ' + dtLabel(d.deadline) + (d.open ? '' : ' (마감됨)') + ' · 응답 ' + d.responded + '/' + d.count + '명</p></div>' +
+    '<div class="sv-badge ' + (d.anonymous ? 'anon' : '') + '">' + (d.anonymous ? '🔒 익명 설문 · 만든 사람도 누가 무엇을 답했는지 볼 수 없어요' : '🙋 실명 설문 · 결과에 이름이 같이 보여요') + '</div>' +
+    (d.purpose ? '<div class="card sv-purpose">' + esc(d.purpose) + '</div>' : '');
+  if (d.is_target) {
+    h += '<div class="section-head"><h2>' + (canAns ? (d.mine ? '내 답 (고칠 수 있어요)' : '답하기') : '내 답') + '</h2></div><div class="sv-form' + (canAns ? '' : ' ro') + '">' +
+      d.questions.map(function (q, i) { return svQHtml(q, i, canAns); }).join('') + '</div>' +
+      (canAns ? '<button class="btn-primary" id="svSaveBtn" onclick="saveSurvey()">' + (d.mine ? '고쳐서 다시 내기' : '제출하기') + '</button><div class="msg" id="svSaveMsg"></div>' : '');
+  }
+  if (d.can_results) h += svResultsHtml(d);
+  else if (d.is_target && d.share_results) h += '<p class="rec-none">답을 내면 모아 본 결과를 볼 수 있어요</p>';
+  var acts = [];
+  if (d.is_mine && d.open) acts.push('<button type="button" class="ghost-btn" onclick="svRemind()">🔔 아직 안 한 사람에게 다시 알림</button>');
+  if ((d.is_mine || d.boss) && d.open) acts.push('<button type="button" class="ghost-btn" onclick="svClose()">지금 마감</button>');
+  if (d.is_mine || d.boss) acts.push('<button type="button" class="ghost-btn bad" onclick="svDelete()">지우기</button>');
+  if (acts.length) h += '<div class="sv-acts">' + acts.join('') + '</div><div class="msg" id="svActMsg"></div>';
+  $('svArea').innerHTML = h;
+}
+function svQHtml(q, i, on) {
+  var a = SV.ans[q.id], dis = on ? '' : ' disabled';
+  var h = '<div class="card sv-q"><b><span class="sv-no">' + (i + 1) + '</span>' + esc(q.q) + (q.required ? ' <em class="sv-req">필수</em>' : '') + '</b>';
+  if (q.type === 'text') h += '<textarea rows="3" maxlength="1000"' + dis + ' oninput="SV.ans[\'' + q.id + '\']=this.value" placeholder="자유롭게 적어주세요">' + esc(a || '') + '</textarea>';
+  else if (q.type === 'scale') h += '<div class="sv-scale">' + [1, 2, 3, 4, 5].map(function (k) { return '<button type="button"' + dis + ' class="' + (a === k ? 'on' : '') + '" onclick="svPick(\'' + q.id + '\',' + k + ',\'scale\')">' + k + '</button>'; }).join('') + '</div><div class="sv-scale-l"><span>전혀 아니다</span><span>매우 그렇다</span></div>';
+  else h += '<div class="sv-opts">' + q.options.map(function (o, k) {
+    var sel = q.type === 'many' ? (a || []).indexOf(k) !== -1 : a === k;
+    return '<button type="button"' + dis + ' class="' + (sel ? 'on' : '') + (q.type === 'many' ? ' many' : '') + '" onclick="svPick(\'' + q.id + '\',' + k + ',\'' + q.type + '\')"><i></i>' + esc(o) + '</button>';
+  }).join('') + '</div>' + (q.type === 'many' ? '<small class="sv-hint">여러 개 고를 수 있어요</small>' : '');
+  return h + '</div>';
+}
+function svPick(qid, k, type) {
+  if (type === 'many') { var l = SV.ans[qid] || [], j = l.indexOf(k); if (j === -1) l.push(k); else l.splice(j, 1); SV.ans[qid] = l; }
+  else SV.ans[qid] = SV.ans[qid] === k ? null : k;
+  var y = window.scrollY; renderSurvey(); window.scrollTo(0, y);
+}
+function saveSurvey() {
+  var d = SV.cur, miss = d.questions.filter(function (q) { var a = SV.ans[q.id]; return q.required && (a == null || a === '' || (Array.isArray(a) && !a.length)); })[0];
+  if (miss) { setMsg('svSaveMsg', '\'' + miss.q.slice(0, 20) + '\' 질문에 답해주세요', true); return; }
+  $('svSaveBtn').disabled = true;
+  api('surveys.save', { id: d.id, answers: SV.ans }).then(function () {
+    haptic('success'); refreshTodos(true); SV.list = null; openSurvey(d.id);
+  }).catch(function (err) { $('svSaveBtn').disabled = false; setMsg('svSaveMsg', err.message, true); });
+}
+function svResultsHtml(d) {
+  var h = '<div class="section-head b-gap"><h2>결과</h2><span class="section-count">' + d.responded + '명 응답</span></div>';
+  if (d.anonymous && d.boss && !d.rows) h += '<button type="button" class="ghost-btn sv-reveal" onclick="openSurvey(\'' + d.id + '\',true)">🔓 실명 보기 (관리자·과장만 · 열람 기록이 남아요)</button>';
+  if (d.anonymous && d.rows) h += '<div class="sv-badge reveal">🔓 실명으로 보는 중이에요. 다른 사람에게 알리지 말아주세요</div>';
+  h += d.questions.map(function (q, i) {
+    var st = d.stats[i], r = '<div class="card sv-r"><b><span class="sv-no">' + (i + 1) + '</span>' + esc(q.q) + '</b><small>' + st.n + '명 답함</small>';
+    if (q.type === 'text') r += st.texts.length ? '<ul class="sv-texts">' + st.texts.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : '<p class="rec-none">아직 답이 없어요</p>';
+    else {
+      var labels = q.type === 'scale' ? ['1', '2', '3', '4', '5'] : q.options, max = Math.max.apply(null, st.counts.concat([1]));
+      if (q.type === 'scale' && st.avg != null) r += '<div class="sv-avg">평균 <b>' + st.avg.toFixed(1) + '</b> / 5</div>';
+      r += '<div class="sv-bars">' + labels.map(function (l, k) {
+        var n = st.counts[k], pct = st.n ? Math.round(n / st.n * 100) : 0;
+        return '<div class="sv-bar' + (n === max && n ? ' top' : '') + '"><span>' + esc(l) + '</span><i><s style="width:' + (n / max * 100) + '%"></s></i><em>' + n + '명 · ' + pct + '%</em></div>';
+      }).join('') + '</div>';
+    }
+    return r + '</div>';
+  }).join('');
+  if (d.rows) {
+    h += '<details class="card sv-rows"' + (d.anonymous ? ' open' : '') + '><summary>사람별로 보기 (' + d.rows.length + '명)</summary>' + d.rows.map(function (row) {
+      return '<div class="sv-row"><b>' + esc(row.name) + '</b>' + d.questions.map(function (q, i) {
+        var a = row.answers[q.id];
+        var t = a == null ? '—' : q.type === 'one' ? q.options[a] : q.type === 'many' ? a.map(function (k) { return q.options[k]; }).join(', ') : String(a);
+        return '<p><span>' + (i + 1) + '.</span> ' + esc(t) + '</p>';
+      }).join('') + '</div>';
+    }).join('') + '</details>';
+    if (d.waiting && d.waiting.length) h += '<p class="sv-wait">아직 안 한 사람: ' + esc(d.waiting.join(', ')) + '</p>';
+  }
+  return h;
+}
+function svRemind() {
+  api('surveys.remind', { id: SV.cur.id }).then(function (r) { setMsg('svActMsg', r.sent + '명에게 다시 알렸어요'); }).catch(function (err) { setMsg('svActMsg', err.message, true); });
+}
+function svClose() {
+  if (!confirm('지금 마감할까요? 더 이상 답을 받지 않아요')) return;
+  api('surveys.close', { id: SV.cur.id }).then(function () { SV.list = null; openSurvey(SV.cur.id); }).catch(function (err) { setMsg('svActMsg', err.message, true); });
+}
+function svDelete() {
+  if (!confirm('이 설문을 지울까요? 받은 답도 모두 지워져요')) return;
+  api('surveys.delete', { id: SV.cur.id }).then(function () { SV.cur = null; SV.list = null; loadSurveys(); }).catch(function (err) { setMsg('svActMsg', err.message, true); });
+}
+// ----- 만들기 -----
+var SVF = { qs: [], anon: true };
+function svAddQ() { SVF.qs.push({ type: 'one', q: '', options: ['', ''], required: true }); renderSvQs(); }
+function svSetAnon(on) { SVF.anon = on; document.querySelectorAll('#svAnon button').forEach(function (b) { b.classList.toggle('on', (b.getAttribute('data-v') === '1') === on); }); }
+function renderSvQs() {
+  $('svQs').innerHTML = SVF.qs.map(function (q, i) {
+    var ch = q.type === 'one' || q.type === 'many';
+    return '<div class="card sv-ed"><div class="sv-edh"><span class="sv-no">' + (i + 1) + '</span><input type="text" class="b-input" maxlength="200" placeholder="질문" value="' + esc(q.q) + '" oninput="SVF.qs[' + i + '].q=this.value">' +
+      '<button type="button" class="c-ag-x" onclick="SVF.qs.splice(' + i + ',1);renderSvQs()" aria-label="질문 빼기">✕</button></div>' +
+      '<div class="sv-types">' + SV_TY.map(function (t) { return '<button type="button" class="' + (q.type === t[0] ? 'on' : '') + '" onclick="SVF.qs[' + i + '].type=\'' + t[0] + '\';renderSvQs()">' + t[1] + '</button>'; }).join('') + '</div>' +
+      (ch ? '<div class="sv-edopts">' + q.options.map(function (o, k) {
+        return '<div class="sv-edopt"><i class="' + (q.type === 'many' ? 'many' : '') + '"></i><input type="text" class="b-input" maxlength="60" placeholder="보기 ' + (k + 1) + '" value="' + esc(o) + '" oninput="SVF.qs[' + i + '].options[' + k + ']=this.value">' +
+          (q.options.length > 2 ? '<button type="button" class="c-ag-x" onclick="SVF.qs[' + i + '].options.splice(' + k + ',1);renderSvQs()" aria-label="보기 빼기">✕</button>' : '') + '</div>';
+      }).join('') + (q.options.length < 12 ? '<button type="button" class="sv-addopt" onclick="SVF.qs[' + i + '].options.push(\'\');renderSvQs()">+ 보기 추가</button>' : '') + '</div>' : '') +
+      '<label class="check-row"><input type="checkbox"' + (q.required ? ' checked' : '') + ' onchange="SVF.qs[' + i + '].required=this.checked"><span>꼭 답해야 해요</span></label></div>';
+  }).join('');
+}
+function openSvModal() {
+  if (!SVF.qs.length) svAddQ(); else renderSvQs();
+  if (!$('svDue').value) { var d = new Date(); d.setDate(d.getDate() + 3); $('svDue').value = ymd(d) + 'T22:00'; }
+  setMsg('svMsg', '');
+  openModal('svModal');
+  pkOpen('sv');
+}
+function createSurvey() {
+  var p = { title: $('svTitle').value.trim(), purpose: $('svPurpose').value.trim(), anonymous: SVF.anon, share_results: $('svShare').checked, deadline: $('svDue').value,
+    questions: SVF.qs.map(function (q) { return { type: q.type, q: q.q.trim(), required: q.required, options: q.options.map(function (o) { return o.trim(); }).filter(Boolean) }; }) };
+  if (!p.title) { setMsg('svMsg', '설문 제목을 적어주세요!', true); return; }
+  if (!p.questions.length) { setMsg('svMsg', '질문을 하나 이상 넣어주세요', true); return; }
+  for (var i = 0; i < p.questions.length; i++) {
+    var q = p.questions[i];
+    if (!q.q) { setMsg('svMsg', (i + 1) + '번 질문을 적어주세요', true); return; }
+    if ((q.type === 'one' || q.type === 'many') && q.options.length < 2) { setMsg('svMsg', (i + 1) + '번 질문의 보기를 두 개 이상 적어주세요', true); return; }
+  }
+  if (!p.deadline) { setMsg('svMsg', '마감 시각을 골라주세요!', true); return; }
+  var t = pkPayload('sv');
+  if (t.error) { setMsg('svMsg', t.error, true); return; }
+  Object.assign(p, t);
+  var btn = $('svBtn'); btn.disabled = true; setMsg('svMsg', '만드는 중...');
+  api('surveys.create', p).then(function (r) {
+    btn.disabled = false; haptic('success');
+    $('svTitle').value = ''; $('svPurpose').value = ''; $('svShare').checked = false; SVF.qs = []; svSetAnon(true); pkReset('sv');
+    setMsg('svMsg', '만들었어요! ' + r.sent + '명에게 알림을 보냈어요.' + (r.failed.length ? ' (못 받은 사람: ' + r.failed.join(', ') + ')' : ''));
+    SV.pending = r.id; SV.list = null; SV.cur = null; loadSurveys();
+    setTimeout(function () { setMsg('svMsg', ''); closeModal('svModal'); }, 1400);
+  }).catch(function (err) { btn.disabled = false; setMsg('svMsg', err.message, true); });
+}

@@ -166,7 +166,7 @@
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
-`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름, `project_id`면 그 프로젝트 안 작업), `proj.list/get/save/member/memberRemove/delete`(프로젝트), `mytodo.list/save/done/delete`(내 할 일), `practice.list/save/delete`(연습 기록), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
+`polls.list/get/create/save/close/remind/delete`, `checkins.update`, `weekly.overview`, `stats.get/form/grant/update/revoke`, `badges.get/setTitle`, `recap.status/get/team/setOpen`, `dues.mine/submit/cancel/board/review/contacts/setTreasurers`, `look.get/save`, `recap.setEnabled`, `sky.load`, `guest.list/write/delete`, `files.prepare/done/list/open/delete`, `place.list/book/decide/cancel`, `admin.get/set`, `people.board/timeline`, `notes.save/status/comment/delete/mine`, `mtg.*`(회의 모드), `flow.list/create/update/mark/cancel/parse`(작업 흐름, `project_id`면 그 프로젝트 안 작업), `proj.list/get/save/member/memberRemove/delete`(프로젝트), `proj.timeline/event/eventDelete/notice`(프로젝트 공지·타임라인), `surveys.list/get/create/save/remind/close/delete`(설문), `mytodo.list/save/done/delete`(내 할 일), `practice.list/save/delete`(연습 기록), `reviews.get/save`(모임 후기), `approve.get`(승인함), (봇 웹훅: 헤더 `X-Telegram-Bot-Api-Secret-Token`), `cron.setWebhook`·`cron.webhookInfo`(cron 비밀값), `dashboard.load`, `dashboard.month`, `dashboard.scene`, `dashboard.item`, `rec.list/mine/create/update/plan/propose/ask/answer/select/addPerson/removePerson/remind/sessionStatus/arrive/start/end`, `profile.get/update/report`, `pin.setInitial`, `pin.verify`
 
 ### 등록 안 된 사람
 - 문지기가 403과 함께 `code: "not_registered"`, `tg_id`(텔레그램 숫자 번호), `tg_name`을 돌려줌 → 베타 화면에 번호를 크게 띄움(`showNotRegistered`).
@@ -498,6 +498,20 @@
 - 할 일: `todos.list` project = 내가 명단에 있는 프로젝트(완료 아닌 것), flowstep/flowwait에 `project` → 누르면 그 방(+ 단계 보고 팝업). 홈 프로젝트 칸은 제목 앞 색 점, 자세히 팝업에 '프로젝트 열기 ›'(`proj_open`).
 - FAB: 목록 = 프로젝트 만들기(교관 이상) / 방 = 작업 만들기(제작진) · 사람 넣기 · 프로젝트 고치기(PD). 지우기는 고치기 팝업 맨 아래(이름을 똑같이 적어야 지워짐).
 - **다음 단계(아직)**: 영상 = 회차·씬 보드(장소·낮밤·인물·소품·촬영 상태) + 촬영일 콜시트(나오는 사람에게만 전날 알림) + 데이터 로그(SSD1·SSD2·NAS 다 체크돼야 포맷 OK). 오디오 = 회차·배역 + 녹음 요청 연결. 방송 = 끝없는 회차·큐시트. 출연자에겐 자기 회차 대본만.
+### 설문조사 · 프로젝트 공지·타임라인 (2026-10-10)
+- **설문**: 소식 탭 [공지 | 과제 | **설문**] → `surveyView`(제목 '마음을 묻는 시간', `curTab` 'survey', 딥링크 `?go=survey`, 봇 버튼 `?sv=id`). **과원 누구나 만듦**(+ 메뉴 '설문 만들기', `#svModal`, 대상 고르기 `pk('sv')` = 사람 목록).
+  만들 때: 제목·취지·질문(글/하나 고르기/여러 개/점수 1~5, 필수 여부, 30개·보기 12개)·**익명/실명**(만든 뒤 못 바꿈)·'답한 사람도 결과 보기'·마감·대상 → 대상자 봇 알림. 하루 5개.
+  표 `surveys`(questions jsonb, anonymous, share_results, target_people, deadline, status 진행/마감) / `survey_answers`(한 사람 하나, 마감 전까지 고침). 마이그레이션 `20261010_surveys_flow_timeline.sql`.
+  **익명 = 진짜 익명**(사용자 결정): 문지기가 결과를 **질문마다 따로 모아서**(보기별 수·점수 평균·글 답은 글자순) 보냄 — 한 사람의 답을 묶어 보내지 않아 짝을 맞출 수 없음, 이름·시각 없음, 안 한 사람 명단도 안 보냄(다시 알림은 서버가 알아서). `survey_answers`엔 audit 트리거를 달지 않음.
+  **관리자 명단 + 과장 이상(과 서열 60)만** '실명 보기'(`surveys.get { names: true }`, `access_log` 'survey.names') → 사람별 답 + 안 한 사람. 실명 설문은 결과 보는 사람 모두 이름이 보임.
+  결과 보기 = 만든 사람·관리자·과장 (+ share_results면 답한 대상자). 기능 `surveys.list/get/create/save/remind/close/delete`. 자동(`cronSurveys`): 마감 24시간 전 안 한 사람에게 한 번, 마감되면 만든 사람에게 응답 수. '지금 할 일' kind `survey`.
+- **프로젝트 방**(업무 › 프로젝트, 방 머리 아래) [방 | 공지 n | 타임라인](`pjSeg`/`pjView`, `proj.timeline` = 명단에 있는 사람(see)). 이건 프로젝트 방(`projects`) 것이고, 일반 '작업' 카드엔 없음.
+  **공지**: 제작진(PD·제작진·과장 이상·관리자)이 방에서 '프로젝트 공지 쓰기'(`openPjNotice` → `proj.notice`) → 고른 자리(PD·제작진·출연)의 명단 사람만 받는 공지(`notices.project_id`, team_id = 과, target_people) + 봇 알림. 소식 탭에도 '🎬 프로젝트' 칩으로 보임.
+  **모임**: 모임 만들기·고치기 팝업 '프로젝트' 고르기(`#cProj`, `pjSelect`) → `meeting_sessions.project_id`(서버 `projRef` = 같은 과 프로젝트만).
+  **타임라인** = 시작·처음 명단·나중 합류(project_members.created_at)·작업 시작·작업 단계 끝·대본/자료 올림(제작진만)·공지·모임(예정 포함, 누르면 `openDashItem`)·기록(`project_events`)을 시간순, 날짜별, 거르기 칩(모두·모임·협업·공지·피드백·결정·사람·아이디어·진행).
+  기록 남기기(`proj.event`, `pjEvOpen`): 피드백(누구에게)·협업(어느 과)·협업 모임(과·장소)·초대(누구·역할)·아이디어·건의(제안자)·인원 교체(누가→누구·사유)·결정·기타, 일어난 때를 고름. **아이디어는 명단 누구나**(PD에게 봇 알림), 나머지는 제작진. 지우기 = 쓴 사람·PD(`proj.eventDelete`).
+  자동 기록(`projEvent`): 작업 담당자 시작·완료·막힘(kind '진행'), 명단에서 빠짐('빠짐'), 자리 바뀜('자리'), 상태 바뀜('상태').
+  (처음엔 작업 흐름에 붙였다가 같은 날 프로젝트 방으로 옮김. 남은 빈 `flow_events` 표·`notices.flow_id`·`meeting_sessions.flow_id`는 안 씀 — 지우기는 사용자 승인 뒤, 마이그레이션 파일 주석 참고)
 
 ### 보안 점검 (2026-10-04, 함수 버전 30)
 - 고친 것: ① 기능 이름을 `Object.hasOwn(actions, name)`으로만 찾음(예전엔 `constructor` 같은 기본 속성이 불려 서버 키가 응답에 실릴 수 있었음, 로그인한 등록자만 가능했음)
