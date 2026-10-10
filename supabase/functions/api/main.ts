@@ -4294,6 +4294,28 @@ ${text}`;
     return { ...attView(row, true), checked_by_name: ctx.me.name, late_min: late && start !== null ? Math.ceil((when - start) / 60000) : 0 };
   },
 
+  // 버튼 한 번으로 출결 (2026-10-10): { session_id, person_id, status: 참석|지각|불참|조퇴 } → 조장 이상, 모임 당일부터
+  // 참석·지각 = 누른 시각을 도착으로, 조퇴 = 도착 기록이 없을 때만 누른 시각, 불참 = 도착 지움. 참석이면 사유 지움, 지각·불참은 사전 사유를 옮겨 둠
+  async "attendance.mark"(ctx) {
+    const { session_id, person_id, status } = ctx.payload ?? {};
+    if (!["참석", "지각", "불참", "조퇴"].includes(status)) throw new HttpError(400, "상태가 올바르지 않습니다");
+    const s = await getSession(ctx, session_id);
+    await requireRank(ctx, s.team_id, RANK.GROUP_LEADER);
+    if (s.status === "취소") throw new HttpError(400, "취소된 모임이에요");
+    if (s.session_date > kstToday()) throw new HttpError(400, "모임 당일부터 확인할 수 있어요");
+    const existing = must(await ctx.db.from("attendance").select("*").eq("session_id", s.id).eq("person_id", person_id).maybeSingle());
+    if (!existing && !(await sessionMembers(ctx, s)).some((m) => m.id === person_id)) throw new HttpError(400, "이 모임 대상이 아니에요");
+    const now = new Date().toISOString();
+    const patch: any = { session_id: s.id, person_id, status, checked_by: ctx.me.id };
+    if (status === "참석" || status === "지각") patch.arrived_at = now;
+    else if (status === "조퇴") patch.arrived_at = existing?.arrived_at ?? now;
+    else patch.arrived_at = null;
+    if (status === "참석") { patch.reason = null; patch.reason_at = null; }
+    else if (!existing?.reason && existing?.planned_reason) { patch.reason = existing.planned_reason; patch.reason_at = existing.planned_at; }
+    const row = must(await ctx.db.from("attendance").upsert(patch, { onConflict: "session_id,person_id" }).select().single());
+    return { ...attView(row, true), checked_by_name: ctx.me.name };
+  },
+
   // 출결확인 취소 (잘못 눌렀을 때): { session_id, person_id } → 조장 이상
   async "attendance.uncheck"(ctx) {
     const s = await getSession(ctx, ctx.payload.session_id);

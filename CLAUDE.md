@@ -162,7 +162,7 @@
 
 ### 지금 있는 기능(action)
 `public.bot`(로그인 전), `me`, `meeting_types.list`, `team.members`, `team.groups`,
-`sessions.create/update/delete/list/board/close/remind/audience`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/uncheck/setStatus/reason`, `reports.monthly`,
+`sessions.create/update/delete/list/board/close/remind/audience`, `cron.reminders`(pg_cron 전용), `attendance.plan/check/mark/uncheck/setStatus/reason`, `reports.monthly`,
 `weekly.load/save/board`, `fixed.list/save`,
 `notices.list/create/update/delete/audience`, `assignments.list/create/update/delete`, `reads.mark/list`, `birthday.wish`, `templates.list/save/delete`, `todos.list`,
 `submissions.saveMine/list/feedback`, `checkins.list/create/delete/report/unreport`,
@@ -520,6 +520,7 @@
 - **PC 왼쪽 메뉴**: 다른 탭을 눌러도 미리 열어 둔 하위 메뉴(개인·업무·관리자)는 안 닫힘(`setTabUI`). 메뉴가 길어지면 메뉴 안에서 스크롤.
 - **멘토·멘티**(인원 탭, `mentorships` team·mentor·mentee, 멘티 한 명당 멘토 한 명, 마이그레이션 `20261010_mentorships.sql`): '🤝 내 멘티 고르기'(`openMtPick`, `mentor.save { mode:'mine' }`) / 사람 팝업 '멘토' 고르기(`mtSet`, mode 'set', 멘토는 그 팀 교관 이상). 그 팀 교관 이상 누구나 바꿈.
   멘토마다 색(`MT_COLS`, 나 먼저), 멘티 줄 = 그 색 왼쪽 띠·옅은 바탕·'내 멘티'/'멘토 ○○' 칩, 멘토 줄 = 아바타 색 테두리 + '멘티 n명', 위 거르기 칩(모두·나 n·○○ n). `people.board`에 `mentor`.
+- **출결 버튼**(2026-10-10 밤): 조장 이상이 모임을 열면(당일부터) 이름 옆 [참석][지각][불참][조퇴](`markRow`/`markAtt` → `attendance.mark`) 한 번 누르면 바로 저장 + 누른 시각(참석·지각 = 도착 시각, 조퇴 = 도착 없을 때만, 불참 = 도착 지움). 지각·불참·조퇴면 아래 사유 칸이 열림. 같은 버튼 또 누르면 기록 지우기(uncheck). 예전 펼치는 칸(`actionPanel`)은 안 씀.
 - **출결확인**: FAB '출결 확인·마감·알림'(MG.sess) 없앰. 조장 이상이 모임을 열면(당일부터) 이름 옆에 바로 '✓ 출결확인'(`.b-qcheck` → `checkIn`), 이름을 누르면 예전처럼 도착 시각·상태 바꾸기. 마감 버튼·사전체크 알림 상자도 늘 보임.
 - 설문 대상 고르기에 **직책** 줄(`PCFG.sv.pos`, 교관만·팀원만 등). 익명 설명에서 '관리자·과장님만 확인' 문구 뺌(기능은 그대로).
 

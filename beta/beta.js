@@ -949,6 +949,7 @@ function saveReason(personId) {
   if (!reason) { setMsg(msgId, '사유를 적어주세요!', true); return; }
   setMsg(msgId, '저장 중...');
   api('attendance.reason', { session_id: s.id, person_id: personId || null, reason: reason }).then(function (row) {
+    if (!mine) M.open = null;
     patchMember(personId || S.me.profile.id, row);
     haptic('success');
     setMsg(msgId, '사유를 저장했어요!');
@@ -1002,16 +1003,37 @@ function renderBoard() {
     if (ph === 'before' && a.planned_reason) sub.push(a.planned_reason);
     if (ph !== 'before' && a.reason) sub.push('사유: ' + a.reason);
     else if (ph !== 'before' && LATE_LIKE.indexOf(a.status) !== -1 && (lead || m.me)) sub.push('사유 미입력');
-    html += '<div class="b-prow b-arow' + (lead ? ' tap' : '') + (open ? ' open' : '') + (m.me ? ' me' : '') + '"' +
-      (lead ? ' onclick="toggleRow(\'' + esc(m.id) + '\')"' : '') + '>' +
+    if (lead) { html += markRow(m, sub); return; }
+    html += '<div class="b-prow b-arow' + (m.me ? ' me' : '') + '">' +
       '<div class="nm"><b>' + esc(m.name) + '</b><span>' + esc(m.position || '') + '</span>' + (m.me ? '<i class="b-me">나</i>' : '') + '</div>' +
-      '<div class="b-chs">' + (lead && !a.arrived_at ? '<button type="button" class="b-qcheck" onclick="event.stopPropagation();checkIn(\'' + esc(m.id) + '\')">✓ 출결확인</button>' : stHtml) + (lead ? '<span class="b-chev' + (open ? ' open' : '') + '">›</span>' : '') + '</div>' +
-      (sub.length ? '<div class="rs">' + esc(sub.join(' · ')) + '</div>' : '') +
-      (open ? actionPanel(m) : '') + '</div>';
+      '<div class="b-chs">' + stHtml + '</div>' +
+      (sub.length ? '<div class="rs">' + esc(sub.join(' · ')) + '</div>' : '') + '</div>';
   });
   $('board').innerHTML = html || '<div class="b-group-sep">대상자가 없어요</div>';
 }
 
+// 조장 이상 (모임 당일부터): 이름 옆 [참석][지각][불참][조퇴] 한 번 누르면 바로 저장 + 누른 시각. 지각·불참·조퇴면 아래 사유 칸 (2026-10-10)
+function markRow(m, sub) {
+  var a = m.att || {}, id = esc(m.id), needR = LATE_LIKE.indexOf(a.status) !== -1, openR = needR && (M.open === m.id || !a.reason);
+  return '<div class="b-prow b-arow b-mrow' + (m.me ? ' me' : '') + '"><div class="nm"><b>' + esc(m.name) + '</b><span>' + esc(m.position || '') + '</span>' + (m.me ? '<i class="b-me">나</i>' : '') + '</div>' +
+    '<div class="b-mk">' + ['참석', '지각', '불참', '조퇴'].map(function (v) {
+      return '<button type="button" class="b-mkb mk-' + v + (a.status === v ? ' on' : '') + '" onclick="markAtt(\'' + id + '\',\'' + v + '\')">' + v + '</button>';
+    }).join('') + '</div>' +
+    (sub.length ? '<div class="rs">' + esc(sub.join(' · ')) + (needR && a.reason && !openR ? ' <button type="button" class="b-rsedit" onclick="M.open=\'' + id + '\';renderBoard()">사유 고치기</button>' : '') + '</div>' : '') +
+    (openR ? '<div class="b-rsbox"><input type="text" id="rs-' + id + '" maxlength="300" placeholder="' + esc(a.status) + ' 사유 (예: 야근, 교통 체증)" value="' + esc(a.reason || '') + '" onkeydown="if(event.key===\'Enter\')saveReason(\'' + id + '\')"><button type="button" onclick="saveReason(\'' + id + '\')">사유 저장</button></div>' : '') +
+    '<div class="msg" id="amsg-' + id + '"></div></div>';
+}
+function markAtt(personId, status) {
+  var m = M.board.members.filter(function (x) { return x.id === personId; })[0], a = (m && m.att) || {};
+  if (a.status === status) {   // 같은 버튼을 또 누르면 확인 취소
+    if (confirm(memberName(personId) + '님 ' + status + ' 기록을 지울까요?')) api('attendance.uncheck', { session_id: S.current.id, person_id: personId }).then(function (r) { r.checked_by_name = null; patchMember(personId, r); }).catch(function (err) { setMsg('amsg-' + personId, err.message, true); });
+    return;
+  }
+  document.querySelectorAll('.b-mkb').forEach(function (b) { b.disabled = true; });
+  api('attendance.mark', { session_id: S.current.id, person_id: personId, status: status }).then(function (r) {
+    haptic('success'); M.open = LATE_LIKE.indexOf(status) !== -1 ? personId : null; patchMember(personId, r);
+  }).catch(function (err) { document.querySelectorAll('.b-mkb').forEach(function (b) { b.disabled = false; }); setMsg('amsg-' + personId, err.message, true); });
+}
 function toggleRow(id) { M.open = M.open === id ? null : id; renderBoard(); }
 
 // 조장 이상: 이름을 누르면 나오는 출결확인 칸
@@ -1130,7 +1152,7 @@ function renderActs() {
   } else if (ph === 'closed') {
     h += '<p class="b-note b-center">' + dtLabel(s.closed_at) + ' 마감됨 · 늦게 온 사람은 이름을 눌러 출결확인하면 지각으로 바뀌어요</p>';
   } else {
-    h += '<p class="b-note b-center">모임 당일부터 이름 옆 \'✓ 출결확인\'을 누르면 돼요. 이름을 누르면 도착 시각 고치기·상태 바꾸기도 있어요.</p>';
+    h += '<p class="b-note b-center">모임 당일부터 이름 옆 참석·지각·불참·조퇴를 누르면 바로 저장돼요. 잘못 눌렀으면 같은 버튼을 한 번 더 누르세요.</p>';
   }
   $('boardActs').innerHTML = h;
 }
