@@ -1021,6 +1021,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&am
 const FLOOR_TAG = { codeone:'8층', jamun:'8층', smc:'2층', chonghoe:'4층' };
 function renderPanel() {
   if (!placesEl) return;
+  if (fillMode) { renderBoard(); return; }
   let html = '';
   for (const [town, ids] of ORDER) {
     html += `<div class="tw-town"><h3>${esc(town)}</h3><div class="tw-row">`;
@@ -1032,6 +1033,30 @@ function renderPanel() {
     html += '</div></div>';
   }
   placesEl.innerHTML = html;
+  renderZoomList();
+  if (legendEl) { const cnt = {}; for (const p of people) cnt[p.seg.type] = (cnt[p.seg.type] || 0) + 1;
+    legendEl.innerHTML = Object.keys(TYPES).filter(k => cnt[k]).map(k => `<span><i class="tw-dot" style="--c:${TYPES[k].c}"></i>${esc(typeLabel(k))} <b>${cnt[k]}</b></span>`).join('') || '<span>표시할 사람이 없어요</span>'; }
+}
+
+// 동네지도 탭(fill): 지도 아래 '지금 누가 어디에' 판 (2026-10-10). 사람 있는 장소는 카드, 빈 장소는 묶음마다 한 줄
+function renderBoard() {
+  const total = people.length;
+  let html = `<div class="twb-head"><b>지금 누가 어디에</b><span>${total}명</span></div><div class="twb-groups">`;
+  for (const [town, ids] of ORDER) {
+    const rows = ids.map(id => ({ id, pl: PL[id], here: people.filter(p => placeOf(p.seg.place).id === id) }));
+    const busy = rows.filter(r => r.here.length).sort((a, c) => c.here.length - a.here.length), empty = rows.filter(r => !r.here.length && !r.pl.hiddenOnly);
+    const n = busy.reduce((t, r) => t + r.here.length, 0);
+    html += `<section class="twb-g"><h3>${esc(town)}<em>${n}명</em></h3><div class="twb-cards">`;
+    for (const r of busy) {
+      const show = r.here.slice(0, 12), more = r.here.length - show.length, st = busyLabel(r.id);
+      html += `<div class="tw-place twb-card${zoomId === r.id ? ' tw-on' : ''}" data-place="${esc(r.id)}" title="${esc(r.pl.name)} 크게 보기">` +
+        `<div class="twb-top"><b>${esc(r.pl.name)}</b>${FLOOR_TAG[r.id] ? `<small>${FLOOR_TAG[r.id]}</small>` : ''}${st ? `<i class="${st === 'ON AIR' ? 'air' : ''}">${esc(st)}</i>` : ''}<span class="twb-n">${r.here.length}</span></div>` +
+        `<div class="twb-chips">${show.map(p => `<button type="button" class="tw-chip${p.moving ? ' moving' : ''}" data-id="${esc(p.id)}" title="${esc(typeLabel(p.seg.type))}${p.moving ? ' · 이동 중' : ''}"><i class="tw-dot" style="--c:${typeOf(p.seg.type).c}"></i>${esc(p.name)}</button>`).join('')}${more > 0 ? `<span class="tw-more">+${more}명</span>` : ''}</div></div>`;
+    }
+    if (!busy.length) html += `<p class="twb-none">지금 아무도 없어요</p>`;
+    html += `</div>${empty.length && busy.length ? `<p class="twb-empty">비어 있음 · ${empty.map(r => `<button type="button" data-place="${esc(r.id)}">${esc(r.pl.name)}</button>`).join('')}</p>` : ''}</section>`;
+  }
+  placesEl.innerHTML = html + '</div>';
   renderZoomList();
   if (legendEl) { const cnt = {}; for (const p of people) cnt[p.seg.type] = (cnt[p.seg.type] || 0) + 1;
     legendEl.innerHTML = Object.keys(TYPES).filter(k => cnt[k]).map(k => `<span><i class="tw-dot" style="--c:${TYPES[k].c}"></i>${esc(typeLabel(k))} <b>${cnt[k]}</b></span>`).join('') || '<span>표시할 사람이 없어요</span>'; }
@@ -1250,7 +1275,29 @@ const CSS = `
 .tw.tw-fill{grid-template-columns:minmax(0,1fr)}
 .tw.tw-fill .tw-stage{width:auto;justify-self:stretch}
 .tw.tw-fill .tw-legend{justify-content:flex-start}
-.tw-panel.tw-top{max-height:none;overflow:visible;padding:10px 12px}
+.tw-panel.tw-top{max-height:none;overflow:visible;padding:14px 16px 16px;margin-top:4px}
+.twb-head{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.twb-head b{font-family:'Gowun Batang',serif;font-weight:700;font-size:19px;color:var(--tw-fg)}
+.twb-head span{font-size:13px;color:var(--tw-lamp);font-weight:700}
+.tw-top .tw-places.tw-places{display:block}
+.twb-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 18px}
+.twb-g h3{display:flex;align-items:baseline;gap:6px;margin:0 0 6px;font-size:12.5px;font-weight:700;letter-spacing:0;color:var(--tw-muted);border-bottom:1px solid var(--tw-line);padding-bottom:5px}
+.twb-g h3 em{font-style:normal;color:var(--tw-lamp)}
+.twb-cards{display:grid;gap:6px}
+.tw-top .tw-place.twb-card{width:auto}
+.tw-place.twb-card{display:block;padding:9px 10px 10px;border-radius:6px;background:var(--tw-panel2);border-left:3px solid var(--tw-lamp)}
+.twb-top{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.twb-top b{font-size:14px;color:var(--tw-fg);font-weight:700}
+.twb-top small{color:var(--tw-muted);font-size:11px}
+.twb-top i{font-style:normal;font-size:10.5px;font-weight:800;color:#17151d;background:#ffd77a;border-radius:3px;padding:0 5px}
+.twb-top i.air{background:#ff6b5a;color:#fff}
+.twb-n{margin-left:auto;font-family:'Gowun Batang',serif;font-weight:700;font-size:18px;color:var(--tw-lamp);line-height:1}
+.twb-chips{display:flex;flex-wrap:wrap;gap:4px}
+.twb-chips .tw-chip{font-size:12px;padding:2px 8px 2px 6px;border-radius:99px}
+.twb-none{margin:2px 0;font-size:12.5px;color:var(--tw-muted)}
+.twb-empty{margin:7px 0 0;font-size:12px;color:var(--tw-muted);line-height:1.8}
+.twb-empty button{font:inherit;color:var(--tw-muted);background:none;border:1px dashed var(--tw-line);border-radius:99px;padding:0 8px;margin:0 2px;cursor:pointer}
+.twb-empty button:hover{color:var(--tw-fg);border-color:var(--tw-lamp)}
 .tw-top .tw-places{display:flex;flex-wrap:wrap;gap:8px 16px}
 .tw-top .tw-town{display:flex;flex-direction:column;gap:4px;flex:none;min-width:0}
 .tw-top .tw-town h3{margin:0 0 0 2px}
@@ -1318,7 +1365,7 @@ function mount(host, opts) {
   const PANEL = opts.panel === false ? '' : fillMode
     ? `<aside class="tw-panel tw-top"><div class="tw-places"></div></aside>`
     : `<aside class="tw-panel"><h2>장소별 현황</h2><div class="tw-places"></div><p class="tw-note">${NOTE}</p></aside>`;
-  host.innerHTML = `<div class="tw${opts.panel === false ? ' tw-nopanel' : ''}${fillMode ? ' tw-fill' : ''}">` + (fillMode ? PANEL + MAIN : MAIN + PANEL) + `</div>`;
+  host.innerHTML = `<div class="tw${opts.panel === false ? ' tw-nopanel' : ''}${fillMode ? ' tw-fill' : ''}">` + (MAIN + PANEL) + `</div>`;
   root = host.firstElementChild; cv = root.querySelector('canvas'); ctx = cv.getContext('2d'); tip = root.querySelector('.tw-tip');
   mainEl = root.querySelector('.tw-main'); stageEl = root.querySelector('.tw-stage'); panelEl = root.querySelector('.tw-panel');
   placesEl = root.querySelector('.tw-places'); legendEl = root.querySelector('.tw-legend');
